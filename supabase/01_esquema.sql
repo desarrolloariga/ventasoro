@@ -22,6 +22,10 @@ create table if not exists tiendaariga.vendedores (
   nombre text primary key,
   orden  int not null default 0
 );
+-- Tiendas y vendedores inactivos no aparecen al vender, pero se conservan
+-- en el histórico (las ventas guardan el nombre).
+alter table tiendaariga.tiendas    add column if not exists activo boolean not null default true;
+alter table tiendaariga.vendedores add column if not exists activo boolean not null default true;
 -- Referencias: catálogo de lo que se vende y se controla en inventario.
 -- Las ventas guardan el nombre de la referencia (ventas.producto).
 create table if not exists tiendaariga.productos (

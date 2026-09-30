@@ -107,6 +107,7 @@
           <li class="nav-item"><button class="nav-link" id="historico-tab" data-bs-toggle="tab" data-bs-target="#historico" type="button">Histórico</button></li>
           <li class="nav-item"><button class="nav-link" id="cartera-tab" data-bs-toggle="tab" data-bs-target="#cartera" type="button">Cartera</button></li>
           <li class="nav-item"><button class="nav-link" id="inventario-tab" data-bs-toggle="tab" data-bs-target="#inventario" type="button">Inventario</button></li>
+          <li class="nav-item"><button class="nav-link" id="maestros-tab" data-bs-toggle="tab" data-bs-target="#maestros" type="button">Maestros</button></li>
           <li class="nav-item"><button class="nav-link" id="datos-tab" data-bs-toggle="tab" data-bs-target="#datos" type="button">Datos</button></li>
         </ul>
 
@@ -471,6 +472,43 @@
                   </div>
                 </div>
               </div>
+            </div>
+
+            <!-- Pestaña: Maestros (tiendas y vendedores) -->
+            <div class="tab-pane fade" id="maestros" role="tabpanel">
+              <div class="row g-3 mt-1">
+                <div class="col-md-6">
+                  <div class="card h-100">
+                    <div class="card-header card-header-custom"><i class="bi bi-shop me-2"></i> Tiendas</div>
+                    <div class="card-body">
+                      <form class="input-group mb-3 maestro-form" data-maestro="tiendas">
+                        <input type="text" class="form-control" placeholder="Nombre de la nueva tienda" aria-label="Nueva tienda" required>
+                        <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button>
+                      </form>
+                      <table class="table table-sm table-bordered align-middle">
+                        <thead class="table-light"><tr><th>Nombre</th><th class="text-center">Activa</th><th></th></tr></thead>
+                        <tbody id="maestro-tiendas"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="card h-100">
+                    <div class="card-header card-header-custom"><i class="bi bi-person-vcard me-2"></i> Vendedores</div>
+                    <div class="card-body">
+                      <form class="input-group mb-3 maestro-form" data-maestro="vendedores">
+                        <input type="text" class="form-control" placeholder="Nombre del nuevo vendedor" aria-label="Nuevo vendedor" required>
+                        <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button>
+                      </form>
+                      <table class="table table-sm table-bordered align-middle">
+                        <thead class="table-light"><tr><th>Nombre</th><th class="text-center">Activo</th><th></th></tr></thead>
+                        <tbody id="maestro-vendedores"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p class="text-muted small mt-2 mb-0">Los inactivos no aparecen al registrar ventas ni cargas, pero se conservan en el histórico y en los filtros. Solo se pueden eliminar los que no tienen ventas.</p>
             </div>
 
             <!-- Pestaña: Datos en bruto -->

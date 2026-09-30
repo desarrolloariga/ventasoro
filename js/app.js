@@ -80,21 +80,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function iniciarApp() {
     run(async () => {
-        const [tiendas, tipos, vendedores, metodos, deptos] = await Promise.all(
-            ['tiendas', 'tipos', 'vendedores', 'metodos_pago'].map(t =>
+        const [tipos, metodos, deptos] = await Promise.all(
+            ['tipos', 'metodos_pago'].map(t =>
                 sb.from(t).select('nombre').order('orden').then(ok).then(r => r.map(x => x.nombre)))
             .concat(sb.from('coordenadas').select('departamento').order('departamento').then(ok).then(r => r.map(x => x.departamento)))
         );
-        dropdownData = { ...dropdownData, tiendas, tipos, vendedores, metodos };
-        await cargarReferencias();
+        dropdownData = { ...dropdownData, tipos, metodos };
+        await Promise.all([cargarMaestros(), cargarReferencias()]);
 
-        ['tiendaSelect', 'filterTienda', 'filterCarteraTotalTienda', 'filterCarteraDetalleTienda']
-            .forEach(id => populateDropdown(id, tiendas, 'Todas'));
-        $('tiendaSelect').options[0].textContent = 'Seleccione Tienda...';
-        populateDropdown('cargaTienda', tiendas, 'Seleccione Tienda...');
         populateDropdown('filterTipo', tipos, 'Todos');
         populateDropdown('refTipo', tipos, '(sin tipo)');
-        populateDropdown('vendedorSelect', vendedores, 'Seleccione Vendedor...');
         $('cargaFecha').value = hoyISO();
         populateDropdown('newClientDepto', deptos, 'Seleccione...');
         $('metodosPagoList').innerHTML = metodos.map(m => `<option value="${esc(m)}">`).join('');
@@ -180,6 +175,21 @@ function iniciarApp() {
     $('clientesTableBody').addEventListener('click', e => {
         const b = e.target.closest('.edit-client');
         if (b) abrirModalCliente(fullClientesData.find(c => c.id === Number(b.dataset.id)), 'clientes');
+    });
+
+    // Maestros: tiendas y vendedores
+    $('maestros-tab').addEventListener('shown.bs.tab', () => run(cargarMaestros));
+    $('maestros').addEventListener('submit', e => {
+        if (!e.target.classList.contains('maestro-form')) return;
+        e.preventDefault();
+        agregarMaestro(e.target.dataset.maestro, e.target.querySelector('input'));
+    });
+    $('maestros').addEventListener('change', e => {
+        if (e.target.classList.contains('maestro-activo')) cambiarActivoMaestro(e.target);
+    });
+    $('maestros').addEventListener('click', e => {
+        const b = e.target.closest('.maestro-delete');
+        if (b) eliminarMaestro(b.dataset.maestro, b.dataset.nombre);
     });
 
     // Datos en bruto
@@ -877,4 +887,85 @@ function exportarExcel(nombre, hoja, filas) {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, hoja.replace(/[\/?*[\]:]/g, ' ').slice(0, 31));
     XLSX.writeFile(wb, `${nombre}_${hoyISO()}.xlsx`);
+}
+
+// ---------------------------------------------------------------- maestros: tiendas y vendedores
+// col = columna de ventas que guarda el nombre (para saber si está en uso)
+const MAESTROS = {
+    tiendas: { singular: 'tienda', col: 'tienda' },
+    vendedores: { singular: 'vendedor', col: 'vendedor' },
+};
+const maestros = { tiendas: [], vendedores: [] };
+
+// Vuelve a llenar un select conservando lo que estaba elegido
+function repoblar(id, opts, placeholder) {
+    const v = $(id).value;
+    populateDropdown(id, opts, placeholder);
+    if (v) setSelectValue(id, v);
+}
+
+async function cargarMaestros() {
+    const [tiendas, vendedores] = await Promise.all(['tiendas', 'vendedores'].map(t =>
+        sb.from(t).select('*').order('orden').order('nombre').then(ok)));
+    Object.assign(maestros, { tiendas, vendedores });
+    const todos = l => l.map(x => x.nombre);
+    const activos = l => l.filter(x => x.activo !== false).map(x => x.nombre);
+
+    // Filtros de consulta: todos. Venta y cargas: solo activos.
+    ['filterTienda', 'filterCarteraTotalTienda', 'filterCarteraDetalleTienda'].forEach(id => repoblar(id, todos(tiendas), 'Todas'));
+    repoblar('tiendaSelect', activos(tiendas), 'Seleccione Tienda...');
+    repoblar('cargaTienda', activos(tiendas), 'Seleccione Tienda...');
+    repoblar('vendedorSelect', activos(vendedores), 'Seleccione Vendedor...');
+
+    for (const m of Object.keys(MAESTROS)) {
+        $(`maestro-${m}`).innerHTML = maestros[m].map(x => `<tr class="${x.activo === false ? 'text-muted' : ''}">
+            <td>${esc(x.nombre)}</td>
+            <td class="text-center"><div class="form-check form-switch d-inline-block m-0"><input class="form-check-input maestro-activo" type="checkbox" role="switch" data-maestro="${m}" data-nombre="${esc(x.nombre)}" ${x.activo === false ? '' : 'checked'} aria-label="Activo"></div></td>
+            <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm maestro-delete" data-maestro="${m}" data-nombre="${esc(x.nombre)}" title="Eliminar"><i class="bi bi-trash"></i></button></td>
+        </tr>`).join('');
+    }
+}
+
+function agregarMaestro(m, input) {
+    const nombre = input.value.trim().toUpperCase().replace(/\s+/g, ' ');
+    if (!nombre) return;
+    const cfg = MAESTROS[m];
+    run(async () => {
+        const existente = maestros[m].find(x => norm(x.nombre) === norm(nombre));
+        if (existente) throw new Error(`La ${cfg.singular} "${existente.nombre}" ya existe${existente.activo === false ? ' (está inactiva: actívela)' : ''}.`);
+        const orden = Math.max(0, ...maestros[m].map(x => x.orden || 0)) + 1;
+        ok(await sb.from(m).insert({ nombre, orden, activo: true }));
+        input.value = '';
+        await cargarMaestros();
+        showAlert(`"${nombre}" agregado a ${m}`, 'success');
+    });
+}
+
+function cambiarActivoMaestro(chk) {
+    const { maestro: m, nombre } = chk.dataset;
+    run(async () => {
+        try {
+            ok(await sb.from(m).update({ activo: chk.checked }).eq('nombre', nombre));
+        } catch (err) {
+            chk.checked = !chk.checked;  // revierte el interruptor si falló
+            throw err;
+        }
+        await cargarMaestros();
+        showAlert(`"${nombre}" ${chk.checked ? 'activado' : 'desactivado'}`, 'success');
+    });
+}
+
+function eliminarMaestro(m, nombre) {
+    const cfg = MAESTROS[m];
+    run(async () => {
+        const usos = ok(await sb.from('ventas').select('id').eq(cfg.col, nombre).limit(1));
+        if (usos.length) {
+            showAlert(`"${nombre}" tiene ventas registradas y no se puede eliminar. Desactívelo para que no aparezca al vender.`, 'warning');
+            return;
+        }
+        if (!confirm(`¿Eliminar "${nombre}"?`)) return;
+        ok(await sb.from(m).delete().eq('nombre', nombre));
+        await cargarMaestros();
+        showAlert(`"${nombre}" eliminado`, 'success');
+    });
 }
