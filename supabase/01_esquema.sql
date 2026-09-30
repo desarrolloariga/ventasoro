@@ -22,10 +22,26 @@ create table if not exists tiendaariga.vendedores (
   nombre text primary key,
   orden  int not null default 0
 );
+-- Referencias: catálogo de lo que se vende y se controla en inventario.
+-- Las ventas guardan el nombre de la referencia (ventas.producto).
 create table if not exists tiendaariga.productos (
-  nombre text primary key,
-  orden  int not null default 0
+  nombre               text primary key,
+  orden                int not null default 0,
+  codigo               text,
+  tipo                 text,
+  unidad               text    not null default 'GRAMOS',
+  controla_inventario  boolean not null default true,
+  activo               boolean not null default true,
+  created_at           timestamptz not null default now()
 );
+-- Para bases creadas con la versión anterior del esquema
+alter table tiendaariga.productos add column if not exists codigo              text;
+alter table tiendaariga.productos add column if not exists tipo                text;
+alter table tiendaariga.productos add column if not exists unidad              text    not null default 'GRAMOS';
+alter table tiendaariga.productos add column if not exists controla_inventario boolean not null default true;
+alter table tiendaariga.productos add column if not exists activo              boolean not null default true;
+alter table tiendaariga.productos add column if not exists created_at          timestamptz not null default now();
+create unique index if not exists productos_codigo_uq on tiendaariga.productos (upper(codigo)) where codigo is not null;
 create table if not exists tiendaariga.metodos_pago (
   nombre text primary key,
   orden  int not null default 0
@@ -120,17 +136,19 @@ create index if not exists devoluciones_envio_idx on tiendaariga.devoluciones (e
 -- ---------------------------------------------------------------------
 -- INVENTARIO
 -- ---------------------------------------------------------------------
--- Hoja "Ingresos de inventario"
+-- Hoja "Ingresos de inventario": cargas (entradas) y ajustes (salidas)
 create table if not exists tiendaariga.ingresos_inventario (
-  id          bigint generated always as identity primary key,
-  fecha       date,
-  producto    text,
-  tienda      text,
-  concepto    text,
-  entrada     numeric(14,2),
-  salida      numeric(14,2),
-  created_at  timestamptz not null default now()
+  id             bigint generated always as identity primary key,
+  fecha          date,
+  producto       text,
+  tienda         text,
+  concepto       text,
+  entrada        numeric(14,2),
+  salida         numeric(14,2),
+  observaciones  text,
+  created_at     timestamptz not null default now()
 );
+alter table tiendaariga.ingresos_inventario add column if not exists observaciones text;
 
 -- Hoja "Devolución a oficina"
 create table if not exists tiendaariga.devoluciones_oficina (
@@ -142,8 +160,8 @@ create table if not exists tiendaariga.devoluciones_oficina (
   created_at        timestamptz not null default now()
 );
 
--- Filas de la hoja "Inventario": qué tienda/producto se controla y desde qué
--- fecha se descuentan las ventas (el criterio ">=fecha" de cada SUMIFS).
+-- Fechas de corte heredadas de la hoja "Inventario" (criterio ">=fecha" de
+-- cada SUMIFS). Las referencias nuevas no la necesitan: usan su primera carga.
 create table if not exists tiendaariga.inventario_items (
   id            bigint generated always as identity primary key,
   tienda        text not null,
@@ -196,37 +214,93 @@ select tienda, cliente, sum(cartera) as valor_cartera
 from tiendaariga.cartera_detalle
 group by tienda, cliente;
 
--- "Inventario": entradas - salidas (ventas desde fecha_inicio + salidas manuales
--- + devoluciones a oficina). Comparación sin mayúsculas ni espacios, como SUMIFS.
-create or replace view tiendaariga.inventario
+-- ---------------------------------------------------------------------
+-- SALDOS DE INVENTARIO por tienda y referencia
+--   entradas = cargas de inventario
+--   salidas  = ventas desde la fecha de inicio + salidas manuales
+--              + devoluciones a oficina
+--   fecha de inicio = la definida en inventario_items (hoja original) o,
+--                     si no hay, la fecha de la primera carga.
+-- ---------------------------------------------------------------------
+drop view if exists tiendaariga.inventario_movimientos;
+drop view if exists tiendaariga.inventario;
+
+create view tiendaariga.inventario
 with (security_invoker = true) as
-select i.tienda,
-       i.producto,
-       i.fecha_inicio,
+with claves as (
+  select trim(tienda) as tienda, trim(producto) as producto, fecha
+  from tiendaariga.ingresos_inventario
+  where coalesce(trim(tienda),'') <> '' and coalesce(trim(producto),'') <> ''
+  union all
+  select trim(tienda), trim(producto), fecha_inicio
+  from tiendaariga.inventario_items
+),
+items as (
+  select upper(tienda) as kt, upper(producto) as kp,
+         min(tienda) as tienda, min(producto) as producto, min(fecha) as primera_fecha
+  from claves
+  group by 1, 2
+),
+base as (
+  select it.*,
+         coalesce((select max(ii.fecha_inicio) from tiendaariga.inventario_items ii
+                   where upper(trim(ii.tienda)) = it.kt and upper(trim(ii.producto)) = it.kp),
+                  it.primera_fecha) as fecha_inicio
+  from items it
+)
+select b.tienda,
+       b.producto,
+       b.fecha_inicio,
        e.entradas,
        s.salidas,
-       e.entradas - s.salidas as saldo
-from tiendaariga.inventario_items i
+       e.entradas - s.salidas as saldo,
+       p.tipo,
+       p.unidad,
+       b.kt,
+       b.kp
+from base b
+left join tiendaariga.productos p on upper(trim(p.nombre)) = b.kp
 cross join lateral (
   select coalesce(sum(g.entrada),0) as entradas
   from tiendaariga.ingresos_inventario g
-  where upper(trim(g.tienda)) = upper(trim(i.tienda))
-    and upper(trim(g.producto)) = upper(trim(i.producto))
+  where upper(trim(g.tienda)) = b.kt and upper(trim(g.producto)) = b.kp
 ) e
 cross join lateral (
   select
     coalesce((select sum(v.cantidad) from tiendaariga.ventas v
-              where upper(trim(v.tienda)) = upper(trim(i.tienda))
-                and upper(trim(v.producto)) = upper(trim(i.producto))
-                and v.fecha_venta >= i.fecha_inicio),0)
+              where upper(trim(v.tienda)) = b.kt and upper(trim(v.producto)) = b.kp
+                and v.fecha_venta >= b.fecha_inicio),0)
   + coalesce((select sum(g.salida) from tiendaariga.ingresos_inventario g
-              where upper(trim(g.tienda)) = upper(trim(i.tienda))
-                and upper(trim(g.producto)) = upper(trim(i.producto))),0)
+              where upper(trim(g.tienda)) = b.kt and upper(trim(g.producto)) = b.kp),0)
   + coalesce((select sum(o.cantidad) from tiendaariga.devoluciones_oficina o
-              where upper(trim(o.tienda)) = upper(trim(i.tienda))
-                and upper(trim(o.producto)) = upper(trim(i.producto))),0)
+              where upper(trim(o.tienda)) = b.kt and upper(trim(o.producto)) = b.kp),0)
   as salidas
-) s;
+) s
+where coalesce(p.controla_inventario, true);
+
+-- Kardex: cada movimiento que afecta el saldo de una tienda/referencia
+create view tiendaariga.inventario_movimientos
+with (security_invoker = true) as
+select i.tienda, i.producto, g.fecha, 'CARGA'::text as origen,
+       concat_ws(' · ', g.concepto, g.observaciones) as detalle,
+       coalesce(g.entrada,0) as entrada, coalesce(g.salida,0) as salida, g.id as origen_id
+from tiendaariga.inventario i
+join tiendaariga.ingresos_inventario g
+  on upper(trim(g.tienda)) = i.kt and upper(trim(g.producto)) = i.kp
+union all
+select i.tienda, i.producto, v.fecha_venta, 'VENTA',
+       concat_ws(' · ', 'Pedido ' || v.pedido_id, 'Envío ' || v.envio, v.cliente),
+       0, coalesce(v.cantidad,0), v.id
+from tiendaariga.inventario i
+join tiendaariga.ventas v
+  on upper(trim(v.tienda)) = i.kt and upper(trim(v.producto)) = i.kp
+ and v.fecha_venta >= i.fecha_inicio
+union all
+select i.tienda, i.producto, o.fecha_devolucion, 'DEVOLUCIÓN A OFICINA', null,
+       0, coalesce(o.cantidad,0), o.id
+from tiendaariga.inventario i
+join tiendaariga.devoluciones_oficina o
+  on upper(trim(o.tienda)) = i.kt and upper(trim(o.producto)) = i.kp;
 
 -- =====================================================================
 -- FUNCIONES (equivalentes a las funciones de Apps Script)

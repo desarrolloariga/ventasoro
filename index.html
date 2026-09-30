@@ -50,6 +50,36 @@
         </div>
     </div>
 
+    <!-- Modal de referencia (producto) -->
+    <div class="modal fade" id="referenciaModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="referenciaModalTitle">Nueva Referencia</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="referenciaForm">
+                        <input type="hidden" id="refEditando">
+                        <div class="mb-3"><label for="refNombre" class="form-label">Nombre de la referencia*</label><input type="text" class="form-control" id="refNombre" required>
+                            <div class="form-text" id="refNombreAyuda">Es el nombre que se elige al vender. No se puede cambiar después.</div></div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-6"><label for="refCodigo" class="form-label">Código</label><input type="text" class="form-control" id="refCodigo"></div>
+                            <div class="col-6"><label for="refTipo" class="form-label">Tipo</label><select class="form-select" id="refTipo"></select></div>
+                        </div>
+                        <div class="mb-3"><label for="refUnidad" class="form-label">Unidad</label><select class="form-select" id="refUnidad"><option value="GRAMOS">Gramos</option><option value="UNIDADES">Unidades</option></select></div>
+                        <div class="form-check"><input class="form-check-input" type="checkbox" id="refControla" checked><label class="form-check-label" for="refControla">Controla inventario</label></div>
+                        <div class="form-check"><input class="form-check-input" type="checkbox" id="refActivo" checked><label class="form-check-label" for="refActivo">Activa (se puede vender)</label></div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-gold" id="saveReferenciaButton">Guardar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Barra de navegación -->
     <nav class="navbar navbar-custom">
         <div class="container-fluid">
@@ -316,23 +346,128 @@
             <!-- Pestaña: Inventario -->
             <div class="tab-pane fade" id="inventario" role="tabpanel">
               <div class="mt-3">
-                <div class="card mb-3">
-                  <div class="card-body">
-                    <div class="row g-3">
-                      <div class="col-md-6"><select class="form-select" id="filterInventarioTienda" aria-label="Tienda"><option value="">Todas</option></select></div>
-                      <div class="col-md-6"><select class="form-select" id="filterInventarioProducto" aria-label="Producto"><option value="">Todos</option></select></div>
+                <ul class="nav nav-pills mb-3">
+                  <li class="nav-item"><button class="nav-link active" id="pills-saldos-tab" data-bs-toggle="pill" data-bs-target="#pills-saldos" type="button">Saldos</button></li>
+                  <li class="nav-item"><button class="nav-link" id="pills-carga-tab" data-bs-toggle="pill" data-bs-target="#pills-carga" type="button">Cargar Inventario</button></li>
+                  <li class="nav-item"><button class="nav-link" id="pills-referencias-tab" data-bs-toggle="pill" data-bs-target="#pills-referencias" type="button">Referencias</button></li>
+                  <li class="nav-item"><button class="nav-link" id="pills-movimientos-tab" data-bs-toggle="pill" data-bs-target="#pills-movimientos" type="button">Movimientos</button></li>
+                </ul>
+                <div class="tab-content">
+                  <!-- Saldos -->
+                  <div class="tab-pane fade show active" id="pills-saldos">
+                    <div class="card mb-3">
+                      <div class="card-body">
+                        <div class="row g-3">
+                          <div class="col-md-4"><label class="form-label" for="inventarioVista">Ver</label><select class="form-select" id="inventarioVista"><option value="tienda">Por tienda y referencia</option><option value="producto">Total por referencia</option></select></div>
+                          <div class="col-md-4"><label class="form-label" for="filterInventarioTienda">Tienda</label><select class="form-select" id="filterInventarioTienda"><option value="">Todas</option></select></div>
+                          <div class="col-md-4"><label class="form-label" for="filterInventarioProducto">Referencia</label><select class="form-select" id="filterInventarioProducto"><option value="">Todas</option></select></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="card">
+                      <div class="card-body">
+                        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                          <table class="table table-sm table-bordered table-hover">
+                            <thead class="table-light sticky-top"><tr><th>Tienda</th><th>Referencia</th><th>Unidad</th><th class="num">Entradas</th><th class="num">Salidas</th><th class="num">Saldo</th></tr></thead>
+                            <tbody id="inventarioTableBody"></tbody>
+                            <tfoot><tr><td colspan="3">Total</td><td class="num" id="inventarioEntradas"></td><td class="num" id="inventarioSalidas"></td><td class="num" id="inventarioSaldo"></td></tr></tfoot>
+                          </table>
+                        </div>
+                        <div class="mt-2 d-flex justify-content-between align-items-center">
+                          <span class="text-muted small">Filas: <span id="inventarioRowCount">0</span> · Clic en una fila para ver sus movimientos</span>
+                          <button type="button" class="btn btn-outline-secondary btn-sm" id="exportInventarioButton"><i class="bi bi-file-earmark-excel"></i> Exportar a Excel</button>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div class="card">
-                  <div class="card-body">
-                    <div class="table-responsive">
-                      <table class="table table-sm table-bordered">
-                        <thead class="table-light"><tr><th>Tienda</th><th>Producto</th><th class="num">Entradas</th><th class="num">Salidas</th><th class="num">Stock Disponible</th></tr></thead>
-                        <tbody id="inventarioTableBody"></tbody>
-                      </table>
+
+                  <!-- Cargar inventario -->
+                  <div class="tab-pane fade" id="pills-carga">
+                    <form id="cargaForm" class="card mb-3">
+                      <div class="card-header card-header-custom"><i class="bi bi-box-seam me-2"></i> Cargar Inventario</div>
+                      <div class="card-body">
+                        <div class="row g-3">
+                          <div class="col-md-3"><label class="form-label" for="cargaFecha">Fecha</label><input type="date" class="form-control" id="cargaFecha" required></div>
+                          <div class="col-md-4"><label class="form-label" for="cargaTienda">Tienda</label><select class="form-select" id="cargaTienda" required></select></div>
+                          <div class="col-md-5">
+                            <label class="form-label" for="cargaProducto">Referencia</label>
+                            <div class="input-group">
+                              <select class="form-select" id="cargaProducto" required></select>
+                              <button type="button" class="btn btn-outline-secondary" id="cargaNuevaRefButton" title="Crear referencia"><i class="bi bi-plus-lg"></i> Nueva</button>
+                            </div>
+                          </div>
+                          <div class="col-md-3"><label class="form-label" for="cargaMovimiento">Movimiento</label><select class="form-select" id="cargaMovimiento"><option value="entrada">Entrada (+)</option><option value="salida">Salida / ajuste (−)</option></select></div>
+                          <div class="col-md-3"><label class="form-label" for="cargaCantidad">Cantidad <span class="text-muted small" id="cargaUnidad"></span></label><input type="number" class="form-control" id="cargaCantidad" step="0.01" min="0.01" required></div>
+                          <div class="col-md-3"><label class="form-label" for="cargaConcepto">Concepto</label><input type="text" class="form-control" id="cargaConcepto" list="conceptosList" required><datalist id="conceptosList"><option value="INV INICIAL"><option value="COMPRA"><option value="TRASLADO"><option value="AJUSTE"><option value="DEVOLUCION"></datalist></div>
+                          <div class="col-md-3"><label class="form-label" for="cargaObservaciones">Observaciones</label><input type="text" class="form-control" id="cargaObservaciones"></div>
+                        </div>
+                        <div class="mt-3 d-flex justify-content-between align-items-center">
+                          <span class="text-muted small" id="cargaSaldoActual"></span>
+                          <button type="submit" class="btn btn-gold">Guardar Carga</button>
+                        </div>
+                      </div>
+                    </form>
+                    <div class="card">
+                      <div class="card-header card-header-custom">Últimas cargas</div>
+                      <div class="card-body">
+                        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                          <table class="table table-sm table-bordered">
+                            <thead class="table-light sticky-top"><tr><th>Fecha</th><th>Tienda</th><th>Referencia</th><th>Concepto</th><th class="num">Entrada</th><th class="num">Salida</th><th>Observaciones</th><th></th></tr></thead>
+                            <tbody id="cargasTableBody"></tbody>
+                          </table>
+                        </div>
+                      </div>
                     </div>
-                    <div class="mt-2 text-muted small">Productos en lista: <span id="inventarioRowCount">0</span></div>
+                  </div>
+
+                  <!-- Referencias -->
+                  <div class="tab-pane fade" id="pills-referencias">
+                    <div class="card mb-3">
+                      <div class="card-body">
+                        <div class="row g-3 align-items-end">
+                          <div class="col-md-7"><label class="form-label" for="filterReferencias">Buscar</label><input type="text" class="form-control" id="filterReferencias" placeholder="Nombre, código o tipo..."></div>
+                          <div class="col-md-5 text-md-end">
+                            <button type="button" class="btn btn-gold" id="newReferenciaButton"><i class="bi bi-plus-lg"></i> Nueva Referencia</button>
+                            <button type="button" class="btn btn-outline-secondary" id="exportReferenciasButton"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="card">
+                      <div class="card-body">
+                        <div class="table-responsive">
+                          <table class="table table-sm table-bordered table-hover">
+                            <thead class="table-light"><tr><th>Código</th><th>Referencia</th><th>Tipo</th><th>Unidad</th><th>Controla inventario</th><th>Activa</th><th class="num">Saldo total</th><th></th></tr></thead>
+                            <tbody id="referenciasTableBody"></tbody>
+                          </table>
+                        </div>
+                        <div class="mt-2 text-muted small">Solo las referencias activas aparecen al registrar ventas.</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Movimientos (kardex) -->
+                  <div class="tab-pane fade" id="pills-movimientos">
+                    <div class="card mb-3">
+                      <div class="card-body">
+                        <div class="row g-3 align-items-end">
+                          <div class="col-md-4"><label class="form-label" for="movTienda">Tienda</label><select class="form-select" id="movTienda"></select></div>
+                          <div class="col-md-5"><label class="form-label" for="movProducto">Referencia</label><select class="form-select" id="movProducto"></select></div>
+                          <div class="col-md-3 text-md-end"><button type="button" class="btn btn-outline-secondary" id="exportMovimientosButton"><i class="bi bi-file-earmark-excel"></i> Excel</button></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="card">
+                      <div class="card-body">
+                        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                          <table class="table table-sm table-bordered">
+                            <thead class="table-light sticky-top"><tr><th>Fecha</th><th>Origen</th><th>Detalle</th><th class="num">Entrada</th><th class="num">Salida</th><th class="num">Saldo</th></tr></thead>
+                            <tbody id="movimientosTableBody"></tbody>
+                          </table>
+                        </div>
+                        <div class="mt-2 text-muted small" id="movimientosInfo">Seleccione tienda y referencia.</div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

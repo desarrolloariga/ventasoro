@@ -208,6 +208,24 @@ def leer(ruta):
         out.append({"departamento": texto(r[0]),
                     "latitud": float(texto(r[1])), "longitud": float(texto(r[2]))})
     datos["coordenadas"] = out
+
+    # Error de digitación en la hoja de inventario
+    for t in ("ingresos_inventario", "inventario_items"):
+        for r in datos[t]:
+            if (r["producto"] or "").upper() == "GRAMO ESPEDCIAL":
+                r["producto"] = "GRAMO ESPECIAL"
+
+    # Referencias: tipo = el más usado en las ventas de ese producto
+    conteo = {}
+    for v in datos["ventas"]:
+        if v["producto"] and v["tipo"]:
+            k = (v["producto"].upper(), v["tipo"].rstrip("."))
+            conteo[k] = conteo.get(k, 0) + 1
+    for p in datos["productos"]:
+        tipos = sorted(((n, t) for (prod, t), n in conteo.items() if prod == p["nombre"].upper()), reverse=True)
+        p["tipo"] = tipos[0][1] if tipos else None
+        p["unidad"] = "GRAMOS" if p["nombre"].upper().startswith(("GRAMO", "ORO")) else "UNIDADES"
+        p["controla_inventario"] = p["nombre"].upper() not in ("SALDO INICIAL", "SERVICIO JOYERIA")
     return datos
 
 

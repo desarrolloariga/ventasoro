@@ -16,9 +16,24 @@ Réplica de la aplicación de Apps Script "Aplicación Ariga", usando Supabase
 ## Pestañas
 
 Venta, Buscar Pedido, Pagos, **Clientes** (listado, búsqueda, crear y editar),
-Histórico, Cartera, Inventario y **Datos** (cualquier tabla o vista en bruto).
+Histórico, Cartera, **Inventario** y **Datos** (cualquier tabla o vista en bruto).
 Histórico, Cartera, Clientes y Datos tienen botón **Exportar a Excel**, que
 descarga lo que está filtrado en pantalla.
+
+## Inventario
+
+- **Referencias**: la tabla `productos` es el catálogo de referencias (nombre,
+  código, tipo, unidad, controla inventario, activa). Solo las activas aparecen
+  al vender. El nombre no se puede cambiar porque las ventas lo guardan.
+- **Cargar inventario**: entradas (compras, inventario inicial, traslados) y
+  salidas/ajustes por tienda y referencia (tabla `ingresos_inventario`).
+- **Saldos** (vista `inventario`): entradas − (ventas + salidas + devoluciones a
+  oficina), por tienda y referencia o total por referencia.
+- **Movimientos** (vista `inventario_movimientos`): kardex con saldo acumulado.
+- Cada tienda/referencia descuenta ventas desde su **fecha de inicio**: la de la
+  hoja original (`inventario_items`) o, si no tiene, la de su primera carga.
+- Al registrar una venta nueva, si no hay saldo suficiente la app avisa y pide
+  confirmación (no bloquea).
 
 ## Hojas → tablas
 

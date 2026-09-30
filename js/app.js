@@ -12,6 +12,8 @@ let dropdownData = { tiendas: [], vendedores: [], tipos: [], productos: [], meto
 let createClientModal;
 let fullHistoryData = [], fullCarteraTotalData = [], fullCarteraDetalleData = [], fullInventoryData = [];
 let fullClientesData = [], datosFilas = [];
+let referencias = [], movimientosFilas = [];
+let referenciaModal;
 
 // ---------------------------------------------------------------- utilidades
 const $ = id => document.getElementById(id);
@@ -72,24 +74,28 @@ async function fetchAll(buildQuery, pageSize = 1000) {
 // ---------------------------------------------------------------- inicio
 document.addEventListener('DOMContentLoaded', () => {
     createClientModal = new bootstrap.Modal($('createClientModal'));
+    referenciaModal = new bootstrap.Modal($('referenciaModal'));
     iniciarApp();
 });
 
 function iniciarApp() {
     run(async () => {
-        const [tiendas, tipos, vendedores, productos, metodos, deptos] = await Promise.all(
-            ['tiendas', 'tipos', 'vendedores', 'productos', 'metodos_pago'].map(t =>
+        const [tiendas, tipos, vendedores, metodos, deptos] = await Promise.all(
+            ['tiendas', 'tipos', 'vendedores', 'metodos_pago'].map(t =>
                 sb.from(t).select('nombre').order('orden').then(ok).then(r => r.map(x => x.nombre)))
             .concat(sb.from('coordenadas').select('departamento').order('departamento').then(ok).then(r => r.map(x => x.departamento)))
         );
-        dropdownData = { tiendas, tipos, vendedores, productos, metodos };
+        dropdownData = { ...dropdownData, tiendas, tipos, vendedores, metodos };
+        await cargarReferencias();
 
         ['tiendaSelect', 'filterTienda', 'filterCarteraTotalTienda', 'filterCarteraDetalleTienda']
             .forEach(id => populateDropdown(id, tiendas, 'Todas'));
         $('tiendaSelect').options[0].textContent = 'Seleccione Tienda...';
+        populateDropdown('cargaTienda', tiendas, 'Seleccione Tienda...');
         populateDropdown('filterTipo', tipos, 'Todos');
-        populateDropdown('filterProducto', productos, 'Todos');
+        populateDropdown('refTipo', tipos, '(sin tipo)');
         populateDropdown('vendedorSelect', vendedores, 'Seleccione Vendedor...');
+        $('cargaFecha').value = hoyISO();
         populateDropdown('newClientDepto', deptos, 'Seleccione...');
         $('metodosPagoList').innerHTML = metodos.map(m => `<option value="${esc(m)}">`).join('');
         $('fechaPago').value = hoyISO();
@@ -102,6 +108,12 @@ function iniciarApp() {
     $('addProductButton').addEventListener('click', () => addProductLine());
     $('saleForm').addEventListener('submit', handleFormSubmit);
     $('productLines').addEventListener('input', updateLineTotal);
+    // Al elegir una referencia se completa su tipo
+    $('productLines').addEventListener('change', e => {
+        if (!e.target.classList.contains('product-producto')) return;
+        const ref = referencias.find(r => r.nombre === e.target.value);
+        if (ref?.tipo) setSelectValue(e.target.closest('tr').querySelector('.product-tipo'), ref.tipo);
+    });
     $('productLines').addEventListener('click', e => {
         if (e.target.classList.contains('delete-row')) { e.target.closest('tr').remove(); updateSubtotal(); }
     });
@@ -128,8 +140,38 @@ function iniciarApp() {
     ['filterCarteraTotalTienda', 'filterCarteraTotalCliente'].forEach(id => $(id).addEventListener('input', filterCarteraTotal));
     ['filterCarteraDetalleTienda', 'filterCarteraDetalleCliente', 'filterCarteraDetalleEnvio'].forEach(id => $(id).addEventListener('input', filterCarteraDetalle));
 
-    $('inventario-tab').addEventListener('shown.bs.tab', loadInventoryData);
-    ['filterInventarioTienda', 'filterInventarioProducto'].forEach(id => $(id).addEventListener('input', filterInventory));
+    // Inventario: cada sub-sección se recarga al abrirla
+    const subInventario = { 'pills-saldos-tab': loadInventoryData, 'pills-carga-tab': loadCargas,
+        'pills-referencias-tab': loadReferencias, 'pills-movimientos-tab': loadMovimientos };
+    $('inventario-tab').addEventListener('shown.bs.tab', () =>
+        subInventario[document.querySelector('#inventario .nav-pills .active').id]());
+    Object.entries(subInventario).forEach(([id, fn]) => $(id).addEventListener('shown.bs.tab', fn));
+    ['inventarioVista', 'filterInventarioTienda', 'filterInventarioProducto'].forEach(id => $(id).addEventListener('input', filterInventory));
+    $('exportInventarioButton').addEventListener('click', exportInventario);
+    $('inventarioTableBody').addEventListener('click', e => {
+        const tr = e.target.closest('tr[data-tienda]');
+        if (tr) verMovimientos(tr.dataset.tienda, tr.dataset.producto);
+    });
+
+    $('cargaForm').addEventListener('submit', handleCargaSubmit);
+    ['cargaTienda', 'cargaProducto'].forEach(id => $(id).addEventListener('change', mostrarSaldoCarga));
+    $('cargaNuevaRefButton').addEventListener('click', () => abrirModalReferencia());
+    $('cargasTableBody').addEventListener('click', e => {
+        const b = e.target.closest('.delete-carga');
+        if (b) eliminarCarga(Number(b.dataset.id));
+    });
+
+    $('newReferenciaButton').addEventListener('click', () => abrirModalReferencia());
+    $('saveReferenciaButton').addEventListener('click', guardarReferencia);
+    $('filterReferencias').addEventListener('input', renderReferencias);
+    $('exportReferenciasButton').addEventListener('click', exportReferencias);
+    $('referenciasTableBody').addEventListener('click', e => {
+        const b = e.target.closest('.edit-ref');
+        if (b) abrirModalReferencia(referencias.find(r => r.nombre === b.dataset.nombre));
+    });
+
+    ['movTienda', 'movProducto'].forEach(id => $(id).addEventListener('change', loadMovimientos));
+    $('exportMovimientosButton').addEventListener('click', exportMovimientos);
 
     // Clientes
     $('clientes-tab').addEventListener('shown.bs.tab', loadClientesData);
@@ -275,6 +317,8 @@ function handleFormSubmit(e) {
 
     run(async () => {
         if (!envioOriginal) {
+            const faltantes = await verificarStock(header.tienda, productLines);
+            if (faltantes.length && !confirm('Inventario insuficiente:\n\n' + faltantes.join('\n') + '\n\n¿Registrar la venta de todas formas?')) return;
             const id = ok(await sb.rpc('registrar_venta', { p_venta: venta }));
             showAlert('Venta registrada con éxito. ID: ' + id, 'success');
         } else {
@@ -282,6 +326,22 @@ function handleFormSubmit(e) {
             showAlert(m, 'success');
         }
         resetForm();
+    });
+}
+
+// Compara lo que se va a vender con el saldo de la tienda (solo referencias que controlan inventario)
+async function verificarStock(tienda, lineas) {
+    const pedido = {};
+    for (const l of lineas) {
+        const ref = referencias.find(r => r.nombre === l.producto);
+        if (ref?.controla_inventario) pedido[l.producto] = (pedido[l.producto] || 0) + num(l.cantidad);
+    }
+    if (!Object.keys(pedido).length) return [];
+    const saldos = ok(await sb.from('inventario').select('producto,saldo').eq('kt', tienda.trim().toUpperCase()));
+    return Object.entries(pedido).flatMap(([producto, cant]) => {
+        const s = saldos.find(x => norm(x.producto) === norm(producto));
+        const disp = s ? num(s.saldo) : 0;
+        return cant > disp ? [`• ${producto}: disponible ${fmt(disp)}${s ? '' : ' (sin inventario cargado)'}, se venden ${fmt(cant)}`] : [];
     });
 }
 
@@ -316,8 +376,8 @@ function searchOrder() {
 }
 
 // Selecciona un valor aunque ya no exista en Maestros (lo agrega temporalmente)
-function setSelectValue(id, value) {
-    const s = $(id);
+function setSelectValue(idOElemento, value) {
+    const s = typeof idOElemento === 'string' ? $(idOElemento) : idOElemento;
     if (value && ![...s.options].some(o => o.value === value)) s.add(new Option(value, value));
     s.value = value || '';
 }
@@ -485,7 +545,141 @@ function exportCarteraDetalle() {
     })));
 }
 
-// ---------------------------------------------------------------- inventario
+// ---------------------------------------------------------------- inventario: referencias
+// Carga el catálogo de referencias y actualiza todas las listas que lo usan
+async function cargarReferencias() {
+    referencias = ok(await sb.from('productos').select('*').order('orden').order('nombre'));
+    dropdownData.productos = referencias.filter(r => r.activo).map(r => r.nombre);
+    const conInventario = referencias.filter(r => r.activo && r.controla_inventario).map(r => r.nombre);
+    const sel = $('cargaProducto').value;
+    populateDropdown('cargaProducto', conInventario, 'Seleccione Referencia...');
+    $('cargaProducto').value = sel;
+    const selH = $('filterProducto').value;
+    populateDropdown('filterProducto', referencias.map(r => r.nombre), 'Todos');
+    $('filterProducto').value = selH;
+}
+
+function loadReferencias() {
+    run(async () => {
+        const [, inv] = await Promise.all([cargarReferencias(), sb.from('inventario').select('kp,saldo').then(ok)]);
+        const saldos = {};
+        inv.forEach(r => saldos[r.kp] = (saldos[r.kp] || 0) + num(r.saldo));
+        referencias.forEach(r => r.saldo_total = r.controla_inventario ? saldos[r.nombre.trim().toUpperCase()] ?? 0 : null);
+        renderReferencias();
+    });
+}
+
+function referenciasFiltradas() {
+    const q = norm($('filterReferencias').value);
+    return referencias.filter(r => !q || [r.nombre, r.codigo, r.tipo].some(v => norm(v).includes(q)));
+}
+
+function renderReferencias() {
+    const si = v => v ? '<i class="bi bi-check-lg"></i>' : '<span class="text-muted">No</span>';
+    $('referenciasTableBody').innerHTML = referenciasFiltradas().map(r => `<tr class="${r.activo ? '' : 'text-muted'}"><td>${esc(r.codigo)}</td><td>${esc(r.nombre)}</td><td>${esc(r.tipo)}</td><td>${esc(r.unidad)}</td><td>${si(r.controla_inventario)}</td><td>${si(r.activo)}</td><td class="num ${num(r.saldo_total) < 0 ? 'saldo-negativo' : ''}">${r.saldo_total == null ? '' : fmt(r.saldo_total)}</td><td><button type="button" class="btn btn-outline-secondary btn-sm edit-ref" data-nombre="${esc(r.nombre)}" title="Editar"><i class="bi bi-pencil"></i></button></td></tr>`).join('');
+}
+
+function abrirModalReferencia(r = null) {
+    $('referenciaForm').reset();
+    $('refEditando').value = r ? r.nombre : '';
+    $('referenciaModalTitle').textContent = r ? 'Editar Referencia' : 'Nueva Referencia';
+    $('refNombre').value = r?.nombre ?? '';
+    $('refNombre').readOnly = !!r;  // las ventas guardan el nombre: no se renombra
+    $('refCodigo').value = r?.codigo ?? '';
+    setSelectValue('refTipo', r?.tipo ?? '');
+    $('refUnidad').value = r?.unidad ?? 'GRAMOS';
+    $('refControla').checked = r ? r.controla_inventario : true;
+    $('refActivo').checked = r ? r.activo : true;
+    referenciaModal.show();
+}
+
+function guardarReferencia() {
+    const editando = $('refEditando').value;
+    const d = {
+        codigo: $('refCodigo').value.trim().toUpperCase() || null,
+        tipo: $('refTipo').value || null,
+        unidad: $('refUnidad').value,
+        controla_inventario: $('refControla').checked,
+        activo: $('refActivo').checked,
+    };
+    const nombre = $('refNombre').value.trim().toUpperCase().replace(/\s+/g, ' ');
+    if (!nombre) { $('refNombre').reportValidity(); return; }
+    run(async () => {
+        if (editando) {
+            ok(await sb.from('productos').update(d).eq('nombre', editando));
+        } else {
+            if (referencias.some(r => norm(r.nombre) === norm(nombre))) throw new Error(`La referencia "${nombre}" ya existe.`);
+            const orden = Math.max(0, ...referencias.map(r => r.orden || 0)) + 1;
+            ok(await sb.from('productos').insert({ nombre, orden, ...d }));
+        }
+        referenciaModal.hide();
+        await cargarReferencias();
+        // Si se creó desde "Cargar inventario", queda seleccionada
+        if (!editando && $('pills-carga-tab').classList.contains('active')) { $('cargaProducto').value = nombre; mostrarSaldoCarga(); }
+        if ($('pills-referencias-tab').classList.contains('active')) loadReferencias();
+        showAlert(editando ? 'Referencia actualizada' : `Referencia "${nombre}" creada`, 'success');
+    });
+}
+
+function exportReferencias() {
+    exportarExcel('Referencias', 'Referencias', referenciasFiltradas().map(r => ({
+        'Código': r.codigo, 'Referencia': r.nombre, 'Tipo': r.tipo, 'Unidad': r.unidad,
+        'Controla inventario': r.controla_inventario ? 'SI' : 'NO', 'Activa': r.activo ? 'SI' : 'NO', 'Saldo total': r.saldo_total,
+    })));
+}
+
+// ---------------------------------------------------------------- inventario: cargas
+function loadCargas() {
+    run(async () => {
+        const d = ok(await sb.from('ingresos_inventario').select('*').order('id', { ascending: false }).limit(100));
+        $('cargasTableBody').innerHTML = d.map(r => `<tr><td>${fmtFecha(r.fecha)}</td><td>${esc(r.tienda)}</td><td>${esc(r.producto)}</td><td>${esc(r.concepto)}</td><td class="num">${r.entrada ? fmt(r.entrada) : ''}</td><td class="num">${r.salida ? fmt(r.salida) : ''}</td><td>${esc(r.observaciones)}</td><td><button type="button" class="btn btn-outline-danger btn-sm delete-carga" data-id="${r.id}" title="Eliminar"><i class="bi bi-trash"></i></button></td></tr>`).join('');
+        mostrarSaldoCarga();
+    });
+}
+
+async function mostrarSaldoCarga() {
+    const t = $('cargaTienda').value, p = $('cargaProducto').value;
+    const ref = referencias.find(r => r.nombre === p);
+    $('cargaUnidad').textContent = ref ? `(${ref.unidad.toLowerCase()})` : '';
+    if (!t || !p) { $('cargaSaldoActual').textContent = ''; return; }
+    const { data } = await sb.from('inventario').select('saldo').eq('kt', t.trim().toUpperCase()).eq('kp', p.trim().toUpperCase());
+    $('cargaSaldoActual').textContent = data?.length
+        ? `Saldo actual en ${t}: ${fmt(data[0].saldo)}`
+        : `${t} no tiene inventario cargado de ${p}: esta será la carga inicial (las ventas se descuentan desde su fecha).`;
+}
+
+function handleCargaSubmit(e) {
+    e.preventDefault();
+    const cant = num($('cargaCantidad').value);
+    const esEntrada = $('cargaMovimiento').value === 'entrada';
+    const d = {
+        fecha: $('cargaFecha').value,
+        tienda: $('cargaTienda').value,
+        producto: $('cargaProducto').value,
+        concepto: $('cargaConcepto').value.trim().toUpperCase(),
+        entrada: esEntrada ? cant : null,
+        salida: esEntrada ? null : cant,
+        observaciones: $('cargaObservaciones').value.trim() || null,
+    };
+    run(async () => {
+        ok(await sb.from('ingresos_inventario').insert(d));
+        showAlert(`${esEntrada ? 'Entrada' : 'Salida'} de ${fmt(cant)} de ${d.producto} en ${d.tienda} registrada`, 'success');
+        $('cargaCantidad').value = '';
+        $('cargaObservaciones').value = '';
+        loadCargas();
+    });
+}
+
+function eliminarCarga(id) {
+    if (!confirm('¿Eliminar esta carga de inventario?')) return;
+    run(async () => {
+        ok(await sb.from('ingresos_inventario').delete().eq('id', id));
+        showAlert('Carga eliminada', 'success');
+        loadCargas();
+    });
+}
+
+// ---------------------------------------------------------------- inventario: saldos
 function loadInventoryData() {
     run(async () => {
         fullInventoryData = ok(await sb.from('inventario').select('*').order('tienda').order('producto'));
@@ -493,21 +687,86 @@ function loadInventoryData() {
         const keep = id => $(id).value;
         const [t, p] = [keep('filterInventarioTienda'), keep('filterInventarioProducto')];
         populateDropdown('filterInventarioTienda', [...new Set(fullInventoryData.map(r => r.tienda))], 'Todas');
-        populateDropdown('filterInventarioProducto', [...new Set(fullInventoryData.map(r => r.producto))], 'Todos');
+        populateDropdown('filterInventarioProducto', [...new Set(fullInventoryData.map(r => r.producto))].sort(), 'Todas');
         $('filterInventarioTienda').value = t;
         $('filterInventarioProducto').value = p;
         filterInventory();
     });
 }
 
-function renderInventoryTable(d) {
-    $('inventarioTableBody').innerHTML = d.map(r => `<tr><td>${esc(r.tienda)}</td><td>${esc(r.producto)}</td><td class="num">${fmt(r.entradas)}</td><td class="num">${fmt(r.salidas)}</td><td class="num ${num(r.saldo) < 0 ? 'saldo-negativo' : ''}">${fmt(r.saldo)}</td></tr>`).join('');
-    $('inventarioRowCount').textContent = d.length;
+// Filas según la vista elegida: por tienda y referencia, o total por referencia
+function inventarioFiltrado() {
+    const t = $('filterInventarioTienda').value, p = $('filterInventarioProducto').value;
+    const d = fullInventoryData.filter(r => (!t || r.tienda === t) && (!p || r.producto === p));
+    if ($('inventarioVista').value === 'tienda') return d;
+    const g = {};
+    d.forEach(r => {
+        const x = g[r.kp] ??= { tienda: t || 'Todas', producto: r.producto, unidad: r.unidad, entradas: 0, salidas: 0, saldo: 0 };
+        x.entradas += num(r.entradas); x.salidas += num(r.salidas); x.saldo += num(r.saldo);
+    });
+    return Object.values(g).sort((a, b) => a.producto.localeCompare(b.producto));
 }
 
 function filterInventory() {
-    const t = $('filterInventarioTienda').value, p = $('filterInventarioProducto').value;
-    renderInventoryTable(fullInventoryData.filter(r => (!t || r.tienda === t) && (!p || r.producto === p)));
+    const d = inventarioFiltrado();
+    const porTienda = $('inventarioVista').value === 'tienda';
+    $('inventarioTableBody').innerHTML = d.map(r => `<tr ${porTienda ? `data-tienda="${esc(r.tienda)}" data-producto="${esc(r.producto)}" style="cursor:pointer"` : ''}><td>${esc(r.tienda)}</td><td>${esc(r.producto)}</td><td>${esc((r.unidad || '').toLowerCase())}</td><td class="num">${fmt(r.entradas)}</td><td class="num">${fmt(r.salidas)}</td><td class="num ${num(r.saldo) < 0 ? 'saldo-negativo' : ''}">${fmt(r.saldo)}</td></tr>`).join('');
+    const sum = k => d.reduce((s, r) => s + num(r[k]), 0);
+    $('inventarioEntradas').textContent = fmt(sum('entradas'));
+    $('inventarioSalidas').textContent = fmt(sum('salidas'));
+    $('inventarioSaldo').textContent = fmt(sum('saldo'));
+    $('inventarioRowCount').textContent = d.length;
+}
+
+function exportInventario() {
+    exportarExcel('Inventario', 'Inventario', inventarioFiltrado().map(r => ({
+        'Tienda': r.tienda, 'Referencia': r.producto, 'Unidad': r.unidad,
+        'Entradas': num(r.entradas), 'Salidas': num(r.salidas), 'Saldo': num(r.saldo),
+    })));
+}
+
+// ---------------------------------------------------------------- inventario: movimientos (kardex)
+function verMovimientos(tienda, producto) {
+    llenarFiltrosMovimientos(tienda, producto);
+    const tab = $('pills-movimientos-tab');
+    if (tab.classList.contains('active')) loadMovimientos();
+    else new bootstrap.Tab(tab).show();  // el evento shown dispara loadMovimientos
+}
+
+function llenarFiltrosMovimientos(tienda, producto) {
+    const t = tienda ?? $('movTienda').value, p = producto ?? $('movProducto').value;
+    populateDropdown('movTienda', [...new Set(fullInventoryData.map(r => r.tienda))], 'Seleccione Tienda...');
+    populateDropdown('movProducto', [...new Set(fullInventoryData.filter(r => !t || r.tienda === t).map(r => r.producto))].sort(), 'Seleccione Referencia...');
+    $('movTienda').value = t;
+    $('movProducto').value = p;
+}
+
+function loadMovimientos() {
+    run(async () => {
+        if (!fullInventoryData.length) fullInventoryData = ok(await sb.from('inventario').select('*').order('tienda').order('producto'));
+        llenarFiltrosMovimientos();
+        const t = $('movTienda').value, p = $('movProducto').value;
+        if (!t || !p) {
+            movimientosFilas = [];
+            $('movimientosTableBody').innerHTML = '';
+            $('movimientosInfo').textContent = 'Seleccione tienda y referencia.';
+            return;
+        }
+        const d = await fetchAll(() => sb.from('inventario_movimientos').select('*')
+            .eq('tienda', t).eq('producto', p).order('fecha').order('origen').order('origen_id'));
+        let saldo = 0;
+        movimientosFilas = d.map(r => ({ ...r, saldo: saldo += num(r.entrada) - num(r.salida) }));
+        $('movimientosTableBody').innerHTML = movimientosFilas.map(r => `<tr><td>${fmtFecha(r.fecha)}</td><td>${esc(r.origen)}</td><td>${esc(r.detalle)}</td><td class="num">${num(r.entrada) ? fmt(r.entrada) : ''}</td><td class="num">${num(r.salida) ? fmt(r.salida) : ''}</td><td class="num ${r.saldo < 0 ? 'saldo-negativo' : ''}">${fmt(r.saldo)}</td></tr>`).join('');
+        const inv = fullInventoryData.find(r => r.tienda === t && r.producto === p);
+        $('movimientosInfo').textContent = `${d.length} movimientos · Ventas descontadas desde ${fmtFecha(inv?.fecha_inicio)} · Saldo final ${fmt(saldo)}`;
+    });
+}
+
+function exportMovimientos() {
+    exportarExcel(`Movimientos_${$('movProducto').value}`, 'Movimientos', movimientosFilas.map(r => ({
+        'Tienda': r.tienda, 'Referencia': r.producto, 'Fecha': aFecha(r.fecha), 'Origen': r.origen, 'Detalle': r.detalle,
+        'Entrada': num(r.entrada), 'Salida': num(r.salida), 'Saldo': r.saldo,
+    })));
 }
 
 // ---------------------------------------------------------------- clientes (listado)
@@ -547,12 +806,13 @@ const TABLAS_DATOS = [
     { tabla: 'devoluciones_oficina', titulo: 'Devolución a oficina', orden: 'id' },
     { tabla: 'inventario_items', titulo: 'Inventario (configuración)', orden: 'id' },
     { tabla: 'inventario', titulo: 'Inventario (saldos)', orden: 'tienda' },
+    { tabla: 'inventario_movimientos', titulo: 'Inventario (movimientos)', orden: 'fecha' },
     { tabla: 'cartera_detalle', titulo: 'Cartera detalle', orden: 'envio' },
     { tabla: 'cartera_total', titulo: 'Cartera total', orden: 'tienda' },
     { tabla: 'tiendas', titulo: 'Maestro: Tiendas', orden: 'orden' },
     { tabla: 'vendedores', titulo: 'Maestro: Vendedores', orden: 'orden' },
     { tabla: 'tipos', titulo: 'Maestro: Tipos', orden: 'orden' },
-    { tabla: 'productos', titulo: 'Maestro: Productos', orden: 'orden' },
+    { tabla: 'productos', titulo: 'Referencias (productos)', orden: 'orden' },
     { tabla: 'metodos_pago', titulo: 'Maestro: Métodos de pago', orden: 'orden' },
     { tabla: 'coordenadas', titulo: 'Coordenadas', orden: 'departamento' },
 ];
