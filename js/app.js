@@ -182,10 +182,11 @@ function iniciarApp() {
     $('maestros').addEventListener('submit', e => {
         if (!e.target.classList.contains('maestro-form')) return;
         e.preventDefault();
-        agregarMaestro(e.target.dataset.maestro, e.target.querySelector('input'));
+        agregarMaestro(e.target.dataset.maestro, e.target.querySelector('input'), e.target.querySelector('.maestro-clase-nueva')?.value);
     });
     $('maestros').addEventListener('change', e => {
         if (e.target.classList.contains('maestro-activo')) cambiarActivoMaestro(e.target);
+        if (e.target.classList.contains('maestro-clase')) cambiarClaseTienda(e.target);
     });
     $('maestros').addEventListener('click', e => {
         const b = e.target.closest('.maestro-delete');
@@ -892,7 +893,7 @@ function exportarExcel(nombre, hoja, filas) {
 // ---------------------------------------------------------------- maestros: tiendas y vendedores
 // col = columna de ventas que guarda el nombre (para saber si está en uso)
 const MAESTROS = {
-    tiendas: { singular: 'tienda', col: 'tienda' },
+    tiendas: { singular: 'tienda o bodega', col: 'tienda' },
     vendedores: { singular: 'vendedor', col: 'vendedor' },
 };
 const maestros = { tiendas: [], vendedores: [] };
@@ -920,24 +921,26 @@ async function cargarMaestros() {
     for (const m of Object.keys(MAESTROS)) {
         $(`maestro-${m}`).innerHTML = maestros[m].map(x => `<tr class="${x.activo === false ? 'text-muted' : ''}">
             <td>${esc(x.nombre)}</td>
+            ${m === 'tiendas' ? `<td><select class="form-select form-select-sm maestro-clase" data-nombre="${esc(x.nombre)}" aria-label="Tipo">
+                ${['TIENDA', 'BODEGA'].map(c => `<option value="${c}" ${x.clase === c ? 'selected' : ''}>${c === 'TIENDA' ? 'Tienda' : 'Bodega'}</option>`).join('')}</select></td>` : ''}
             <td class="text-center"><div class="form-check form-switch d-inline-block m-0"><input class="form-check-input maestro-activo" type="checkbox" role="switch" data-maestro="${m}" data-nombre="${esc(x.nombre)}" ${x.activo === false ? '' : 'checked'} aria-label="Activo"></div></td>
             <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm maestro-delete" data-maestro="${m}" data-nombre="${esc(x.nombre)}" title="Eliminar"><i class="bi bi-trash"></i></button></td>
         </tr>`).join('');
     }
 }
 
-function agregarMaestro(m, input) {
+function agregarMaestro(m, input, clase) {
     const nombre = input.value.trim().toUpperCase().replace(/\s+/g, ' ');
     if (!nombre) return;
     const cfg = MAESTROS[m];
     run(async () => {
         const existente = maestros[m].find(x => norm(x.nombre) === norm(nombre));
-        if (existente) throw new Error(`La ${cfg.singular} "${existente.nombre}" ya existe${existente.activo === false ? ' (está inactiva: actívela)' : ''}.`);
+        if (existente) throw new Error(`"${existente.nombre}" ya existe${existente.activo === false ? ' (está inactivo: actívelo)' : ''}.`);
         const orden = Math.max(0, ...maestros[m].map(x => x.orden || 0)) + 1;
-        ok(await sb.from(m).insert({ nombre, orden, activo: true }));
+        ok(await sb.from(m).insert({ nombre, orden, activo: true, ...(m === 'tiendas' ? { clase } : {}) }));
         input.value = '';
         await cargarMaestros();
-        showAlert(`"${nombre}" agregado a ${m}`, 'success');
+        showAlert(`"${nombre}" agregado${m === 'tiendas' ? ` como ${clase === 'BODEGA' ? 'bodega' : 'tienda'}` : ' a vendedores'}`, 'success');
     });
 }
 
@@ -967,5 +970,19 @@ function eliminarMaestro(m, nombre) {
         ok(await sb.from(m).delete().eq('nombre', nombre));
         await cargarMaestros();
         showAlert(`"${nombre}" eliminado`, 'success');
+    });
+}
+
+function cambiarClaseTienda(sel) {
+    run(async () => {
+        const antes = maestros.tiendas.find(x => x.nombre === sel.dataset.nombre)?.clase;
+        try {
+            ok(await sb.from('tiendas').update({ clase: sel.value }).eq('nombre', sel.dataset.nombre));
+        } catch (err) {
+            sel.value = antes;
+            throw err;
+        }
+        await cargarMaestros();
+        showAlert(`"${sel.dataset.nombre}" ahora es ${sel.value === 'BODEGA' ? 'bodega' : 'tienda'}`, 'success');
     });
 }

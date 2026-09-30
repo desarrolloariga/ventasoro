@@ -26,6 +26,18 @@ create table if not exists tiendaariga.vendedores (
 -- en el histórico (las ventas guardan el nombre).
 alter table tiendaariga.tiendas    add column if not exists activo boolean not null default true;
 alter table tiendaariga.vendedores add column if not exists activo boolean not null default true;
+
+-- Tiendas y bodegas son el mismo concepto; "clase" solo las distingue.
+-- Al crear la columna, las que se llaman "BODEGA ..." quedan como BODEGA.
+do $$
+begin
+  if not exists (select 1 from information_schema.columns
+                 where table_schema = 'tiendaariga' and table_name = 'tiendas' and column_name = 'clase') then
+    alter table tiendaariga.tiendas
+      add column clase text not null default 'TIENDA' check (clase in ('TIENDA', 'BODEGA'));
+    update tiendaariga.tiendas set clase = 'BODEGA' where nombre ilike 'BODEGA%';
+  end if;
+end $$;
 -- Referencias: catálogo de lo que se vende y se controla en inventario.
 -- Las ventas guardan el nombre de la referencia (ventas.producto).
 create table if not exists tiendaariga.productos (

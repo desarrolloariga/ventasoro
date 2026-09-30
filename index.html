@@ -138,7 +138,7 @@
                         <div class="card-header card-header-custom">Encabezado</div>
                         <div class="card-body">
                             <div class="row g-2">
-                                <div class="col-md-6"><label class="form-label" for="tiendaSelect">Tienda</label><select class="form-select" id="tiendaSelect" required></select></div>
+                                <div class="col-md-6"><label class="form-label" for="tiendaSelect">Tienda / Bodega</label><select class="form-select" id="tiendaSelect" required></select></div>
                                 <div class="col-md-6"><label class="form-label" for="vendedorSelect">Vendedor</label><select class="form-select" id="vendedorSelect" required></select></div>
                             </div>
                         </div>
@@ -270,7 +270,7 @@
                   <div class="card-body">
                     <div class="row g-3">
                       <div class="col-md-3"><label class="form-label" for="filterCliente">Cliente</label><input type="text" class="form-control" id="filterCliente" placeholder="Buscar cliente..."></div>
-                      <div class="col-md-3"><label class="form-label" for="filterTienda">Tienda</label><select class="form-select" id="filterTienda"><option value="">Todas</option></select></div>
+                      <div class="col-md-3"><label class="form-label" for="filterTienda">Tienda / Bodega</label><select class="form-select" id="filterTienda"><option value="">Todas</option></select></div>
                       <div class="col-md-3"><label class="form-label" for="filterTipo">Tipo</label><select class="form-select" id="filterTipo"><option value="">Todos</option></select></div>
                       <div class="col-md-3"><label class="form-label" for="filterProducto">Producto</label><select class="form-select" id="filterProducto"><option value="">Todos</option></select></div>
                     </div>
@@ -389,7 +389,7 @@
                       <div class="card-body">
                         <div class="row g-3">
                           <div class="col-md-3"><label class="form-label" for="cargaFecha">Fecha</label><input type="date" class="form-control" id="cargaFecha" required></div>
-                          <div class="col-md-4"><label class="form-label" for="cargaTienda">Tienda</label><select class="form-select" id="cargaTienda" required></select></div>
+                          <div class="col-md-4"><label class="form-label" for="cargaTienda">Tienda / Bodega</label><select class="form-select" id="cargaTienda" required></select></div>
                           <div class="col-md-5">
                             <label class="form-label" for="cargaProducto">Referencia</label>
                             <div class="input-group">
@@ -479,14 +479,18 @@
               <div class="row g-3 mt-1">
                 <div class="col-md-6">
                   <div class="card h-100">
-                    <div class="card-header card-header-custom"><i class="bi bi-shop me-2"></i> Tiendas</div>
+                    <div class="card-header card-header-custom"><i class="bi bi-shop me-2"></i> Tiendas y bodegas</div>
                     <div class="card-body">
                       <form class="input-group mb-3 maestro-form" data-maestro="tiendas">
-                        <input type="text" class="form-control" placeholder="Nombre de la nueva tienda" aria-label="Nueva tienda" required>
+                        <select class="form-select flex-grow-0 w-auto maestro-clase-nueva" aria-label="Tipo">
+                          <option value="TIENDA">Tienda</option>
+                          <option value="BODEGA">Bodega</option>
+                        </select>
+                        <input type="text" class="form-control" placeholder="Nombre de la nueva tienda o bodega" aria-label="Nombre" required>
                         <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button>
                       </form>
                       <table class="table table-sm table-bordered align-middle">
-                        <thead class="table-light"><tr><th>Nombre</th><th class="text-center">Activa</th><th></th></tr></thead>
+                        <thead class="table-light"><tr><th>Nombre</th><th>Tipo</th><th class="text-center">Activa</th><th></th></tr></thead>
                         <tbody id="maestro-tiendas"></tbody>
                       </table>
                     </div>

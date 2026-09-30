@@ -215,6 +215,10 @@ def leer(ruta):
             if (r["producto"] or "").upper() == "GRAMO ESPEDCIAL":
                 r["producto"] = "GRAMO ESPECIAL"
 
+    # Tiendas y bodegas son lo mismo; la clase solo las distingue
+    for t in datos["tiendas"]:
+        t["clase"] = "BODEGA" if t["nombre"].upper().startswith("BODEGA") else "TIENDA"
+
     # Referencias: tipo = el más usado en las ventas de ese producto
     conteo = {}
     for v in datos["ventas"]:
