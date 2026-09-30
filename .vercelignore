@@ -1,0 +1,4 @@
+# Solo se publica la aplicación web (index.html, css/, js/)
+supabase/
+scripts/
+README.md

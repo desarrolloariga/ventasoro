@@ -1,0 +1,158 @@
+/* --- Paleta de Colores Pastel y Variables --- */
+:root {
+  --pastel-bg: #FFFFFF;
+  --pastel-bg-gradient: #F4E9CD;
+  --pastel-header: #F8F4E9;
+  --pastel-accent: #C0B283;
+  --pastel-accent-hover: #AD9D74;
+  --pastel-text-dark: #4B4B4B;
+  --pastel-text-light: #B0A89A;
+}
+
+/* --- Estilos Generales y Tipografía --- */
+body {
+  font-family: 'Montserrat', sans-serif;
+  background: linear-gradient(90deg, var(--pastel-bg-gradient) 0%, var(--pastel-bg) 25%, var(--pastel-bg) 75%, var(--pastel-bg-gradient) 100%);
+  color: var(--pastel-text-dark);
+  min-height: 100vh;
+}
+
+/* --- Contenedor Principal Enmarcado --- */
+.main-content-frame {
+  background-color: var(--pastel-bg);
+  border-radius: 15px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.07);
+  border: 1px solid #EAEAEA;
+}
+
+/* --- Título Principal --- */
+.main-title {
+  color: var(--pastel-text-dark);
+  font-weight: 600;
+  font-size: 1.8rem;
+  margin-bottom: 1rem;
+}
+
+/* --- Barra de Navegación con Logo --- */
+.navbar-custom {
+  background-color: var(--pastel-text-dark);
+  padding: 0.8rem 1.5rem;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+}
+.navbar-logo {
+  height: 45px;
+  width: auto;
+  margin-right: 15px;
+}
+.navbar-brand {
+  color: var(--pastel-bg) !important;
+  font-weight: 600;
+  font-size: 1.5rem;
+}
+.navbar-user {
+  color: var(--pastel-text-light);
+  font-size: 0.85rem;
+}
+
+/* --- Estilo de Tarjetas (Cards) --- */
+.card {
+  border: 1px solid var(--pastel-text-light);
+  border-radius: 12px;
+  box-shadow: none;
+}
+.card-header-custom {
+  background-color: var(--pastel-header);
+  color: var(--pastel-text-dark);
+  font-weight: 600;
+  font-size: 1.1rem;
+  border-top-left-radius: 11px;
+  border-top-right-radius: 11px;
+  border-bottom: 1px solid var(--pastel-text-light);
+}
+.card-header-custom .bi {
+  font-size: 1.2rem;
+  color: var(--pastel-accent);
+}
+
+/* --- Estilo de Formularios y Botones --- */
+.form-control:focus, .form-select:focus {
+  border-color: var(--pastel-accent);
+  box-shadow: 0 0 0 0.25rem rgba(192, 178, 131, 0.25);
+}
+.btn {
+  border-radius: 8px;
+  font-weight: 600;
+  padding: 0.6rem 1.5rem;
+  transition: all 0.2s ease-in-out;
+}
+.btn-sm { padding: 0.25rem 0.6rem; }
+.btn-gold {
+  background-color: var(--pastel-accent);
+  border-color: var(--pastel-accent);
+  color: var(--pastel-bg);
+}
+.btn-gold:hover, .btn-gold:focus {
+  background-color: var(--pastel-accent-hover);
+  border-color: var(--pastel-accent-hover);
+  color: var(--pastel-bg);
+  transform: translateY(-2px);
+}
+.btn-outline-secondary {
+  border-color: var(--pastel-text-light);
+  color: var(--pastel-text-dark);
+}
+.btn-outline-secondary:hover {
+  background-color: var(--pastel-text-dark);
+  color: var(--pastel-bg);
+}
+.btn-outline-light.btn-sm { padding: 0.25rem 0.8rem; }
+
+/* --- Tabs --- */
+.nav-tabs .nav-link {
+  color: var(--pastel-text-light);
+  font-weight: 600;
+}
+.nav-tabs .nav-link.active {
+  color: var(--pastel-text-dark);
+  background-color: var(--pastel-bg);
+  border-color: #dee2e6 #dee2e6 var(--pastel-bg);
+}
+.nav-pills .nav-link { color: var(--pastel-text-dark); font-weight: 600; }
+.nav-pills .nav-link.active { background-color: var(--pastel-accent); color: #fff; }
+
+/* --- Tablas de consulta --- */
+.num { text-align: right; white-space: nowrap; }
+.saldo-negativo { color: #b02a37; }
+.table tfoot td { font-weight: 600; background: var(--pastel-header); }
+
+/* --- Login --- */
+.login-card { max-width: 420px; margin: 4rem auto; }
+
+/* --- Spinner --- */
+.spinner-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(255, 255, 255, 0.8); z-index: 1060;
+  display: flex; justify-content: center; align-items: center;
+}
+.spinner-border { color: var(--pastel-accent); }
+
+/* --- Vista en móviles --- */
+@media (max-width: 767px) {
+  .table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .table thead th,
+  .table tbody td {
+    font-size: 0.85rem;
+    padding: 0.5rem 0.4rem;
+    white-space: nowrap;
+  }
+  #productLines select { min-width: 130px; }
+  #productLines input { min-width: 80px; }
+  .table .form-select,
+  .table .form-control { font-size: 0.85rem; }
+  .main-title { font-size: 1.2rem; }
+  .navbar-brand { font-size: 1.1rem; }
+  .navbar-logo { height: 34px; }
+}

@@ -1,0 +1,16 @@
+# Datos de clientes generados desde el Excel (DPI, teléfonos, ventas).
+# NO subir al repositorio: se regeneran con scripts/generar_datos_sql.py
+supabase/02_datos_*.sql
+*.xlsx
+*.xls
+*.csv
+
+# Entorno local
+.env
+.env.*
+.vercel
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
