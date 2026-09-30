@@ -13,6 +13,13 @@ Réplica de la aplicación de Apps Script "Aplicación Ariga", usando Supabase
 | `supabase/02_datos_*.sql` | Datos del Excel (generados) |
 | `scripts/generar_datos_sql.py` | Regenera `02_datos_*.sql` desde el Excel |
 
+## Pestañas
+
+Venta, Buscar Pedido, Pagos, **Clientes** (listado, búsqueda, crear y editar),
+Histórico, Cartera, Inventario y **Datos** (cualquier tabla o vista en bruto).
+Histórico, Cartera, Clientes y Datos tienen botón **Exportar a Excel**, que
+descarga lo que está filtrado en pantalla.
+
 ## Hojas → tablas
 
 | Hoja | En Supabase |

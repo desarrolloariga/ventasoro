@@ -11,6 +11,7 @@ const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY, {
 let dropdownData = { tiendas: [], vendedores: [], tipos: [], productos: [], metodos: [] };
 let createClientModal;
 let fullHistoryData = [], fullCarteraTotalData = [], fullCarteraDetalleData = [], fullInventoryData = [];
+let fullClientesData = [], datosFilas = [];
 
 // ---------------------------------------------------------------- utilidades
 const $ = id => document.getElementById(id);
@@ -129,6 +130,28 @@ function iniciarApp() {
 
     $('inventario-tab').addEventListener('shown.bs.tab', loadInventoryData);
     ['filterInventarioTienda', 'filterInventarioProducto'].forEach(id => $(id).addEventListener('input', filterInventory));
+
+    // Clientes
+    $('clientes-tab').addEventListener('shown.bs.tab', loadClientesData);
+    $('filterClientes').addEventListener('input', filterClientes);
+    $('newClientButton').addEventListener('click', () => abrirModalCliente({}, 'clientes'));
+    $('clientesTableBody').addEventListener('click', e => {
+        const b = e.target.closest('.edit-client');
+        if (b) abrirModalCliente(fullClientesData.find(c => c.id === Number(b.dataset.id)), 'clientes');
+    });
+
+    // Datos en bruto
+    $('datosTabla').innerHTML = TABLAS_DATOS.map((t, i) => `<option value="${i}">${esc(t.titulo)}</option>`).join('');
+    $('datos-tab').addEventListener('shown.bs.tab', loadDatos);
+    $('datosTabla').addEventListener('change', loadDatos);
+    $('filterDatos').addEventListener('input', filterDatos);
+
+    // Exportar a Excel (exporta lo que está filtrado en pantalla)
+    $('exportHistoricoButton').addEventListener('click', exportHistorico);
+    $('exportCarteraTotalButton').addEventListener('click', exportCarteraTotal);
+    $('exportCarteraDetalleButton').addEventListener('click', exportCarteraDetalle);
+    $('exportClientesButton').addEventListener('click', exportClientes);
+    $('exportDatosButton').addEventListener('click', exportDatos);
 }
 
 // ---------------------------------------------------------------- clientes
@@ -142,31 +165,52 @@ function searchClient() {
             $('clientName').value = c.nombre;
             $('clientNIT').value = c.nit || '';
         } else if (confirm('Cliente no encontrado. ¿Desea crearlo?')) {
-            $('createClientForm').reset();
             // Precarga el dato buscado: si es numérico va a DPI, si no al nombre
-            if (/^\d[\d-]*$/.test(s)) $('newClientDPI').value = s; else $('newClientNombre').value = s;
-            createClientModal.show();
+            abrirModalCliente(/^\d[\d-]*$/.test(s) ? { dpi: s } : { nombre: s }, 'venta');
         }
     });
 }
 
+// Campos del modal <-> columnas de la tabla clientes
+const CAMPOS_CLIENTE = {
+    newClientDPI: 'dpi', newClientNIT: 'nit', newClientNombre: 'nombre',
+    newClientFechaNac: 'fecha_nacimiento', newClientDepto: 'departamento',
+    newClientTel: 'telefono', newClientNIT2: 'nit2', newClientCodigo: 'codigo_cliente',
+};
+let origenModalCliente = 'venta'; // 'venta' llena el formulario de venta al guardar
+
+// c.id presente = edición; origen: 'venta' o 'clientes'
+function abrirModalCliente(c = {}, origen = 'clientes') {
+    origenModalCliente = origen;
+    $('createClientForm').reset();
+    $('editClientId').value = c.id || '';
+    $('clientModalTitle').textContent = c.id ? 'Editar Cliente' : 'Crear Nuevo Cliente';
+    for (const [id, col] of Object.entries(CAMPOS_CLIENTE)) {
+        if (id === 'newClientDepto') setSelectValue(id, c[col]); else $(id).value = c[col] ?? '';
+    }
+    createClientModal.show();
+}
+
 function saveNewClient() {
-    const d = {
-        dpi: $('newClientDPI').value.trim() || null,
-        nit: $('newClientNIT').value.trim() || null,
-        nombre: $('newClientNombre').value.trim(),
-        fecha_nacimiento: $('newClientFechaNac').value || null,
-        departamento: $('newClientDepto').value || null,
-        telefono: $('newClientTel').value.trim() || null,
-    };
+    const d = {};
+    for (const [id, col] of Object.entries(CAMPOS_CLIENTE)) d[col] = $(id).value.trim() || null;
     if (!d.nombre) { $('newClientNombre').reportValidity(); return; }
+    const id = $('editClientId').value;
     run(async () => {
-        const c = ok(await sb.from('clientes').insert(d).select().single());
+        const c = id
+            ? ok(await sb.from('clientes').update(d).eq('id', id).select().single())
+            : ok(await sb.from('clientes').insert(d).select().single());
         createClientModal.hide();
-        $('clientDPI').value = c.dpi || c.nit || c.nombre;
-        $('clientName').value = c.nombre;
-        $('clientNIT').value = c.nit || '';
-        showAlert('Cliente creado con éxito', 'success');
+        if (origenModalCliente === 'venta') {
+            $('clientDPI').value = c.dpi || c.nit || c.nombre;
+            $('clientName').value = c.nombre;
+            $('clientNIT').value = c.nit || '';
+        } else {
+            const i = fullClientesData.findIndex(x => x.id === c.id);
+            if (i >= 0) fullClientesData[i] = c; else fullClientesData.unshift(c);
+            filterClientes();
+        }
+        showAlert(id ? 'Cliente actualizado con éxito' : 'Cliente creado con éxito', 'success');
     });
 }
 
@@ -371,10 +415,18 @@ function renderHistoryTable(d) {
     $('rowCount').textContent = d.length;
 }
 
-function filterHistory() {
+function historicoFiltrado() {
     const c = norm($('filterCliente').value), t = $('filterTienda').value, tp = $('filterTipo').value, p = $('filterProducto').value;
-    renderHistoryTable(fullHistoryData.filter(r =>
-        norm(r.cliente).includes(c) && (!t || r.tienda === t) && (!tp || r.tipo === tp) && (!p || r.producto === p)));
+    return fullHistoryData.filter(r =>
+        norm(r.cliente).includes(c) && (!t || r.tienda === t) && (!tp || r.tipo === tp) && (!p || r.producto === p));
+}
+const filterHistory = () => renderHistoryTable(historicoFiltrado());
+
+function exportHistorico() {
+    exportarExcel('Historico_ventas', 'Histórico', historicoFiltrado().map(r => ({
+        'Fecha': aFecha(r.fecha_venta), 'Tienda': r.tienda, 'Vendedor': r.vendedor, 'Cliente': r.cliente,
+        'Tipo': r.tipo, 'Producto': r.producto, 'Cantidad': r.cantidad, 'Valor unitario': r.valor_unitario,
+    })));
 }
 
 // ---------------------------------------------------------------- cartera
@@ -391,9 +443,16 @@ function renderCarteraTotalTable(d) {
     $('carteraTotalSuma').textContent = fmtQ(d.reduce((s, r) => s + num(r.valor_cartera), 0));
 }
 
-function filterCarteraTotal() {
+function carteraTotalFiltrada() {
     const t = $('filterCarteraTotalTienda').value, c = norm($('filterCarteraTotalCliente').value);
-    renderCarteraTotalTable(fullCarteraTotalData.filter(r => (!t || r.tienda === t) && norm(r.cliente).includes(c)));
+    return fullCarteraTotalData.filter(r => (!t || r.tienda === t) && norm(r.cliente).includes(c));
+}
+const filterCarteraTotal = () => renderCarteraTotalTable(carteraTotalFiltrada());
+
+function exportCarteraTotal() {
+    exportarExcel('Cartera_total', 'Total Cartera', carteraTotalFiltrada().map(r => ({
+        'Tienda': r.tienda, 'Cliente': r.cliente, 'Valor cartera': r.valor_cartera,
+    })));
 }
 
 function loadCarteraDetalleData() {
@@ -412,10 +471,18 @@ function renderCarteraDetalleTable(d) {
     $('carteraDetalleSaldo').textContent = fmtQ(sum('cartera'));
 }
 
-function filterCarteraDetalle() {
+function carteraDetalleFiltrada() {
     const t = $('filterCarteraDetalleTienda').value, c = norm($('filterCarteraDetalleCliente').value), e = norm($('filterCarteraDetalleEnvio').value);
-    renderCarteraDetalleTable(fullCarteraDetalleData.filter(r =>
-        (!t || r.tienda === t) && norm(r.cliente).includes(c) && norm(r.envio).includes(e)));
+    return fullCarteraDetalleData.filter(r =>
+        (!t || r.tienda === t) && norm(r.cliente).includes(c) && norm(r.envio).includes(e));
+}
+const filterCarteraDetalle = () => renderCarteraDetalleTable(carteraDetalleFiltrada());
+
+function exportCarteraDetalle() {
+    exportarExcel('Cartera_detalle', 'Detalle Cartera', carteraDetalleFiltrada().map(r => ({
+        'Fecha venta': aFecha(r.fecha_venta), 'Tienda': r.tienda, 'Cliente': r.cliente, 'Envío': r.envio,
+        'Valor venta': r.valor_venta, 'Valor pago': r.valor_pago, 'Cartera': r.cartera,
+    })));
 }
 
 // ---------------------------------------------------------------- inventario
@@ -441,4 +508,113 @@ function renderInventoryTable(d) {
 function filterInventory() {
     const t = $('filterInventarioTienda').value, p = $('filterInventarioProducto').value;
     renderInventoryTable(fullInventoryData.filter(r => (!t || r.tienda === t) && (!p || r.producto === p)));
+}
+
+// ---------------------------------------------------------------- clientes (listado)
+function loadClientesData() {
+    run(async () => {
+        fullClientesData = await fetchAll(() => sb.from('clientes').select('*').order('nombre').order('id'));
+        filterClientes();
+    });
+}
+
+function clientesFiltrados() {
+    const q = norm($('filterClientes').value);
+    return fullClientesData.filter(c =>
+        !q || [c.nombre, c.dpi, c.nit, c.telefono].some(v => norm(v).includes(q)));
+}
+
+function filterClientes() {
+    const d = clientesFiltrados();
+    $('clientesTableBody').innerHTML = d.map(c => `<tr><td>${esc(c.nombre)}</td><td>${esc(c.dpi)}</td><td>${esc(c.nit)}</td><td>${esc(c.telefono)}</td><td>${esc(c.departamento)}</td><td>${fmtFecha(c.fecha_nacimiento)}</td><td><button type="button" class="btn btn-outline-secondary btn-sm edit-client" data-id="${c.id}" title="Editar"><i class="bi bi-pencil"></i></button></td></tr>`).join('');
+    $('clientesRowCount').textContent = d.length;
+}
+
+function exportClientes() {
+    exportarExcel('Clientes', 'Clientes', clientesFiltrados().map(c => ({
+        'DPI': c.dpi, 'NIT': c.nit, 'Nombre y apellido': c.nombre, 'Fecha de nacimiento': aFecha(c.fecha_nacimiento),
+        'Departamento': c.departamento, 'Teléfono': c.telefono, 'NIT2': c.nit2, 'Código cliente': c.codigo_cliente,
+    })));
+}
+
+// ---------------------------------------------------------------- datos en bruto
+const TABLAS_DATOS = [
+    { tabla: 'ventas', titulo: 'Ventas', orden: 'id' },
+    { tabla: 'pagos', titulo: 'Pagos', orden: 'id' },
+    { tabla: 'clientes', titulo: 'Clientes', orden: 'id' },
+    { tabla: 'devoluciones', titulo: 'Devoluciones', orden: 'id' },
+    { tabla: 'ingresos_inventario', titulo: 'Ingresos de inventario', orden: 'id' },
+    { tabla: 'devoluciones_oficina', titulo: 'Devolución a oficina', orden: 'id' },
+    { tabla: 'inventario_items', titulo: 'Inventario (configuración)', orden: 'id' },
+    { tabla: 'inventario', titulo: 'Inventario (saldos)', orden: 'tienda' },
+    { tabla: 'cartera_detalle', titulo: 'Cartera detalle', orden: 'envio' },
+    { tabla: 'cartera_total', titulo: 'Cartera total', orden: 'tienda' },
+    { tabla: 'tiendas', titulo: 'Maestro: Tiendas', orden: 'orden' },
+    { tabla: 'vendedores', titulo: 'Maestro: Vendedores', orden: 'orden' },
+    { tabla: 'tipos', titulo: 'Maestro: Tipos', orden: 'orden' },
+    { tabla: 'productos', titulo: 'Maestro: Productos', orden: 'orden' },
+    { tabla: 'metodos_pago', titulo: 'Maestro: Métodos de pago', orden: 'orden' },
+    { tabla: 'coordenadas', titulo: 'Coordenadas', orden: 'departamento' },
+];
+const MAX_FILAS_PANTALLA = 500;
+const tablaDatosActual = () => TABLAS_DATOS[Number($('datosTabla').value) || 0];
+
+function loadDatos() {
+    const t = tablaDatosActual();
+    run(async () => {
+        datosFilas = await fetchAll(() => sb.from(t.tabla).select('*').order(t.orden));
+        filterDatos();
+    });
+}
+
+function datosFiltrados() {
+    const q = norm($('filterDatos').value);
+    return q ? datosFilas.filter(r => Object.values(r).some(v => norm(v).includes(q))) : datosFilas;
+}
+
+function filterDatos() {
+    const d = datosFiltrados();
+    const cols = datosFilas.length ? Object.keys(datosFilas[0]) : [];
+    $('datosTableHead').innerHTML = `<tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr>`;
+    $('datosTableBody').innerHTML = d.slice(0, MAX_FILAS_PANTALLA).map(r =>
+        `<tr>${cols.map(c => `<td class="${typeof r[c] === 'number' ? 'num' : ''}">${esc(r[c])}</td>`).join('')}</tr>`).join('');
+    $('datosInfo').textContent = `${d.length} de ${datosFilas.length} registros` +
+        (d.length > MAX_FILAS_PANTALLA ? ` (se muestran los primeros ${MAX_FILAS_PANTALLA}; la exportación incluye todos)` : '');
+}
+
+function exportDatos() {
+    const t = tablaDatosActual();
+    // Las fechas yyyy-mm-dd se exportan como fechas de Excel
+    exportarExcel(t.titulo.replace(/[^\wÁÉÍÓÚáéíóúñÑ]+/g, '_'), t.titulo, datosFiltrados().map(r =>
+        Object.fromEntries(Object.entries(r).map(([k, v]) => [k, /^\d{4}-\d{2}-\d{2}$/.test(v ?? '') ? aFecha(v) : v]))));
+}
+
+// ---------------------------------------------------------------- Excel
+// 'yyyy-mm-dd' -> Date local (Excel la muestra como fecha, sin corrimiento de zona)
+function aFecha(f) {
+    if (!f) return null;
+    const [y, m, d] = String(f).slice(0, 10).split('-').map(Number);
+    return new Date(y, m - 1, d);
+}
+
+function exportarExcel(nombre, hoja, filas) {
+    if (!filas.length) { showAlert('No hay datos para exportar', 'warning'); return; }
+    const ws = XLSX.utils.json_to_sheet(filas);
+    const cols = Object.keys(filas[0]);
+    // Fechas como número de serie de Excel (evita el corrimiento de un día por zona horaria)
+    filas.forEach((r, i) => cols.forEach((c, j) => {
+        const v = r[c];
+        if (v instanceof Date) {
+            const serie = (Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()) - Date.UTC(1899, 11, 30)) / 86400000;
+            ws[XLSX.utils.encode_cell({ r: i + 1, c: j })] = { t: 'n', v: serie, z: 'dd/mm/yyyy' };
+        }
+    }));
+    // Ancho de columnas según el contenido
+    ws['!cols'] = cols.map(c => ({
+        wch: Math.min(50, Math.max(c.length, ...filas.slice(0, 300).map(r =>
+            r[c] instanceof Date ? 10 : String(r[c] ?? '').length)) + 2),
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, hoja.replace(/[\/?*[\]:]/g, ' ').slice(0, 31));
+    XLSX.writeFile(wb, `${nombre}_${hoyISO()}.xlsx`);
 }

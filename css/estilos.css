@@ -154,3 +154,7 @@ body {
   .navbar-brand { font-size: 1.1rem; }
   .navbar-logo { height: 34px; }
 }
+
+/* --- Tabla de datos en bruto --- */
+.datos-table td, .datos-table th { white-space: nowrap; font-size: 0.8rem; }
+.datos-table td { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
