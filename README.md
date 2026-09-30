@@ -66,8 +66,8 @@ Es un sitio estático, no requiere compilación.
    rama o pull request genera una URL de vista previa.
 
 `vercel.json` agrega encabezados de seguridad (incluida una Content-Security-Policy
-que solo permite jsDelivr, Google Fonts, imgur y el proyecto de Supabase). Si se
-cambia de proyecto de Supabase o se agrega otro CDN, hay que actualizarla.
+que solo permite jsDelivr, Google Fonts, imgur y proyectos *.supabase.co). Si se
+agrega otro CDN, hay que actualizarla.
 `.vercelignore` evita publicar `supabase/`, `scripts/` y este README.
 
 ## Datos de clientes y git
