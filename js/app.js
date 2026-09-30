@@ -5,12 +5,12 @@
 const CFG = window.ARIGA_CONFIG;
 const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY, {
     db: { schema: CFG.SCHEMA },
+    auth: { persistSession: false, autoRefreshToken: false },
 });
 
 let dropdownData = { tiendas: [], vendedores: [], tipos: [], productos: [], metodos: [] };
 let createClientModal;
 let fullHistoryData = [], fullCarteraTotalData = [], fullCarteraDetalleData = [], fullInventoryData = [];
-let appIniciada = false;
 
 // ---------------------------------------------------------------- utilidades
 const $ = id => document.getElementById(id);
@@ -68,44 +68,12 @@ async function fetchAll(buildQuery, pageSize = 1000) {
     return out;
 }
 
-// ---------------------------------------------------------------- autenticación
-document.addEventListener('DOMContentLoaded', async () => {
+// ---------------------------------------------------------------- inicio
+document.addEventListener('DOMContentLoaded', () => {
     createClientModal = new bootstrap.Modal($('createClientModal'));
-    $('loginForm').addEventListener('submit', handleLogin);
-    $('logoutButton').addEventListener('click', () => sb.auth.signOut());
-
-    sb.auth.onAuthStateChange((_event, session) => mostrarVista(session));
-    const { data } = await sb.auth.getSession();
-    mostrarVista(data.session);
+    iniciarApp();
 });
 
-function mostrarVista(session) {
-    const logueado = !!session;
-    $('loginView').classList.toggle('d-none', logueado);
-    $('appView').classList.toggle('d-none', !logueado);
-    $('userBox').classList.toggle('d-none', !logueado);
-    if (logueado) {
-        $('userEmail').textContent = session.user.email;
-        if (!appIniciada) { appIniciada = true; iniciarApp(); }
-    }
-}
-
-async function handleLogin(e) {
-    e.preventDefault();
-    $('loginError').classList.add('d-none');
-    showSpinner();
-    const { error } = await sb.auth.signInWithPassword({
-        email: $('loginEmail').value.trim(),
-        password: $('loginPassword').value,
-    });
-    hideSpinner();
-    if (error) {
-        $('loginError').textContent = 'No se pudo iniciar sesión: ' + error.message;
-        $('loginError').classList.remove('d-none');
-    }
-}
-
-// ---------------------------------------------------------------- inicio
 function iniciarApp() {
     run(async () => {
         const [tiendas, tipos, vendedores, productos, metodos, deptos] = await Promise.all(

@@ -353,14 +353,13 @@ end;
 $$;
 
 -- =====================================================================
--- SEGURIDAD: solo usuarios autenticados (Supabase Auth) leen y escriben.
--- La clave publicable sola (rol anon) no ve ningún dato.
+-- ACCESO LIBRE: sin inicio de sesión y sin RLS. Cualquiera con la clave
+-- publicable (rol anon) puede leer, crear, modificar y borrar datos.
 -- =====================================================================
 grant usage on schema tiendaariga to anon, authenticated, service_role;
-grant select, insert, update, delete on all tables in schema tiendaariga to authenticated, service_role;
-grant usage, select on all sequences in schema tiendaariga to authenticated, service_role;
-grant execute on all functions in schema tiendaariga to authenticated, service_role;
-revoke execute on all functions in schema tiendaariga from anon, public;
+grant select, insert, update, delete on all tables in schema tiendaariga to anon, authenticated, service_role;
+grant usage, select on all sequences in schema tiendaariga to anon, authenticated, service_role;
+grant execute on all functions in schema tiendaariga to anon, authenticated, service_role;
 
 do $$
 declare t text;
@@ -370,10 +369,8 @@ begin
                            'ingresos_inventario','devoluciones_oficina',
                            'inventario_items','coordenadas']
   loop
-    execute format('alter table tiendaariga.%I enable row level security', t);
     execute format('drop policy if exists "autenticados_todo" on tiendaariga.%I', t);
-    execute format('create policy "autenticados_todo" on tiendaariga.%I
-                    for all to authenticated using (true) with check (true)', t);
+    execute format('alter table tiendaariga.%I disable row level security', t);
   end loop;
 end $$;
 

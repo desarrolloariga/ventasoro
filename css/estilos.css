@@ -125,8 +125,6 @@ body {
 .saldo-negativo { color: #b02a37; }
 .table tfoot td { font-weight: 600; background: var(--pastel-header); }
 
-/* --- Login --- */
-.login-card { max-width: 420px; margin: 4rem auto; }
 
 /* --- Spinner --- */
 .spinner-overlay {

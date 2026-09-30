@@ -39,16 +39,12 @@ Funciones: `buscar_cliente`, `registrar_venta` (genera el Id `yyyyMMdd-NNN`),
    El primero vacía las tablas, así que la carga se puede repetir.
 3. **Exponer el esquema**: *Project Settings → Data API → Exposed schemas*:
    debe incluir `tiendaariga` (ya estaba expuesto al momento de crear esto).
-4. **Crear usuarios**: *Authentication → Users → Add user* (correo y contraseña)
-   para cada persona que use la app.
-5. **Publicar la web**: ver *Despliegue en Vercel*. Para probar en local:
+4. **Publicar la web**: ver *Despliegue en Vercel*. Para probar en local:
    `npx serve .` y abrir http://localhost:3000.
-6. **URL de redirección**: en *Authentication → URL Configuration*, poner la URL
-   de Vercel como *Site URL* (necesario para recuperar contraseñas).
 
 ## Despliegue en Vercel
 
-Es un sitio estático, no requiere compilación.
+Es un sitio estático; el único paso de build genera `js/config.js` desde las variables de entorno.
 
 1. Subir el repositorio a GitHub (privado).
 2. En https://vercel.com/new → *Import Git Repository* → elegir el repositorio.
@@ -78,14 +74,17 @@ está en `.gitignore` y nunca se sube. Para recrearlos en otra máquina:
 
 ## Seguridad
 
-La app original era anónima. Aquí los datos (incluidos los DPI de los clientes)
-solo son accesibles para usuarios que inician sesión: RLS está activo en todas
-las tablas con acceso únicamente para el rol `authenticated`. La clave publicable
-sola no permite leer nada.
+**Acceso libre, sin inicio de sesión y sin RLS.** El rol `anon` (clave
+publicable) tiene lectura y escritura completas sobre todas las tablas. Como la
+clave va en la página y el repositorio es público, cualquier persona puede leer
+los datos de clientes (DPI, teléfonos), y modificar o borrar ventas y pagos
+directamente contra la API de Supabase, sin pasar por la app.
+
+Para volver a proteger la base: activar RLS en las tablas y crear políticas
+(ver el historial de git de `supabase/01_esquema.sql`, versión con login).
 
 ## Diferencias con la versión de Apps Script
 
-- Inicio de sesión obligatorio (ver Seguridad).
 - Al **actualizar** una venta se conservan la fecha de venta y el vencimiento
   originales (antes se reemplazaban por la fecha del día).
 - Si en una actualización se cambia el número de envío, se actualiza el pedido
