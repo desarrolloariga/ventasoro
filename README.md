@@ -52,10 +52,16 @@ Es un sitio estático, no requiere compilación.
 
 1. Subir el repositorio a GitHub (privado).
 2. En https://vercel.com/new → *Import Git Repository* → elegir el repositorio.
-3. Configuración del proyecto:
-   - *Framework Preset*: **Other**
-   - *Build Command*: vacío
-   - *Output Directory*: vacío (raíz)
+3. En *Environment Variables*, pegar:
+   ```
+   SUPABASE_URL=https://aijexrcfmakphpqihkig.supabase.co
+   SUPABASE_KEY=sb_publishable_ipr6oXXU484KmKMPigiM5g_dwBiJm_b
+   SUPABASE_SCHEMA=tiendaariga
+   ZONA_HORARIA=America/Guatemala
+   ```
+   El resto de la configuración (build, carpeta `dist/`) ya viene en `vercel.json`.
+   Si falta una variable se usa el valor de `js/config.js`. El build falla a
+   propósito si `SUPABASE_KEY` es una clave secreta.
 4. *Deploy*. Cada `git push` a `main` vuelve a publicar automáticamente, y cada
    rama o pull request genera una URL de vista previa.
 
