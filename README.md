@@ -68,7 +68,7 @@ Es un sitio estático, no requiere compilación.
 `vercel.json` agrega encabezados de seguridad (incluida una Content-Security-Policy
 que solo permite jsDelivr, Google Fonts, imgur y proyectos *.supabase.co). Si se
 agrega otro CDN, hay que actualizarla.
-`.vercelignore` evita publicar `supabase/`, `scripts/` y este README.
+`.vercelignore` evita publicar `supabase/` y este README; solo se sirve la carpeta `dist/` que genera el build.
 
 ## Datos de clientes y git
 
