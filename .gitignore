@@ -17,3 +17,6 @@ Thumbs.db
 
 # Salida del build
 dist/
+
+.vercel
+.env*
