@@ -34,11 +34,15 @@ const showAlert = (m, t = 'info') => {
     $('alert-container').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 };
 
+// Las listas con data-crear="<maestro>" terminan con la opción "+ Crear nuevo…"
+const OPCION_CREAR = '__crear__';
+const opcionCrear = crear => crear ? `<option value="${OPCION_CREAR}">+ Crear nuevo…</option>` : '';
+
 const populateDropdown = (id, opts, placeholder) => {
     const s = $(id);
     if (!s) return;
     s.innerHTML = `<option value="">${esc(placeholder)}</option>` +
-        opts.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+        opts.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('') + opcionCrear(s.dataset.crear);
 };
 
 // Ejecuta una operación con spinner y manejo de errores centralizado
@@ -75,27 +79,34 @@ async function fetchAll(buildQuery, pageSize = 1000) {
 document.addEventListener('DOMContentLoaded', () => {
     createClientModal = new bootstrap.Modal($('createClientModal'));
     referenciaModal = new bootstrap.Modal($('referenciaModal'));
+    crearModal = new bootstrap.Modal($('crearModal'));
     iniciarApp();
 });
 
 function iniciarApp() {
     run(async () => {
-        const [tipos, deptos] = await Promise.all([
-            sb.from('tipos').select('nombre').order('orden').then(ok).then(r => r.map(x => x.nombre)),
-            sb.from('coordenadas').select('departamento').order('departamento').then(ok).then(r => r.map(x => x.departamento)),
-        ]);
-        dropdownData = { ...dropdownData, tipos };
         await Promise.all([cargarMaestros(), cargarReferencias()]);
-
-        populateDropdown('filterTipo', tipos, 'Todos');
-        populateDropdown('refTipo', tipos, '(sin tipo)');
         $('cargaFecha').value = hoyISO();
-        populateDropdown('newClientDepto', deptos, 'Seleccione...');
         $('fechaPago').value = hoyISO();
     });
 
+    // "+ Crear nuevo…" en cualquier lista: recuerda el valor previo y abre el formulario
+    document.addEventListener('focusin', e => {
+        if (e.target.tagName === 'SELECT' && e.target.dataset.crear) e.target.dataset.previo = e.target.value;
+    });
+    document.addEventListener('change', e => {
+        const sel = e.target;
+        if (sel.tagName !== 'SELECT' || !sel.dataset.crear) return;
+        if (sel.value !== OPCION_CREAR) { sel.dataset.previo = sel.value; return; }
+        sel.value = sel.dataset.previo ?? '';
+        abrirCrear(sel.dataset.crear, sel);
+    });
+    $('crearForm').addEventListener('submit', guardarCrear);
+    $('crearModal').addEventListener('shown.bs.modal', () => $('crearNombre').focus());
+
     // Registro y Clientes
     $('searchClientButton').addEventListener('click', searchClient);
+    $('newClientSaleButton').addEventListener('click', () => abrirModalCliente({}, 'venta'));
     $('clientDPI').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); searchClient(); } });
     $('saveClientButton').addEventListener('click', saveNewClient);
     $('addProductButton').addEventListener('click', () => addProductLine());
@@ -148,7 +159,7 @@ function iniciarApp() {
 
     $('cargaForm').addEventListener('submit', handleCargaSubmit);
     ['cargaTienda', 'cargaProducto'].forEach(id => $(id).addEventListener('change', mostrarSaldoCarga));
-    $('cargaNuevaRefButton').addEventListener('click', () => abrirModalReferencia());
+    $('cargaNuevaRefButton').addEventListener('click', () => abrirModalReferencia(null, $('cargaProducto')));
     $('cargasTableBody').addEventListener('click', e => {
         const b = e.target.closest('.delete-carga');
         if (b) eliminarCarga(Number(b.dataset.id));
@@ -212,9 +223,7 @@ function searchClient() {
     run(async () => {
         const [c] = ok(await sb.rpc('buscar_cliente', { p_termino: s }));
         if (c) {
-            $('clientDPI').value = c.dpi || c.nit || c.nombre;
-            $('clientName').value = c.nombre;
-            $('clientNIT').value = c.nit || '';
+            ponerClienteEnVenta(c);
         } else if (confirm('Cliente no encontrado. ¿Desea crearlo?')) {
             // Precarga el dato buscado: si es numérico va a DPI, si no al nombre
             abrirModalCliente(/^\d[\d-]*$/.test(s) ? { dpi: s } : { nombre: s }, 'venta');
@@ -236,6 +245,7 @@ function abrirModalCliente(c = {}, origen = 'clientes') {
     $('createClientForm').reset();
     $('editClientId').value = c.id || '';
     $('clientModalTitle').textContent = c.id ? 'Editar Cliente' : 'Crear Nuevo Cliente';
+    $('clientModalId').textContent = c.id ?? 'se asigna al guardar';
     for (const [id, col] of Object.entries(CAMPOS_CLIENTE)) {
         if (id === 'newClientDepto') setSelectValue(id, c[col]); else $(id).value = c[col] ?? '';
     }
@@ -253,31 +263,36 @@ function saveNewClient() {
             : ok(await sb.from('clientes').insert(d).select().single());
         createClientModal.hide();
         if (origenModalCliente === 'venta') {
-            $('clientDPI').value = c.dpi || c.nit || c.nombre;
-            $('clientName').value = c.nombre;
-            $('clientNIT').value = c.nit || '';
+            ponerClienteEnVenta(c);
         } else {
             const i = fullClientesData.findIndex(x => x.id === c.id);
             if (i >= 0) fullClientesData[i] = c; else fullClientesData.unshift(c);
             filterClientes();
         }
-        showAlert(id ? 'Cliente actualizado con éxito' : 'Cliente creado con éxito', 'success');
+        showAlert(id ? `Cliente ID ${c.id} actualizado con éxito` : `Cliente creado con éxito. ID Cliente: ${c.id}`, 'success');
     });
 }
 
+function ponerClienteEnVenta(c) {
+    $('clientId').value = c.id ?? '';
+    $('clientDPI').value = c.dpi || c.nit || c.nombre;
+    $('clientName').value = c.nombre;
+    $('clientNIT').value = c.nit || '';
+}
+
 // ---------------------------------------------------------------- ventas
-const getOptionsHTML = (opts, sel) => {
+const getOptionsHTML = (opts, sel, crear) => {
     // Si el valor guardado ya no está en Maestros se conserva igual
     const lista = sel && !opts.includes(sel) ? [...opts, sel] : opts;
     return `<option value="">...</option>` +
-        lista.map(x => `<option value="${esc(x)}" ${x === sel ? 'selected' : ''}>${esc(x)}</option>`).join('');
+        lista.map(x => `<option value="${esc(x)}" ${x === sel ? 'selected' : ''}>${esc(x)}</option>`).join('') + opcionCrear(crear);
 };
 
 function addProductLine(d = {}) {
     const r = document.createElement('tr');
     r.innerHTML = `
-        <td><select class="form-select form-select-sm product-tipo" required>${getOptionsHTML(dropdownData.tipos, d.tipo)}</select></td>
-        <td><select class="form-select form-select-sm product-producto" required>${getOptionsHTML(dropdownData.productos, d.producto)}</select></td>
+        <td><select class="form-select form-select-sm product-tipo" data-crear="tipos" required>${getOptionsHTML(dropdownData.tipos, d.tipo, 'tipos')}</select></td>
+        <td><select class="form-select form-select-sm product-producto" data-crear="productos" required>${getOptionsHTML(dropdownData.productos, d.producto, 'productos')}</select></td>
         <td><input type="number" class="form-control form-control-sm product-cantidad" value="${esc(d.cantidad ?? 1)}" step="any" required></td>
         <td><input type="number" class="form-control form-control-sm product-valor-unitario" value="${esc(d.valor_unitario ?? 0)}" step="0.01" required></td>
         <td><input type="text" class="form-control form-control-sm product-valor-total" value="${esc(num(d.valor_total).toFixed(2))}" readonly></td>
@@ -308,6 +323,7 @@ function handleFormSubmit(e) {
         vendedor: $('vendedorSelect').value,
         clienteNombre: $('clientName').value,
         clienteDPI: $('clientDPI').value,
+        clienteId: $('clientId').value,
         pedidoId: $('pedidoId').value,
     };
     const productLines = [...document.querySelectorAll('#productLines tr')].map(r => ({
@@ -365,6 +381,7 @@ function searchOrder() {
         const rows = await obtenerLineasEnvio(i);
         if (!rows.length) { showAlert('No se encontró el pedido', 'warning'); return; }
         const h = rows[0];
+        $('clientId').value = h.cliente_id ?? '';
         $('clientDPI').value = h.documento_cliente || '';
         $('clientName').value = h.cliente || '';
         $('clientNIT').value = '';
@@ -387,8 +404,12 @@ function searchOrder() {
 // Selecciona un valor aunque ya no exista en Maestros (lo agrega temporalmente)
 function setSelectValue(idOElemento, value) {
     const s = typeof idOElemento === 'string' ? $(idOElemento) : idOElemento;
-    if (value && ![...s.options].some(o => o.value === value)) s.add(new Option(value, value));
+    if (value && ![...s.options].some(o => o.value === value)) {
+        // antes de "+ Crear nuevo…", si existe
+        s.add(new Option(value, value), [...s.options].find(o => o.value === OPCION_CREAR) ?? null);
+    }
     s.value = value || '';
+    s.dataset.previo = s.value;
 }
 
 function resetForm() {
@@ -588,7 +609,10 @@ function renderReferencias() {
     $('referenciasTableBody').innerHTML = referenciasFiltradas().map(r => `<tr class="${r.activo ? '' : 'text-muted'}"><td>${esc(r.codigo)}</td><td>${esc(r.nombre)}</td><td>${esc(r.tipo)}</td><td>${esc(r.unidad)}</td><td>${si(r.controla_inventario)}</td><td>${si(r.activo)}</td><td class="num ${num(r.saldo_total) < 0 ? 'saldo-negativo' : ''}">${r.saldo_total == null ? '' : fmt(r.saldo_total)}</td><td><button type="button" class="btn btn-outline-secondary btn-sm edit-ref" data-nombre="${esc(r.nombre)}" title="Editar"><i class="bi bi-pencil"></i></button></td></tr>`).join('');
 }
 
-function abrirModalReferencia(r = null) {
+// destino = lista que debe quedar con la referencia nueva seleccionada
+let referenciaDestino = null;
+function abrirModalReferencia(r = null, destino = null) {
+    referenciaDestino = destino;
     $('referenciaForm').reset();
     $('refEditando').value = r ? r.nombre : '';
     $('referenciaModalTitle').textContent = r ? 'Editar Referencia' : 'Nueva Referencia';
@@ -623,8 +647,7 @@ function guardarReferencia() {
         }
         referenciaModal.hide();
         await cargarReferencias();
-        // Si se creó desde "Cargar inventario", queda seleccionada
-        if (!editando && $('pills-carga-tab').classList.contains('active')) { $('cargaProducto').value = nombre; mostrarSaldoCarga(); }
+        if (!editando && referenciaDestino) seleccionarCreado(referenciaDestino, nombre);
         if ($('pills-referencias-tab').classList.contains('active')) loadReferencias();
         showAlert(editando ? 'Referencia actualizada' : `Referencia "${nombre}" creada`, 'success');
     });
@@ -789,18 +812,18 @@ function loadClientesData() {
 function clientesFiltrados() {
     const q = norm($('filterClientes').value);
     return fullClientesData.filter(c =>
-        !q || [c.nombre, c.dpi, c.nit, c.telefono].some(v => norm(v).includes(q)));
+        !q || String(c.id) === q || [c.nombre, c.dpi, c.nit, c.telefono].some(v => norm(v).includes(q)));
 }
 
 function filterClientes() {
     const d = clientesFiltrados();
-    $('clientesTableBody').innerHTML = d.map(c => `<tr><td>${esc(c.nombre)}</td><td>${esc(c.dpi)}</td><td>${esc(c.nit)}</td><td>${esc(c.telefono)}</td><td>${esc(c.departamento)}</td><td>${fmtFecha(c.fecha_nacimiento)}</td><td><button type="button" class="btn btn-outline-secondary btn-sm edit-client" data-id="${c.id}" title="Editar"><i class="bi bi-pencil"></i></button></td></tr>`).join('');
+    $('clientesTableBody').innerHTML = d.map(c => `<tr><td class="num fw-semibold">${c.id}</td><td>${esc(c.nombre)}</td><td>${esc(c.dpi)}</td><td>${esc(c.nit)}</td><td>${esc(c.telefono)}</td><td>${esc(c.departamento)}</td><td>${fmtFecha(c.fecha_nacimiento)}</td><td><button type="button" class="btn btn-outline-secondary btn-sm edit-client" data-id="${c.id}" title="Editar"><i class="bi bi-pencil"></i></button></td></tr>`).join('');
     $('clientesRowCount').textContent = d.length;
 }
 
 function exportClientes() {
     exportarExcel('Clientes', 'Clientes', clientesFiltrados().map(c => ({
-        'DPI': c.dpi, 'NIT': c.nit, 'Nombre y apellido': c.nombre, 'Fecha de nacimiento': aFecha(c.fecha_nacimiento),
+        'ID Cliente': c.id, 'DPI': c.dpi, 'NIT': c.nit, 'Nombre y apellido': c.nombre, 'Fecha de nacimiento': aFecha(c.fecha_nacimiento),
         'Departamento': c.departamento, 'Teléfono': c.telefono, 'NIT2': c.nit2, 'Código cliente': c.codigo_cliente,
     })));
 }
@@ -891,11 +914,13 @@ function exportarExcel(nombre, hoja, filas) {
 // ---------------------------------------------------------------- maestros: tiendas y vendedores
 // uso = tabla y columna que guardan el nombre (para saber si está en uso)
 const MAESTROS = {
-    tiendas: { grupo: 'tiendas', uso: ['ventas', 'tienda'] },
-    vendedores: { grupo: 'vendedores', uso: ['ventas', 'vendedor'] },
-    metodos_pago: { grupo: 'métodos de pago', uso: ['pagos', 'metodo_pago'] },
+    tiendas: { grupo: 'tiendas', nuevo: 'Nueva tienda o bodega', uso: ['ventas', 'tienda'] },
+    vendedores: { grupo: 'vendedores', nuevo: 'Nuevo vendedor', uso: ['ventas', 'vendedor'] },
+    metodos_pago: { grupo: 'métodos de pago', nuevo: 'Nuevo método de pago', uso: ['pagos', 'metodo_pago'] },
+    tipos: { grupo: 'tipos', nuevo: 'Nuevo tipo', uso: ['ventas', 'tipo'] },
+    departamentos: { grupo: 'departamentos', nuevo: 'Nuevo departamento', uso: ['clientes', 'departamento'] },
 };
-const maestros = { tiendas: [], vendedores: [], metodos_pago: [] };
+const maestros = { tiendas: [], vendedores: [], metodos_pago: [], tipos: [], departamentos: [] };
 
 // Vuelve a llenar un select conservando lo que estaba elegido
 function repoblar(id, opts, placeholder) {
@@ -905,9 +930,9 @@ function repoblar(id, opts, placeholder) {
 }
 
 async function cargarMaestros() {
-    const [tiendas, vendedores, metodos_pago] = await Promise.all(Object.keys(MAESTROS).map(t =>
+    const [tiendas, vendedores, metodos_pago, tipos, departamentos] = await Promise.all(Object.keys(MAESTROS).map(t =>
         sb.from(t).select('*').order('orden').order('nombre').then(ok)));
-    Object.assign(maestros, { tiendas, vendedores, metodos_pago });
+    Object.assign(maestros, { tiendas, vendedores, metodos_pago, tipos, departamentos });
     const todos = l => l.map(x => x.nombre);
     const activos = l => l.filter(x => x.activo !== false).map(x => x.nombre);
 
@@ -917,6 +942,10 @@ async function cargarMaestros() {
     repoblar('cargaTienda', activos(tiendas), 'Seleccione Tienda...');
     repoblar('vendedorSelect', activos(vendedores), 'Seleccione Vendedor...');
     repoblar('metodoPago', activos(metodos_pago), 'Seleccione...');
+    dropdownData.tipos = activos(tipos);
+    repoblar('filterTipo', todos(tipos), 'Todos');
+    repoblar('refTipo', activos(tipos), '(sin tipo)');
+    repoblar('newClientDepto', activos(departamentos), 'Seleccione...');
 
     for (const m of Object.keys(MAESTROS)) {
         $(`maestro-${m}`).innerHTML = maestros[m].map(x => `<tr class="${x.activo === false ? 'text-muted' : ''}">
@@ -929,19 +958,62 @@ async function cargarMaestros() {
     }
 }
 
+const normalizarNombre = v => v.trim().toUpperCase().replace(/\s+/g, ' ');
+
+// Inserta en un maestro y recarga las listas. Devuelve el nombre guardado.
+// Si ya existe activo y permitirExistente, devuelve el existente.
+async function insertarMaestro(m, nombre, clase, permitirExistente = false) {
+    const existente = maestros[m].find(x => norm(x.nombre) === norm(nombre));
+    if (existente && existente.activo !== false && permitirExistente) return existente.nombre;
+    if (existente) throw new Error(`"${existente.nombre}" ya existe${existente.activo === false ? ' (está inactivo: actívelo en Maestros)' : ''}.`);
+    const orden = Math.max(0, ...maestros[m].map(x => x.orden || 0)) + 1;
+    ok(await sb.from(m).insert({ nombre, orden, activo: true, ...(m === 'tiendas' ? { clase } : {}) }));
+    await cargarMaestros();
+    return nombre;
+}
+
 function agregarMaestro(m, input, clase) {
-    const nombre = input.value.trim().toUpperCase().replace(/\s+/g, ' ');
+    const nombre = normalizarNombre(input.value);
     if (!nombre) return;
-    const cfg = MAESTROS[m];
     run(async () => {
-        const existente = maestros[m].find(x => norm(x.nombre) === norm(nombre));
-        if (existente) throw new Error(`"${existente.nombre}" ya existe${existente.activo === false ? ' (está inactivo: actívelo)' : ''}.`);
-        const orden = Math.max(0, ...maestros[m].map(x => x.orden || 0)) + 1;
-        ok(await sb.from(m).insert({ nombre, orden, activo: true, ...(m === 'tiendas' ? { clase } : {}) }));
+        await insertarMaestro(m, nombre, clase);
         input.value = '';
-        await cargarMaestros();
-        showAlert(`"${nombre}" agregado${m === 'tiendas' ? ` como ${clase === 'BODEGA' ? 'bodega' : 'tienda'}` : ` a ${cfg.grupo}`}`, 'success');
+        showAlert(`"${nombre}" agregado${m === 'tiendas' ? ` como ${clase === 'BODEGA' ? 'bodega' : 'tienda'}` : ` a ${MAESTROS[m].grupo}`}`, 'success');
     });
+}
+
+// ---------------------------------------------------------------- "+ Crear nuevo…" desde cualquier lista
+let crearModal, crearDestino = null;
+
+function abrirCrear(m, destino) {
+    if (m === 'productos') { abrirModalReferencia(null, destino); return; }
+    crearDestino = { m, destino };
+    $('crearForm').reset();
+    $('crearTitulo').textContent = MAESTROS[m].nuevo;
+    $('crearClaseGrupo').classList.toggle('d-none', m !== 'tiendas');
+    crearModal.show();
+}
+
+function guardarCrear(e) {
+    e.preventDefault();
+    const { m, destino } = crearDestino;
+    const nombre = normalizarNombre($('crearNombre').value);
+    if (!nombre) return;
+    const clase = $('crearClase').value;
+    run(async () => {
+        const yaExistia = maestros[m].some(x => norm(x.nombre) === norm(nombre) && x.activo !== false);
+        const guardado = await insertarMaestro(m, nombre, clase, true);
+        crearModal.hide();
+        seleccionarCreado(destino, guardado);
+        showAlert(yaExistia ? `"${guardado}" ya existía; quedó seleccionado` : `"${guardado}" creado y seleccionado`, 'success');
+    });
+}
+
+// Deja seleccionado lo recién creado y avisa a la lista (dispara sus efectos)
+function seleccionarCreado(destino, valor) {
+    if (!destino) return;
+    setSelectValue(destino, valor);
+    destino.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 function cambiarActivoMaestro(chk) {

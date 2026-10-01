@@ -26,6 +26,22 @@ create table if not exists tiendaariga.vendedores (
 -- en el histórico (las ventas guardan el nombre).
 alter table tiendaariga.tiendas    add column if not exists activo boolean not null default true;
 alter table tiendaariga.vendedores add column if not exists activo boolean not null default true;
+alter table tiendaariga.tipos      add column if not exists activo boolean not null default true;
+
+-- Departamentos para la ficha del cliente. Si la tabla está vacía se
+-- precarga con los 22 departamentos de Guatemala.
+create table if not exists tiendaariga.departamentos (
+  nombre text primary key,
+  orden  int not null default 0,
+  activo boolean not null default true
+);
+insert into tiendaariga.departamentos (nombre, orden)
+select d, n
+from unnest(array['ALTA VERAPAZ','BAJA VERAPAZ','CHIMALTENANGO','CHIQUIMULA','EL PROGRESO',
+                  'ESCUINTLA','GUATEMALA','HUEHUETENANGO','IZABAL','JALAPA','JUTIAPA','PETÉN',
+                  'QUETZALTENANGO','QUICHÉ','RETALHULEU','SACATEPÉQUEZ','SAN MARCOS','SANTA ROSA',
+                  'SOLOLÁ','SUCHITEPÉQUEZ','TOTONICAPÁN','ZACAPA']) with ordinality as t(d, n)
+where not exists (select 1 from tiendaariga.departamentos);
 
 -- Tiendas y bodegas son el mismo concepto; "clase" solo las distingue.
 -- Al crear la columna, las que se llaman "BODEGA ..." quedan como BODEGA.
@@ -106,6 +122,10 @@ create table if not exists tiendaariga.ventas (
   nota_importacion   text,
   created_at         timestamptz not null default now()
 );
+-- Consecutivo único del cliente (clientes.id). Las ventas importadas del
+-- Excel no lo tienen; las nuevas lo guardan.
+alter table tiendaariga.ventas add column if not exists cliente_id bigint;
+create index if not exists ventas_cliente_idx on tiendaariga.ventas (cliente_id);
 create index if not exists ventas_envio_idx  on tiendaariga.ventas (envio);
 create index if not exists ventas_pedido_idx on tiendaariga.ventas (pedido_id);
 create index if not exists ventas_fecha_idx  on tiendaariga.ventas (fecha_venta);
@@ -323,7 +343,8 @@ join tiendaariga.devoluciones_oficina o
 -- FUNCIONES (equivalentes a las funciones de Apps Script)
 -- =====================================================================
 
--- searchClient: coincidencia exacta por DPI, NIT o nombre (sin mayúsculas)
+-- searchClient: coincidencia exacta por DPI, NIT, nombre (sin mayúsculas) o
+-- ID de cliente. Si el término coincide con un DPI/NIT/nombre, gana ese.
 create or replace function tiendaariga.buscar_cliente(p_termino text)
 returns setof tiendaariga.clientes
 language sql stable
@@ -332,10 +353,11 @@ as $$
   select *
   from clientes
   where nullif(lower(trim(p_termino)),'') is not null
-    and lower(trim(p_termino)) in (lower(trim(coalesce(dpi,''))),
-                                   lower(trim(coalesce(nit,''))),
-                                   lower(trim(nombre)))
-  order by id
+    and (lower(trim(p_termino)) in (lower(trim(coalesce(dpi,''))),
+                                    lower(trim(coalesce(nit,''))),
+                                    lower(trim(nombre)))
+         or id::text = trim(p_termino))
+  order by (id::text = trim(p_termino)), id
   limit 1;
 $$;
 
@@ -368,10 +390,11 @@ begin
   v_id := v_prefijo || '-' || lpad(v_num::text, 3, '0');
 
   insert into ventas (pedido_id, fecha_venta, fecha_vencimiento, tienda, vendedor,
-                      cliente, documento_cliente, factura, envio,
+                      cliente_id, cliente, documento_cliente, factura, envio,
                       tipo, producto, cantidad, valor_unitario, valor_total)
   select v_id, v_hoy, v_hoy + 30,
-         h->>'tienda', h->>'vendedor', h->>'clienteNombre', nullif(h->>'clienteDPI',''),
+         h->>'tienda', h->>'vendedor', nullif(h->>'clienteId','')::bigint,
+         h->>'clienteNombre', nullif(h->>'clienteDPI',''),
          nullif(s->>'factura',''), nullif(trim(s->>'envio'),''),
          l->>'tipo', l->>'producto',
          nullif(l->>'cantidad','')::numeric,
@@ -393,11 +416,12 @@ declare
   v_pedido  text;
   v_fecha   date;
   v_vence   date;
+  v_cliente bigint;
   h         jsonb := p_venta->'header';
   s         jsonb := p_venta->'summary';
 begin
-  select pedido_id, fecha_venta, fecha_vencimiento
-    into v_pedido, v_fecha, v_vence
+  select pedido_id, fecha_venta, fecha_vencimiento, cliente_id
+    into v_pedido, v_fecha, v_vence, v_cliente
   from ventas where trim(envio) = trim(p_envio)
   order by id limit 1;
 
@@ -411,10 +435,11 @@ begin
   delete from ventas where trim(envio) = trim(p_envio);
 
   insert into ventas (pedido_id, fecha_venta, fecha_vencimiento, tienda, vendedor,
-                      cliente, documento_cliente, factura, envio,
+                      cliente_id, cliente, documento_cliente, factura, envio,
                       tipo, producto, cantidad, valor_unitario, valor_total)
   select coalesce(nullif(h->>'pedidoId',''), v_pedido), v_fecha, v_vence,
-         h->>'tienda', h->>'vendedor', h->>'clienteNombre', nullif(h->>'clienteDPI',''),
+         h->>'tienda', h->>'vendedor', coalesce(nullif(h->>'clienteId','')::bigint, v_cliente),
+         h->>'clienteNombre', nullif(h->>'clienteDPI',''),
          nullif(s->>'factura',''), nullif(trim(s->>'envio'),''),
          l->>'tipo', l->>'producto',
          nullif(l->>'cantidad','')::numeric,
@@ -455,7 +480,7 @@ grant execute on all functions in schema tiendaariga to anon, authenticated, ser
 do $$
 declare t text;
 begin
-  foreach t in array array['tiendas','tipos','vendedores','productos','metodos_pago',
+  foreach t in array array['tiendas','tipos','vendedores','productos','metodos_pago','departamentos',
                            'clientes','ventas','pagos','devoluciones',
                            'ingresos_inventario','devoluciones_oficina',
                            'inventario_items','coordenadas']

@@ -16,11 +16,20 @@ Réplica de la aplicación de Apps Script "Aplicación Ariga", usando Supabase
 ## Pestañas
 
 Venta, Buscar Pedido, Pagos, **Clientes** (listado, búsqueda, crear y editar),
-Histórico, Cartera, **Inventario**, **Maestros** (tiendas, bodegas, vendedores y métodos de pago: agregar,
+Histórico, Cartera, **Inventario**, **Maestros** (tiendas, bodegas, vendedores, métodos de pago, tipos y
+departamentos: agregar,
 activar/desactivar y eliminar los que no tienen ventas ni pagos) y **Datos** (cualquier
 tabla o vista en bruto).
 Histórico, Cartera, Clientes y Datos tienen botón **Exportar a Excel**, que
 descarga lo que está filtrado en pantalla.
+
+Todas las listas desplegables de los formularios terminan con **+ Crear
+nuevo…**: crea el elemento en el momento y lo deja seleccionado (las
+referencias abren su propio formulario).
+
+Cada cliente tiene un **ID Cliente** (consecutivo único, `clientes.id`) que se
+muestra al crearlo, en la ficha, en la lista y en la venta. Las ventas nuevas
+lo guardan en `ventas.cliente_id`, y se puede buscar al cliente por ese ID.
 
 ## Inventario
 

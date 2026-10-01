@@ -30,11 +30,12 @@
                 <div class="modal-body">
                     <form id="createClientForm">
                         <input type="hidden" id="editClientId">
+                        <div class="alert alert-light border py-2 mb-3"><strong>ID Cliente:</strong> <span id="clientModalId">se asigna al guardar</span></div>
                         <div class="mb-3"><label for="newClientDPI" class="form-label">DPI</label><input type="text" class="form-control" id="newClientDPI"></div>
                         <div class="mb-3"><label for="newClientNIT" class="form-label">NIT</label><input type="text" class="form-control" id="newClientNIT"></div>
                         <div class="mb-3"><label for="newClientNombre" class="form-label">Nombre y Apellido*</label><input type="text" class="form-control" id="newClientNombre" required></div>
                         <div class="mb-3"><label for="newClientFechaNac" class="form-label">Fecha de Nacimiento</label><input type="date" class="form-control" id="newClientFechaNac"></div>
-                        <div class="mb-3"><label for="newClientDepto" class="form-label">Departamento</label><select class="form-select" id="newClientDepto"></select></div>
+                        <div class="mb-3"><label for="newClientDepto" class="form-label">Departamento</label><select class="form-select" id="newClientDepto" data-crear="departamentos"></select></div>
                         <div class="mb-3"><label for="newClientTel" class="form-label">Teléfono</label><input type="text" class="form-control" id="newClientTel"></div>
                         <div class="row g-2">
                             <div class="col-6"><label for="newClientNIT2" class="form-label">NIT2</label><input type="text" class="form-control" id="newClientNIT2"></div>
@@ -65,7 +66,7 @@
                             <div class="form-text" id="refNombreAyuda">Es el nombre que se elige al vender. No se puede cambiar después.</div></div>
                         <div class="row g-2 mb-3">
                             <div class="col-6"><label for="refCodigo" class="form-label">Código</label><input type="text" class="form-control" id="refCodigo"></div>
-                            <div class="col-6"><label for="refTipo" class="form-label">Tipo</label><select class="form-select" id="refTipo"></select></div>
+                            <div class="col-6"><label for="refTipo" class="form-label">Tipo</label><select class="form-select" id="refTipo" data-crear="tipos"></select></div>
                         </div>
                         <div class="mb-3"><label for="refUnidad" class="form-label">Unidad</label><select class="form-select" id="refUnidad"><option value="GRAMOS">Gramos</option><option value="UNIDADES">Unidades</option></select></div>
                         <div class="form-check"><input class="form-check-input" type="checkbox" id="refControla" checked><label class="form-check-label" for="refControla">Controla inventario</label></div>
@@ -77,6 +78,28 @@
                     <button type="button" class="btn btn-gold" id="saveReferenciaButton">Guardar</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Modal genérico: crear un elemento de una lista desplegable -->
+    <div class="modal fade" id="crearModal" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <form class="modal-content" id="crearForm">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="crearTitulo">Crear</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3 d-none" id="crearClaseGrupo"><label for="crearClase" class="form-label">Tipo</label>
+                        <select class="form-select" id="crearClase"><option value="TIENDA">Tienda</option><option value="BODEGA">Bodega</option></select></div>
+                    <label for="crearNombre" class="form-label">Nombre</label>
+                    <input type="text" class="form-control" id="crearNombre" required autocomplete="off">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-gold">Crear</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -122,14 +145,16 @@
                         <div class="card-body">
                             <div class="row g-2">
                                 <div class="col-md-4">
-                                    <label class="form-label" for="clientDPI">Buscar (DPI/NIT/Nombre)</label>
+                                    <label class="form-label" for="clientDPI">Buscar (ID/DPI/NIT/Nombre)</label>
                                     <div class="input-group">
                                         <input type="text" class="form-control" id="clientDPI">
                                         <button class="btn btn-outline-secondary" type="button" id="searchClientButton">Buscar</button>
+                                        <button class="btn btn-outline-secondary" type="button" id="newClientSaleButton" title="Crear cliente"><i class="bi bi-person-plus"></i></button>
                                     </div>
                                 </div>
-                                <div class="col-md-4"><label class="form-label" for="clientName">Nombre</label><input type="text" class="form-control" id="clientName" readonly></div>
-                                <div class="col-md-4"><label class="form-label" for="clientNIT">NIT</label><input type="text" class="form-control" id="clientNIT" readonly></div>
+                                <div class="col-md-2"><label class="form-label" for="clientId">ID Cliente</label><input type="text" class="form-control fw-semibold" id="clientId" readonly></div>
+                                <div class="col-md-3"><label class="form-label" for="clientName">Nombre</label><input type="text" class="form-control" id="clientName" readonly></div>
+                                <div class="col-md-3"><label class="form-label" for="clientNIT">NIT</label><input type="text" class="form-control" id="clientNIT" readonly></div>
                             </div>
                         </div>
                     </div>
@@ -138,8 +163,8 @@
                         <div class="card-header card-header-custom">Encabezado</div>
                         <div class="card-body">
                             <div class="row g-2">
-                                <div class="col-md-6"><label class="form-label" for="tiendaSelect">Tienda / Bodega</label><select class="form-select" id="tiendaSelect" required></select></div>
-                                <div class="col-md-6"><label class="form-label" for="vendedorSelect">Vendedor</label><select class="form-select" id="vendedorSelect" required></select></div>
+                                <div class="col-md-6"><label class="form-label" for="tiendaSelect">Tienda / Bodega</label><select class="form-select" id="tiendaSelect" data-crear="tiendas" required></select></div>
+                                <div class="col-md-6"><label class="form-label" for="vendedorSelect">Vendedor</label><select class="form-select" id="vendedorSelect" data-crear="vendedores" required></select></div>
                             </div>
                         </div>
                     </div>
@@ -223,7 +248,7 @@
                                 <div class="row g-3">
                                     <div class="col-md-3"><label class="form-label" for="fechaPago">Fecha Pago</label><input type="date" class="form-control" id="fechaPago" required></div>
                                     <div class="col-md-3"><label class="form-label" for="valorPagar">Valor</label><input type="number" class="form-control" id="valorPagar" step="0.01" min="0.01" required></div>
-                                    <div class="col-md-3"><label class="form-label" for="metodoPago">Método</label><select class="form-select" id="metodoPago" required></select></div>
+                                    <div class="col-md-3"><label class="form-label" for="metodoPago">Método</label><select class="form-select" id="metodoPago" data-crear="metodos_pago" required></select></div>
                                     <div class="col-md-3"><label class="form-label" for="boleta">Boleta</label><input type="text" class="form-control" id="boleta"></div>
                                 </div>
                             </div>
@@ -239,7 +264,7 @@
                 <div class="card mb-3">
                   <div class="card-body">
                     <div class="row g-3 align-items-end">
-                      <div class="col-md-8"><label class="form-label" for="filterClientes">Buscar</label><input type="text" class="form-control" id="filterClientes" placeholder="Nombre, DPI, NIT o teléfono..."></div>
+                      <div class="col-md-8"><label class="form-label" for="filterClientes">Buscar</label><input type="text" class="form-control" id="filterClientes" placeholder="ID, nombre, DPI, NIT o teléfono..."></div>
                       <div class="col-md-4 text-md-end">
                         <button type="button" class="btn btn-gold" id="newClientButton"><i class="bi bi-person-plus"></i> Nuevo</button>
                         <button type="button" class="btn btn-outline-secondary" id="exportClientesButton"><i class="bi bi-file-earmark-excel"></i> Excel</button>
@@ -252,7 +277,7 @@
                     <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
                       <table class="table table-hover table-bordered table-sm">
                         <thead class="table-light sticky-top">
-                          <tr><th>Nombre</th><th>DPI</th><th>NIT</th><th>Teléfono</th><th>Departamento</th><th>Fecha Nac.</th><th></th></tr>
+                          <tr><th class="num">ID</th><th>Nombre</th><th>DPI</th><th>NIT</th><th>Teléfono</th><th>Departamento</th><th>Fecha Nac.</th><th></th></tr>
                         </thead>
                         <tbody id="clientesTableBody"></tbody>
                       </table>
@@ -389,11 +414,11 @@
                       <div class="card-body">
                         <div class="row g-3">
                           <div class="col-md-3"><label class="form-label" for="cargaFecha">Fecha</label><input type="date" class="form-control" id="cargaFecha" required></div>
-                          <div class="col-md-4"><label class="form-label" for="cargaTienda">Tienda / Bodega</label><select class="form-select" id="cargaTienda" required></select></div>
+                          <div class="col-md-4"><label class="form-label" for="cargaTienda">Tienda / Bodega</label><select class="form-select" id="cargaTienda" data-crear="tiendas" required></select></div>
                           <div class="col-md-5">
                             <label class="form-label" for="cargaProducto">Referencia</label>
                             <div class="input-group">
-                              <select class="form-select" id="cargaProducto" required></select>
+                              <select class="form-select" id="cargaProducto" data-crear="productos" required></select>
                               <button type="button" class="btn btn-outline-secondary" id="cargaNuevaRefButton" title="Crear referencia"><i class="bi bi-plus-lg"></i> Nueva</button>
                             </div>
                           </div>
@@ -526,8 +551,40 @@
                     </div>
                   </div>
                 </div>
+                <div class="col-md-6">
+                  <div class="card h-100">
+                    <div class="card-header card-header-custom"><i class="bi bi-gem me-2"></i> Tipos (materiales)</div>
+                    <div class="card-body">
+                      <form class="input-group mb-3 maestro-form" data-maestro="tipos">
+                        <input type="text" class="form-control" placeholder="Nuevo tipo (ej. ORO, PLATA)" aria-label="Nuevo tipo" required>
+                        <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button>
+                      </form>
+                      <table class="table table-sm table-bordered align-middle">
+                        <thead class="table-light"><tr><th>Nombre</th><th class="text-center">Activo</th><th></th></tr></thead>
+                        <tbody id="maestro-tipos"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="card h-100">
+                    <div class="card-header card-header-custom"><i class="bi bi-geo-alt me-2"></i> Departamentos</div>
+                    <div class="card-body">
+                      <form class="input-group mb-3 maestro-form" data-maestro="departamentos">
+                        <input type="text" class="form-control" placeholder="Nuevo departamento" aria-label="Nuevo departamento" required>
+                        <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button>
+                      </form>
+                      <div style="max-height: 360px; overflow-y: auto;">
+                      <table class="table table-sm table-bordered align-middle">
+                        <thead class="table-light sticky-top"><tr><th>Nombre</th><th class="text-center">Activo</th><th></th></tr></thead>
+                        <tbody id="maestro-departamentos"></tbody>
+                      </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <p class="text-muted small mt-2 mb-0">Los inactivos no aparecen al registrar ventas, pagos ni cargas, pero se conservan en el histórico y en los filtros. Solo se pueden eliminar los que no tienen ventas o pagos registrados.</p>
+              <p class="text-muted small mt-2 mb-0">Los inactivos no aparecen al registrar ventas, pagos ni cargas, pero se conservan en el histórico y en los filtros. Solo se pueden eliminar los que no están en uso (ventas, pagos o clientes).</p>
             </div>
 
             <!-- Pestaña: Datos en bruto -->
