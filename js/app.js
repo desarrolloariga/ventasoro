@@ -8,7 +8,7 @@ const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
 });
 
-let dropdownData = { tiendas: [], vendedores: [], tipos: [], productos: [], metodos: [] };
+let dropdownData = { tipos: [], productos: [] };
 let createClientModal;
 let fullHistoryData = [], fullCarteraTotalData = [], fullCarteraDetalleData = [], fullInventoryData = [];
 let fullClientesData = [], datosFilas = [];
@@ -80,19 +80,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function iniciarApp() {
     run(async () => {
-        const [tipos, metodos, deptos] = await Promise.all(
-            ['tipos', 'metodos_pago'].map(t =>
-                sb.from(t).select('nombre').order('orden').then(ok).then(r => r.map(x => x.nombre)))
-            .concat(sb.from('coordenadas').select('departamento').order('departamento').then(ok).then(r => r.map(x => x.departamento)))
-        );
-        dropdownData = { ...dropdownData, tipos, metodos };
+        const [tipos, deptos] = await Promise.all([
+            sb.from('tipos').select('nombre').order('orden').then(ok).then(r => r.map(x => x.nombre)),
+            sb.from('coordenadas').select('departamento').order('departamento').then(ok).then(r => r.map(x => x.departamento)),
+        ]);
+        dropdownData = { ...dropdownData, tipos };
         await Promise.all([cargarMaestros(), cargarReferencias()]);
 
         populateDropdown('filterTipo', tipos, 'Todos');
         populateDropdown('refTipo', tipos, '(sin tipo)');
         $('cargaFecha').value = hoyISO();
         populateDropdown('newClientDepto', deptos, 'Seleccione...');
-        $('metodosPagoList').innerHTML = metodos.map(m => `<option value="${esc(m)}">`).join('');
         $('fechaPago').value = hoyISO();
     });
 
@@ -891,12 +889,13 @@ function exportarExcel(nombre, hoja, filas) {
 }
 
 // ---------------------------------------------------------------- maestros: tiendas y vendedores
-// col = columna de ventas que guarda el nombre (para saber si está en uso)
+// uso = tabla y columna que guardan el nombre (para saber si está en uso)
 const MAESTROS = {
-    tiendas: { singular: 'tienda o bodega', col: 'tienda' },
-    vendedores: { singular: 'vendedor', col: 'vendedor' },
+    tiendas: { grupo: 'tiendas', uso: ['ventas', 'tienda'] },
+    vendedores: { grupo: 'vendedores', uso: ['ventas', 'vendedor'] },
+    metodos_pago: { grupo: 'métodos de pago', uso: ['pagos', 'metodo_pago'] },
 };
-const maestros = { tiendas: [], vendedores: [] };
+const maestros = { tiendas: [], vendedores: [], metodos_pago: [] };
 
 // Vuelve a llenar un select conservando lo que estaba elegido
 function repoblar(id, opts, placeholder) {
@@ -906,9 +905,9 @@ function repoblar(id, opts, placeholder) {
 }
 
 async function cargarMaestros() {
-    const [tiendas, vendedores] = await Promise.all(['tiendas', 'vendedores'].map(t =>
+    const [tiendas, vendedores, metodos_pago] = await Promise.all(Object.keys(MAESTROS).map(t =>
         sb.from(t).select('*').order('orden').order('nombre').then(ok)));
-    Object.assign(maestros, { tiendas, vendedores });
+    Object.assign(maestros, { tiendas, vendedores, metodos_pago });
     const todos = l => l.map(x => x.nombre);
     const activos = l => l.filter(x => x.activo !== false).map(x => x.nombre);
 
@@ -917,6 +916,7 @@ async function cargarMaestros() {
     repoblar('tiendaSelect', activos(tiendas), 'Seleccione Tienda...');
     repoblar('cargaTienda', activos(tiendas), 'Seleccione Tienda...');
     repoblar('vendedorSelect', activos(vendedores), 'Seleccione Vendedor...');
+    repoblar('metodoPago', activos(metodos_pago), 'Seleccione...');
 
     for (const m of Object.keys(MAESTROS)) {
         $(`maestro-${m}`).innerHTML = maestros[m].map(x => `<tr class="${x.activo === false ? 'text-muted' : ''}">
@@ -940,7 +940,7 @@ function agregarMaestro(m, input, clase) {
         ok(await sb.from(m).insert({ nombre, orden, activo: true, ...(m === 'tiendas' ? { clase } : {}) }));
         input.value = '';
         await cargarMaestros();
-        showAlert(`"${nombre}" agregado${m === 'tiendas' ? ` como ${clase === 'BODEGA' ? 'bodega' : 'tienda'}` : ' a vendedores'}`, 'success');
+        showAlert(`"${nombre}" agregado${m === 'tiendas' ? ` como ${clase === 'BODEGA' ? 'bodega' : 'tienda'}` : ` a ${cfg.grupo}`}`, 'success');
     });
 }
 
@@ -961,9 +961,10 @@ function cambiarActivoMaestro(chk) {
 function eliminarMaestro(m, nombre) {
     const cfg = MAESTROS[m];
     run(async () => {
-        const usos = ok(await sb.from('ventas').select('id').eq(cfg.col, nombre).limit(1));
+        const [tabla, col] = cfg.uso;
+        const usos = ok(await sb.from(tabla).select('id').eq(col, nombre).limit(1));
         if (usos.length) {
-            showAlert(`"${nombre}" tiene ventas registradas y no se puede eliminar. Desactívelo para que no aparezca al vender.`, 'warning');
+            showAlert(`"${nombre}" tiene ${tabla === 'ventas' ? 'ventas registradas' : 'pagos registrados'} y no se puede eliminar. Desactívelo para que no aparezca en los formularios.`, 'warning');
             return;
         }
         if (!confirm(`¿Eliminar "${nombre}"?`)) return;

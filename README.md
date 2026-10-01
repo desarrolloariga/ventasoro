@@ -16,8 +16,8 @@ Réplica de la aplicación de Apps Script "Aplicación Ariga", usando Supabase
 ## Pestañas
 
 Venta, Buscar Pedido, Pagos, **Clientes** (listado, búsqueda, crear y editar),
-Histórico, Cartera, **Inventario**, **Maestros** (tiendas, bodegas y vendedores: agregar,
-activar/desactivar y eliminar los que no tienen ventas) y **Datos** (cualquier
+Histórico, Cartera, **Inventario**, **Maestros** (tiendas, bodegas, vendedores y métodos de pago: agregar,
+activar/desactivar y eliminar los que no tienen ventas ni pagos) y **Datos** (cualquier
 tabla o vista en bruto).
 Histórico, Cartera, Clientes y Datos tienen botón **Exportar a Excel**, que
 descarga lo que está filtrado en pantalla.

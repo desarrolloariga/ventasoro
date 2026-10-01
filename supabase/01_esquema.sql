@@ -62,6 +62,7 @@ create table if not exists tiendaariga.metodos_pago (
   nombre text primary key,
   orden  int not null default 0
 );
+alter table tiendaariga.metodos_pago add column if not exists activo boolean not null default true;
 
 -- ---------------------------------------------------------------------
 -- CLIENTES (hoja "Clientes")
