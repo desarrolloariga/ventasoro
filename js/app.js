@@ -930,8 +930,14 @@ function repoblar(id, opts, placeholder) {
 }
 
 async function cargarMaestros() {
+    // Si a la base le falta una tabla (esquema sin actualizar) la lista queda vacía y se avisa
+    const faltantes = [];
     const [tiendas, vendedores, metodos_pago, tipos, departamentos] = await Promise.all(Object.keys(MAESTROS).map(t =>
-        sb.from(t).select('*').order('orden').order('nombre').then(ok)));
+        sb.from(t).select('*').order('orden').order('nombre').then(({ data, error }) => {
+            if (error) { console.warn(t, error.message); faltantes.push(t); return []; }
+            return data;
+        })));
+    if (faltantes.length) showAlert(`La base de datos no está actualizada (${faltantes.join(', ')}). Ejecute supabase/01_esquema.sql en el SQL Editor de Supabase.`, 'warning');
     Object.assign(maestros, { tiendas, vendedores, metodos_pago, tipos, departamentos });
     const todos = l => l.map(x => x.nombre);
     const activos = l => l.filter(x => x.activo !== false).map(x => x.nombre);
