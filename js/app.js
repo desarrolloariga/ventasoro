@@ -5,15 +5,19 @@
 const CFG = window.ARIGA_CONFIG;
 const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY, {
     db: { schema: CFG.SCHEMA },
-    auth: { persistSession: false, autoRefreshToken: false },
 });
 
 let dropdownData = { tipos: [], productos: [] };
-let createClientModal;
-let fullHistoryData = [], fullCarteraTotalData = [], fullCarteraDetalleData = [], fullInventoryData = [];
-let fullClientesData = [], datosFilas = [];
-let referencias = [], movimientosFilas = [];
-let referenciaModal;
+let createClientModal, referenciaModal, asignarClienteModal, passwordModal;
+let fullHistoryData = [], fullCarteraDetalleData = [], fullInventoryData = [];
+let fullClientesData = [], datosFilas = [], cargasFilas = [];
+let fullSaldosData = [], estadoCuentaFilas = [], recibidosFilas = [];
+let referencias = [], movimientosFilas = [], perfiles = [];
+let perfil = null;          // perfil del usuario con sesión (rol, activo)
+let usuarioActual;          // id del usuario mostrado (evita recargas repetidas)
+let datosIniciados = false;
+
+const esAdmin = () => perfil?.rol === 'admin';
 
 // ---------------------------------------------------------------- utilidades
 const $ = id => document.getElementById(id);
@@ -26,7 +30,9 @@ const fmt = v => num(v).toLocaleString('es-GT', { minimumFractionDigits: 2, maxi
 const fmtQ = v => 'Q ' + fmt(v);
 const fmtFecha = f => { if (!f) return ''; const [y, m, d] = String(f).slice(0, 10).split('-'); return `${d}/${m}/${y}`; };
 const hoyISO = () => new Intl.DateTimeFormat('en-CA', { timeZone: CFG.ZONA_HORARIA }).format(new Date());
+const inicioMesISO = () => hoyISO().slice(0, 8) + '01';
 const norm = v => String(v ?? '').trim().toLowerCase();
+const unico = r => Array.isArray(r) ? r[0] : r;   // RPC que devuelve un registro
 
 const showAlert = (m, t = 'info') => {
     $('alert-container').innerHTML =
@@ -75,21 +81,118 @@ async function fetchAll(buildQuery, pageSize = 1000) {
     return out;
 }
 
-// ---------------------------------------------------------------- inicio
+// ---------------------------------------------------------------- inicio y sesión
 document.addEventListener('DOMContentLoaded', () => {
     createClientModal = new bootstrap.Modal($('createClientModal'));
     referenciaModal = new bootstrap.Modal($('referenciaModal'));
     crearModal = new bootstrap.Modal($('crearModal'));
-    iniciarApp();
+    asignarClienteModal = new bootstrap.Modal($('asignarClienteModal'));
+    passwordModal = new bootstrap.Modal($('passwordModal'));
+
+    $('loginForm').addEventListener('submit', handleLogin);
+    $('olvidoButton').addEventListener('click', recuperarPassword);
+    $('logoutButton').addEventListener('click', salir);
+    $('sinAccesoSalir').addEventListener('click', salir);
+    $('passwordForm').addEventListener('submit', guardarPassword);
+    registrarEventos();
+
+    // INITIAL_SESSION, SIGNED_IN, SIGNED_OUT, PASSWORD_RECOVERY...
+    sb.auth.onAuthStateChange((evento, session) => {
+        if (evento === 'PASSWORD_RECOVERY') passwordModal.show();
+        // Fuera del callback: supabase-js no admite llamadas a la API dentro de él
+        setTimeout(() => mostrarVista(session), 0);
+    });
 });
 
-function iniciarApp() {
+async function mostrarVista(session) {
+    const uid = session?.user?.id ?? null;
+    if (uid === usuarioActual) return;
+    usuarioActual = uid;
+    const ver = (id, si) => $(id).classList.toggle('d-none', !si);
+
+    if (!uid) {
+        perfil = null;
+        ver('loginView', true); ver('sinAccesoView', false); ver('appView', false);
+        $('userBox').classList.add('d-none'); $('userBox').classList.remove('d-flex');
+        return;
+    }
+    const { data, error } = await sb.from('perfiles').select('*').eq('id', uid).maybeSingle();
+    if (error) console.warn('perfiles', error.message);
+    perfil = data;
+    $('userBox').classList.add('d-flex'); $('userBox').classList.remove('d-none');
+    $('userNombre').textContent = perfil?.nombre || session.user.email;
+    $('userRol').textContent = perfil ? (perfil.rol === 'admin' ? 'Administrador' : 'Vendedor') : '';
+    ver('loginView', false);
+
+    if (!perfil?.activo) {
+        $('sinAccesoEmail').textContent = session.user.email;
+        ver('sinAccesoView', true); ver('appView', false);
+        if (error) showAlert('La base de datos no está actualizada. Ejecute supabase/01_esquema.sql en Supabase.', 'warning');
+        return;
+    }
+    ver('sinAccesoView', false); ver('appView', true);
+    document.querySelectorAll('.solo-admin').forEach(e => e.classList.toggle('d-none', !esAdmin()));
+    if (!datosIniciados) { datosIniciados = true; cargarDatosIniciales(); }
+}
+
+async function handleLogin(e) {
+    e.preventDefault();
+    mensajeLogin('');
+    showSpinner();
+    const { error } = await sb.auth.signInWithPassword({
+        email: $('loginEmail').value.trim(),
+        password: $('loginPassword').value,
+    });
+    hideSpinner();
+    if (error) mensajeLogin(/invalid/i.test(error.message) ? 'Correo o contraseña incorrectos.' : 'No se pudo iniciar sesión: ' + error.message, 'danger');
+}
+
+function mensajeLogin(texto, tipo = 'info') {
+    const m = $('loginMensaje');
+    m.className = `alert alert-${tipo} py-2` + (texto ? '' : ' d-none');
+    m.textContent = texto;
+}
+
+async function recuperarPassword() {
+    const email = $('loginEmail').value.trim();
+    if (!email) { mensajeLogin('Escriba su correo y vuelva a pulsar "¿Olvidó su contraseña?".', 'warning'); return; }
+    showSpinner();
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+    hideSpinner();
+    mensajeLogin(error ? 'No se pudo enviar el correo: ' + error.message
+        : 'Si el correo está registrado, le llegará un enlace para crear una contraseña nueva.', error ? 'danger' : 'success');
+}
+
+function guardarPassword(e) {
+    e.preventDefault();
     run(async () => {
-        await Promise.all([cargarMaestros(), cargarReferencias()]);
+        ok(await sb.auth.updateUser({ password: $('nuevaPassword').value }));
+        passwordModal.hide();
+        showAlert('Contraseña actualizada', 'success');
+    });
+}
+
+async function salir() {
+    await sb.auth.signOut();
+    location.reload();  // limpia todo lo cargado del usuario anterior
+}
+
+function cargarDatosIniciales() {
+    run(async () => {
+        await Promise.all([cargarMaestros(), cargarReferencias(), esAdmin() ? cargarPerfiles() : null]);
         $('cargaFecha').value = hoyISO();
         $('fechaPago').value = hoyISO();
+        $('recDesde').value = inicioMesISO();
+        $('recHasta').value = hoyISO();
     });
+}
 
+async function cargarPerfiles() {
+    perfiles = ok(await sb.from('perfiles').select('*').order('nombre'));
+}
+const nombreUsuario = id => { const u = perfiles.find(p => p.id === id); return u ? (u.nombre || u.email) : ''; };
+
+function registrarEventos() {
     // "+ Crear nuevo…" en cualquier lista: recuerda el valor previo y abre el formulario
     document.addEventListener('focusin', e => {
         if (e.target.tagName === 'SELECT' && e.target.dataset.crear) e.target.dataset.previo = e.target.value;
@@ -104,10 +207,19 @@ function iniciarApp() {
     $('crearForm').addEventListener('submit', guardarCrear);
     $('crearModal').addEventListener('shown.bs.modal', () => $('crearNombre').focus());
 
-    // Registro y Clientes
-    $('searchClientButton').addEventListener('click', searchClient);
+    // Buscadores de clientes (código, nombre o DPI)
+    crearBuscadorCliente('clientDPI', ponerClienteEnVenta, {
+        alNoEncontrar: q => {
+            if (confirm('Cliente no encontrado. ¿Desea crearlo?'))
+                abrirModalCliente(/^\d[\d-]*$/.test(q) ? { dpi: q } : { nombre: q }, 'venta');
+        },
+    });
+    crearBuscadorCliente('pagoCliente', seleccionarClientePago);
+    crearBuscadorCliente('ecCliente', c => cargarEstadoCuenta(c.id));
+    crearBuscadorCliente('asignarCliente', asignarClienteAPago);
+
+    // Venta
     $('newClientSaleButton').addEventListener('click', () => abrirModalCliente({}, 'venta'));
-    $('clientDPI').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); searchClient(); } });
     $('saveClientButton').addEventListener('click', saveNewClient);
     $('addProductButton').addEventListener('click', () => addProductLine());
     $('saleForm').addEventListener('submit', handleFormSubmit);
@@ -122,26 +234,44 @@ function iniciarApp() {
         if (e.target.classList.contains('delete-row')) { e.target.closest('tr').remove(); updateSubtotal(); }
     });
 
-    // Búsqueda de Pedidos
-    $('searchEnvioButton').addEventListener('click', searchOrder);
-    $('searchEnvioInput').addEventListener('keydown', e => { if (e.key === 'Enter') searchOrder(); });
+    // Búsqueda de pedidos
+    $('searchEnvioButton').addEventListener('click', buscarPedidos);
+    $('searchEnvioInput').addEventListener('keydown', e => { if (e.key === 'Enter') buscarPedidos(); });
+    $('pedidosTableBody').addEventListener('click', e => {
+        const b = e.target.closest('.abrir-pedido');
+        if (b) abrirPedido(b.dataset.clave);
+    });
     $('deleteOrderButton').addEventListener('click', deleteOrder);
     $('newSaleButton').addEventListener('click', resetForm);
 
     // Pagos
-    $('searchPaymentEnvioButton').addEventListener('click', searchShipmentForPayment);
-    $('searchPaymentEnvioInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); searchShipmentForPayment(); } });
     $('paymentForm').addEventListener('submit', handlePaymentSubmit);
+    $('valorPagar').addEventListener('input', mostrarNuevoSaldo);
+    $('pills-recibidos-tab').addEventListener('shown.bs.tab', loadRecibidos);
+    ['recDesde', 'recHasta', 'recSinCliente'].forEach(id => $(id).addEventListener('change', loadRecibidos));
+    $('recBuscarButton').addEventListener('click', loadRecibidos);
+    ['recMetodo', 'recUsuario', 'recCliente'].forEach(id => $(id).addEventListener('input', renderRecibidos));
+    $('exportRecibidosButton').addEventListener('click', exportRecibidos);
+    $('recibidosTableBody').addEventListener('click', e => {
+        const b = e.target.closest('.asignar-pago');
+        if (b) abrirAsignarCliente(Number(b.dataset.id));
+    });
 
-    // Consultas (se recargan cada vez que se abre la pestaña)
+    // Histórico
     $('historico-tab').addEventListener('shown.bs.tab', loadHistoryData);
     ['filterCliente', 'filterTienda', 'filterTipo', 'filterProducto'].forEach(id => $(id).addEventListener('input', filterHistory));
 
+    // Cartera
+    const subCartera = { 'pills-saldoscli-tab': loadSaldos, 'pills-estado-tab': () => {}, 'pills-detalle-tab': loadCarteraDetalleData };
     $('cartera-tab').addEventListener('shown.bs.tab', () =>
-        $('pills-detalle-tab').classList.contains('active') ? loadCarteraDetalleData() : loadCarteraTotalData());
-    $('pills-total-tab').addEventListener('shown.bs.tab', loadCarteraTotalData);
+        subCartera[document.querySelector('#cartera .nav-pills .active').id]());
+    $('pills-saldoscli-tab').addEventListener('shown.bs.tab', loadSaldos);
     $('pills-detalle-tab').addEventListener('shown.bs.tab', loadCarteraDetalleData);
-    ['filterCarteraTotalTienda', 'filterCarteraTotalCliente'].forEach(id => $(id).addEventListener('input', filterCarteraTotal));
+    ['filterSaldos', 'saldosSoloDeudores'].forEach(id => $(id).addEventListener('input', filterSaldos));
+    $('saldosTableBody').addEventListener('click', e => {
+        const tr = e.target.closest('tr[data-codigo]');
+        if (tr) verEstadoCuenta(Number(tr.dataset.codigo));
+    });
     ['filterCarteraDetalleTienda', 'filterCarteraDetalleCliente', 'filterCarteraDetalleEnvio'].forEach(id => $(id).addEventListener('input', filterCarteraDetalle));
 
     // Inventario: cada sub-sección se recarga al abrirla
@@ -160,6 +290,7 @@ function iniciarApp() {
     $('cargaForm').addEventListener('submit', handleCargaSubmit);
     ['cargaTienda', 'cargaProducto'].forEach(id => $(id).addEventListener('change', mostrarSaldoCarga));
     $('cargaNuevaRefButton').addEventListener('click', () => abrirModalReferencia(null, $('cargaProducto')));
+    ['filterCargasTienda', 'filterCargasProducto'].forEach(id => $(id).addEventListener('input', renderCargas));
     $('cargasTableBody').addEventListener('click', e => {
         const b = e.target.closest('.delete-carga');
         if (b) eliminarCarga(Number(b.dataset.id));
@@ -186,7 +317,7 @@ function iniciarApp() {
         if (b) abrirModalCliente(fullClientesData.find(c => c.id === Number(b.dataset.id)), 'clientes');
     });
 
-    // Maestros: tiendas y vendedores
+    // Maestros
     $('maestros-tab').addEventListener('shown.bs.tab', () => run(cargarMaestros));
     $('maestros').addEventListener('submit', e => {
         if (!e.target.classList.contains('maestro-form')) return;
@@ -202,6 +333,13 @@ function iniciarApp() {
         if (b) eliminarMaestro(b.dataset.maestro, b.dataset.nombre);
     });
 
+    // Usuarios (administradores)
+    $('usuarios-tab').addEventListener('shown.bs.tab', loadUsuarios);
+    $('usuarioForm').addEventListener('submit', agregarUsuario);
+    $('usuariosTableBody').addEventListener('change', e => {
+        if (e.target.matches('.usr-rol, .usr-activo')) actualizarUsuario(e.target);
+    });
+
     // Datos en bruto
     $('datosTabla').innerHTML = TABLAS_DATOS.map((t, i) => `<option value="${i}">${esc(t.titulo)}</option>`).join('');
     $('datos-tab').addEventListener('shown.bs.tab', loadDatos);
@@ -210,32 +348,55 @@ function iniciarApp() {
 
     // Exportar a Excel (exporta lo que está filtrado en pantalla)
     $('exportHistoricoButton').addEventListener('click', exportHistorico);
-    $('exportCarteraTotalButton').addEventListener('click', exportCarteraTotal);
+    $('exportSaldosButton').addEventListener('click', exportSaldos);
+    $('exportEstadoButton').addEventListener('click', exportEstadoCuenta);
     $('exportCarteraDetalleButton').addEventListener('click', exportCarteraDetalle);
     $('exportClientesButton').addEventListener('click', exportClientes);
     $('exportDatosButton').addEventListener('click', exportDatos);
 }
 
-// ---------------------------------------------------------------- clientes
-function searchClient() {
-    const s = $('clientDPI').value.trim();
-    if (!s) return;
-    run(async () => {
-        const [c] = ok(await sb.rpc('buscar_cliente', { p_termino: s }));
-        if (c) {
-            ponerClienteEnVenta(c);
-        } else if (confirm('Cliente no encontrado. ¿Desea crearlo?')) {
-            // Precarga el dato buscado: si es numérico va a DPI, si no al nombre
-            abrirModalCliente(/^\d[\d-]*$/.test(s) ? { dpi: s } : { nombre: s }, 'venta');
-        }
+// ---------------------------------------------------------------- buscador de clientes
+// Un resultado: se elige solo. Varios: lista para escoger. Ninguno: alNoEncontrar.
+function crearBuscadorCliente(id, alElegir, { alNoEncontrar } = {}) {
+    const input = $(id), lista = $(id + 'Resultados');
+    let resultados = [];
+    const cerrar = () => lista.classList.add('d-none');
+    const buscar = () => {
+        const q = input.value.trim();
+        if (!q) return;
+        run(async () => {
+            resultados = ok(await sb.rpc('buscar_clientes', { p_termino: q }));
+            if (resultados.length === 1) { cerrar(); alElegir(resultados[0]); return; }
+            if (!resultados.length) {
+                cerrar();
+                if (alNoEncontrar) alNoEncontrar(q); else showAlert(`No se encontró ningún cliente con "${q}"`, 'warning');
+                return;
+            }
+            lista.innerHTML = resultados.map((c, i) => `<button type="button" class="list-group-item list-group-item-action" data-i="${i}">
+                <span class="badge text-bg-secondary me-2">${c.id}</span>${esc(c.nombre)}
+                <small class="text-muted ms-1">${esc(c.dpi || c.nit || c.telefono || '')}</small></button>`).join('');
+            lista.classList.remove('d-none');
+        });
+    };
+    $(id + 'Boton').addEventListener('click', buscar);
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); buscar(); }
+        if (e.key === 'Escape') cerrar();
     });
+    lista.addEventListener('click', e => {
+        const b = e.target.closest('[data-i]');
+        if (b) { cerrar(); alElegir(resultados[Number(b.dataset.i)]); }
+    });
+    document.addEventListener('click', e => { if (!lista.contains(e.target) && e.target !== input) cerrar(); });
 }
 
+// ---------------------------------------------------------------- clientes (ficha)
 // Campos del modal <-> columnas de la tabla clientes
 const CAMPOS_CLIENTE = {
     newClientDPI: 'dpi', newClientNIT: 'nit', newClientNombre: 'nombre',
     newClientFechaNac: 'fecha_nacimiento', newClientDepto: 'departamento',
-    newClientTel: 'telefono', newClientNIT2: 'nit2', newClientCodigo: 'codigo_cliente',
+    newClientTel: 'telefono', newClientTel2: 'telefono2', newClientCorreo: 'correo',
+    newClientDireccion: 'direccion', newClientNIT2: 'nit2', newClientCodigo: 'codigo_cliente',
 };
 let origenModalCliente = 'venta'; // 'venta' llena el formulario de venta al guardar
 
@@ -245,9 +406,20 @@ function abrirModalCliente(c = {}, origen = 'clientes') {
     $('createClientForm').reset();
     $('editClientId').value = c.id || '';
     $('clientModalTitle').textContent = c.id ? 'Editar Cliente' : 'Crear Nuevo Cliente';
-    $('clientModalId').textContent = c.id ?? 'se asigna al guardar';
+    $('clientModalId').textContent = c.id ?? 'se asigna automáticamente al guardar';
     for (const [id, col] of Object.entries(CAMPOS_CLIENTE)) {
         if (id === 'newClientDepto') setSelectValue(id, c[col]); else $(id).value = c[col] ?? '';
+    }
+    // Saldo inicial: solo al crear
+    $('saldoInicialGrupo').classList.toggle('d-none', !!c.id);
+    $('saldoInicialFecha').value = hoyISO();
+    // Responsable: solo el administrador, al editar
+    const verResponsable = esAdmin() && !!c.id;
+    $('clientResponsableGrupo').classList.toggle('d-none', !verResponsable);
+    if (verResponsable) {
+        $('clientResponsable').innerHTML = '<option value="">(sin asignar: solo administradores)</option>' +
+            perfiles.map(p => `<option value="${p.id}">${esc(p.nombre || p.email)}${p.activo ? '' : ' (inactivo)'}</option>`).join('');
+        $('clientResponsable').value = c.creado_por ?? '';
     }
     createClientModal.show();
 }
@@ -256,11 +428,23 @@ function saveNewClient() {
     const d = {};
     for (const [id, col] of Object.entries(CAMPOS_CLIENTE)) d[col] = $(id).value.trim() || null;
     if (!d.nombre) { $('newClientNombre').reportValidity(); return; }
+    if (d.correo && !$('newClientCorreo').checkValidity()) { $('newClientCorreo').reportValidity(); return; }
     const id = $('editClientId').value;
+    const saldo = num($('saldoInicialValor').value);
     run(async () => {
-        const c = id
-            ? ok(await sb.from('clientes').update(d).eq('id', id).select().single())
-            : ok(await sb.from('clientes').insert(d).select().single());
+        let c;
+        if (id) {
+            if (esAdmin()) d.creado_por = $('clientResponsable').value || null;
+            c = ok(await sb.from('clientes').update(d).eq('id', id).select().single());
+        } else {
+            c = unico(ok(await sb.rpc('crear_cliente', {
+                p_cliente: d,
+                p_saldo: saldo > 0 ? {
+                    valor: saldo, fecha: $('saldoInicialFecha').value,
+                    tienda: $('saldoInicialTienda').value, vendedor: $('saldoInicialVendedor').value,
+                } : null,
+            })));
+        }
         createClientModal.hide();
         if (origenModalCliente === 'venta') {
             ponerClienteEnVenta(c);
@@ -269,7 +453,8 @@ function saveNewClient() {
             if (i >= 0) fullClientesData[i] = c; else fullClientesData.unshift(c);
             filterClientes();
         }
-        showAlert(id ? `Cliente ID ${c.id} actualizado con éxito` : `Cliente creado con éxito. ID Cliente: ${c.id}`, 'success');
+        showAlert(id ? `Cliente ${c.id} actualizado con éxito`
+            : `Cliente creado. Código cliente: ${c.id}` + (saldo > 0 ? ` · Saldo inicial ${fmtQ(saldo)} registrado` : ''), 'success');
     });
 }
 
@@ -338,16 +523,16 @@ function handleFormSubmit(e) {
         return;
     }
     const venta = { header, productLines, summary: { envio: $('envio').value.trim(), factura: $('factura').value.trim() } };
-    const envioOriginal = $('envioOriginal').value;
+    const clave = $('envioOriginal').value;
 
     run(async () => {
-        if (!envioOriginal) {
+        if (!clave) {
             const faltantes = await verificarStock(header.tienda, productLines);
             if (faltantes.length && !confirm('Inventario insuficiente:\n\n' + faltantes.join('\n') + '\n\n¿Registrar la venta de todas formas?')) return;
             const id = ok(await sb.rpc('registrar_venta', { p_venta: venta }));
-            showAlert('Venta registrada con éxito. ID: ' + id, 'success');
+            showAlert(`Venta registrada con éxito. Pedido: ${id} · Fecha: ${fmtFecha(hoyISO())}`, 'success');
         } else {
-            const m = ok(await sb.rpc('actualizar_venta', { p_envio: envioOriginal, p_venta: venta }));
+            const m = ok(await sb.rpc('actualizar_venta', { p_envio: clave, p_venta: venta }));
             showAlert(m, 'success');
         }
         resetForm();
@@ -370,15 +555,29 @@ async function verificarStock(tienda, lineas) {
     });
 }
 
-async function obtenerLineasEnvio(envio) {
-    return ok(await sb.from('ventas').select('*').eq('envio', envio.trim()).order('id'));
+// Pedido = líneas con el mismo envío (o el mismo Id interno si no tiene envío)
+async function lineasPedido(clave) {
+    return ok(await sb.rpc('lineas_pedido', { p_clave: clave }));
 }
 
-function searchOrder() {
-    const i = $('searchEnvioInput').value.trim();
-    if (!i) return;
+function buscarPedidos() {
+    const q = $('searchEnvioInput').value.trim();
+    if (!q) return;
     run(async () => {
-        const rows = await obtenerLineasEnvio(i);
+        const d = ok(await sb.rpc('buscar_pedidos', { p_termino: q }));
+        $('pedidosTabla').classList.toggle('d-none', !d.length);
+        $('pedidosTableBody').innerHTML = d.map(p => `<tr>
+            <td class="fw-semibold">${fmtFecha(p.fecha_venta)}</td><td>${esc(p.pedido_id)}</td><td>${esc(p.envio)}</td>
+            <td class="num">${esc(p.cliente_id)}</td><td>${esc(p.cliente)}</td><td>${esc(p.tienda)}</td><td>${esc(p.vendedor)}</td>
+            <td class="num">${fmtQ(p.total)}</td>
+            <td><button type="button" class="btn btn-gold btn-sm abrir-pedido" data-clave="${esc(p.clave)}">Abrir</button></td></tr>`).join('');
+        $('pedidosInfo').textContent = d.length ? `${d.length} pedido(s)${d.length === 60 ? ' (se muestran los 60 más recientes)' : ''}` : 'No se encontraron pedidos.';
+    });
+}
+
+function abrirPedido(clave) {
+    run(async () => {
+        const rows = await lineasPedido(clave);
         if (!rows.length) { showAlert('No se encontró el pedido', 'warning'); return; }
         const h = rows[0];
         $('clientId').value = h.cliente_id ?? '';
@@ -389,8 +588,9 @@ function searchOrder() {
         setSelectValue('vendedorSelect', h.vendedor);
         $('pedidoId').value = h.pedido_id || '';
         $('envio').value = h.envio || '';
-        $('envioOriginal').value = h.envio || '';
+        $('envioOriginal').value = clave;
         $('factura').value = h.factura || '';
+        $('fechaVentaVista').value = fmtFecha(h.fecha_venta);
         $('productLines').innerHTML = '';
         rows.forEach(l => addProductLine(l));
         updateSubtotal();
@@ -398,6 +598,7 @@ function searchOrder() {
         $('deleteOrderButton').classList.remove('d-none');
         $('newSaleButton').classList.remove('d-none');
         new bootstrap.Tab($('registro-tab')).show();
+        showAlert(`Pedido ${h.pedido_id || clave} del ${fmtFecha(h.fecha_venta)} abierto para editar`, 'info');
     });
 }
 
@@ -416,6 +617,7 @@ function resetForm() {
     $('saleForm').reset();
     $('pedidoId').value = '';
     $('envioOriginal').value = '';
+    $('clientId').value = '';
     $('productLines').innerHTML = '';
     $('mainActionButton').textContent = 'Registrar Venta';
     $('deleteOrderButton').classList.add('d-none');
@@ -424,67 +626,155 @@ function resetForm() {
 }
 
 function deleteOrder() {
-    const i = $('envioOriginal').value;
-    if (!i || !confirm('¿Está seguro de eliminar este pedido?')) return;
+    const clave = $('envioOriginal').value;
+    if (!clave || !confirm('¿Está seguro de eliminar este pedido?')) return;
     run(async () => {
-        const m = ok(await sb.rpc('eliminar_pedido', { p_envio: i }));
+        const m = ok(await sb.rpc('eliminar_pedido', { p_envio: clave }));
         showAlert(m, 'success');
         resetForm();
     });
 }
 
-// ---------------------------------------------------------------- pagos
-function searchShipmentForPayment() {
-    const i = $('searchPaymentEnvioInput').value.trim();
-    if (!i) return;
+// ---------------------------------------------------------------- pagos: abono al total del cliente
+let clientePago = null, saldoClientePago = 0;
+
+function seleccionarClientePago(c) {
     run(async () => {
-        const [rows, pagos, devs] = await Promise.all([
-            obtenerLineasEnvio(i),
-            sb.from('pagos').select('valor_pagado').eq('envio', i).then(ok),
-            sb.from('devoluciones').select('valor').eq('envio', i).then(ok),
+        const [resumen, ventas, pagos] = await Promise.all([
+            sb.from('cartera_clientes').select('*').eq('codigo', c.id).maybeSingle().then(ok),
+            fetchAll(() => sb.from('ventas').select('envio,pedido_id,fecha_venta,valor_total').eq('cliente_id', c.id)),
+            fetchAll(() => sb.from('pagos').select('envio,valor_pagado').eq('cliente_id', c.id)),
         ]);
-        if (!rows.length) {
-            $('shipmentInfoContainer').classList.add('d-none');
-            showAlert('Envío no encontrado', 'warning');
-            return;
-        }
-        const h = rows[0];
-        const total = rows.reduce((s, r) => s + num(r.valor_total), 0);
-        const pagado = pagos.reduce((s, r) => s + num(r.valor_pagado), 0) + devs.reduce((s, r) => s + num(r.valor), 0);
-        $('infoCliente').textContent = h.cliente || '';
-        $('infoDocumento').textContent = h.documento_cliente || '';
-        $('infoTienda').textContent = h.tienda || '';
-        $('infoVendedor').textContent = h.vendedor || '';
-        $('infoTipo').textContent = h.tipo || '';
-        $('infoFechaVenta').textContent = fmtFecha(h.fecha_venta);
-        $('infoTotal').textContent = fmt(total);
-        $('infoPagado').textContent = fmt(pagado);
-        $('infoSaldo').textContent = fmt(total - pagado);
-        $('shipmentInfoContainer').dataset.envio = h.envio;
-        $('shipmentInfoContainer').classList.remove('d-none');
+        clientePago = c;
+        saldoClientePago = num(resumen?.saldo);
+        $('pagoInfoCodigo').textContent = c.id;
+        $('pagoInfoNombre').textContent = c.nombre;
+        $('pagoInfoDoc').textContent = [c.dpi && `DPI ${c.dpi}`, c.nit && `NIT ${c.nit}`, c.telefono && `Tel. ${c.telefono}`].filter(Boolean).join(' · ');
+        $('pagoInfoVentas').textContent = fmt(resumen?.total_ventas);
+        $('pagoInfoPagos').textContent = fmt(resumen?.total_pagos);
+        $('pagoInfoSaldo').textContent = fmt(saldoClientePago);
+        $('pagoCliente').value = `${c.id} · ${c.nombre}`;
+
+        // Saldo por envío (informativo): ventas del envío menos pagos aplicados a él
+        const envios = {};
+        ventas.forEach(v => {
+            const k = (v.envio || '').trim() || v.pedido_id;
+            const x = envios[k] ??= { envio: k, fecha: v.fecha_venta, venta: 0, pagado: 0 };
+            x.venta += num(v.valor_total);
+            if (v.fecha_venta < x.fecha) x.fecha = v.fecha_venta;
+        });
+        pagos.forEach(p => { const k = (p.envio || '').trim(); if (envios[k]) envios[k].pagado += num(p.valor_pagado); });
+        const lista = Object.values(envios).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+        $('pagoEnviosBody').innerHTML = lista.map(x => `<tr><td>${fmtFecha(x.fecha)}</td><td>${esc(x.envio)}</td><td class="num">${fmt(x.venta)}</td><td class="num">${fmt(x.pagado)}</td><td class="num">${fmt(x.venta - x.pagado)}</td></tr>`).join('')
+            || '<tr><td colspan="5" class="text-muted">Sin compras registradas</td></tr>';
+        $('pagoEnvio').innerHTML = '<option value="">Abono al total del cliente</option>' +
+            lista.filter(x => x.venta - x.pagado > 0.005)
+                .map(x => `<option value="${esc(x.envio)}">Envío ${esc(x.envio)} · saldo ${fmtQ(x.venta - x.pagado)}</option>`).join('');
+        $('pagoClienteInfo').classList.remove('d-none');
+        mostrarNuevoSaldo();
     });
+}
+
+function mostrarNuevoSaldo() {
+    const v = num($('valorPagar').value);
+    $('pagoNuevoSaldo').textContent = v > 0 ? `Después de este pago el cliente debe: ${fmtQ(saldoClientePago - v)}` : '';
 }
 
 function handlePaymentSubmit(e) {
     e.preventDefault();
-    const envio = $('shipmentInfoContainer').dataset.envio;
-    if (!envio) { showAlert('Busque primero el envío', 'warning'); return; }
+    if (!clientePago) { showAlert('Busque primero al cliente', 'warning'); return; }
+    const valor = num($('valorPagar').value);
+    if (valor > saldoClientePago + 0.005 && !confirm(`El pago (${fmtQ(valor)}) es mayor que lo que debe el cliente (${fmtQ(saldoClientePago)}). ¿Registrarlo de todas formas?`)) return;
     const p = {
+        cliente_id: clientePago.id,
         fecha_pago: $('fechaPago').value,
-        envio,
-        metodo_pago: $('metodoPago').value.trim(),
-        tipo: $('infoTipo').textContent || null,
-        valor_pagado: num($('valorPagar').value),
+        valor_pagado: valor,
+        metodo_pago: $('metodoPago').value,
         boleta: $('boleta').value.trim() || null,
-        vendedor: $('infoVendedor').textContent || null,
+        envio: $('pagoEnvio').value || null,
+        observaciones: $('pagoObservaciones').value.trim() || null,
     };
     run(async () => {
         ok(await sb.from('pagos').insert(p));
-        showAlert(`Pago para el envío ${envio} registrado correctamente.`, 'success');
+        showAlert(`Pago de ${fmtQ(valor)} (${p.metodo_pago}, ${fmtFecha(p.fecha_pago)}) registrado a ${clientePago.nombre}. Nuevo saldo: ${fmtQ(saldoClientePago - valor)}`, 'success');
         $('paymentForm').reset();
         $('fechaPago').value = hoyISO();
-        delete $('shipmentInfoContainer').dataset.envio;
-        $('shipmentInfoContainer').classList.add('d-none');
+        seleccionarClientePago(clientePago);
+    });
+}
+
+// ---------------------------------------------------------------- pagos recibidos (liquidación)
+function loadRecibidos() {
+    run(async () => {
+        const desde = $('recDesde').value, hasta = $('recHasta').value, sinCliente = $('recSinCliente').checked;
+        recibidosFilas = await fetchAll(() => {
+            let q = sb.from('pagos_detalle').select('*');
+            if (desde) q = q.gte('fecha_pago', desde);
+            if (hasta) q = q.lte('fecha_pago', hasta);
+            if (sinCliente) q = q.is('cliente_id', null);
+            return q.order('fecha_pago', { ascending: false }).order('id', { ascending: false });
+        });
+        const repoblarUnicos = (id, valores, placeholder) => {
+            const v = $(id).value;
+            populateDropdown(id, [...new Set(valores.filter(Boolean))].sort(), placeholder);
+            $(id).value = v;
+        };
+        repoblarUnicos('recMetodo', recibidosFilas.map(r => r.metodo_pago), 'Todos');
+        repoblarUnicos('recUsuario', recibidosFilas.map(r => r.registrado_por), 'Todos');
+        renderRecibidos();
+    });
+}
+
+function recibidosFiltrados() {
+    const m = $('recMetodo').value, u = $('recUsuario').value, c = norm($('recCliente').value);
+    return recibidosFilas.filter(r => (!m || r.metodo_pago === m) && (!u || r.registrado_por === u)
+        && (!c || String(r.cliente_id) === c || norm(r.cliente).includes(c)));
+}
+
+function renderRecibidos() {
+    const d = recibidosFiltrados();
+    const total = d.reduce((s, r) => s + num(r.valor_pagado), 0);
+    const agrupar = campo => {
+        const g = {};
+        d.forEach(r => { const k = r[campo] || '(sin dato)'; (g[k] ??= { n: 0, t: 0 }); g[k].n++; g[k].t += num(r.valor_pagado); });
+        return Object.entries(g).sort((a, b) => b[1].t - a[1].t)
+            .map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v.n}</td><td class="num fw-semibold">${fmtQ(v.t)}</td></tr>`).join('')
+            + `<tr class="table-light"><td>Total</td><td class="num">${d.length}</td><td class="num fw-semibold">${fmtQ(total)}</td></tr>`;
+    };
+    $('recPorMetodo').innerHTML = agrupar('metodo_pago');
+    $('recPorUsuario').innerHTML = agrupar('registrado_por');
+    $('recibidosTableBody').innerHTML = d.slice(0, 1000).map(r => `<tr>
+        <td>${fmtFecha(r.fecha_pago)}</td><td class="num">${esc(r.cliente_id)}</td><td>${esc(r.cliente)}</td><td>${esc(r.metodo_pago)}</td>
+        <td class="num">${fmtQ(r.valor_pagado)}</td><td>${esc(r.boleta)}</td><td>${esc(r.envio)}</td><td>${esc(r.registrado_por)}</td>
+        <td>${!r.cliente_id && esAdmin() ? `<button type="button" class="btn btn-outline-secondary btn-sm asignar-pago" data-id="${r.id}">Asignar cliente</button>` : ''}</td></tr>`).join('');
+    $('recTotal').textContent = fmtQ(total);
+    $('recInfo').textContent = `${d.length} pagos` + (d.length > 1000 ? ' (se muestran 1000; el Excel incluye todos)' : '');
+}
+
+function exportRecibidos() {
+    exportarExcel('Pagos_recibidos', 'Pagos recibidos', recibidosFiltrados().map(r => ({
+        'Fecha pago': aFecha(r.fecha_pago), 'Código cliente': r.cliente_id, 'Cliente': r.cliente,
+        'Método de pago': r.metodo_pago, 'Valor': num(r.valor_pagado), 'Boleta': r.boleta, 'Envío': r.envio,
+        'Registrado por': r.registrado_por, 'Observaciones': r.observaciones,
+    })));
+}
+
+let pagoPorAsignar = null;
+function abrirAsignarCliente(id) {
+    pagoPorAsignar = recibidosFilas.find(r => r.id === id);
+    $('asignarPagoInfo').textContent = `Pago de ${fmtQ(pagoPorAsignar.valor_pagado)} del ${fmtFecha(pagoPorAsignar.fecha_pago)}` +
+        (pagoPorAsignar.envio ? ` · escrito en ENVÍO: "${pagoPorAsignar.envio}"` : '');
+    $('asignarCliente').value = pagoPorAsignar.envio || '';
+    asignarClienteModal.show();
+}
+
+function asignarClienteAPago(c) {
+    if (!pagoPorAsignar || !confirm(`¿Asignar el pago de ${fmtQ(pagoPorAsignar.valor_pagado)} a ${c.nombre} (código ${c.id})?`)) return;
+    run(async () => {
+        ok(await sb.from('pagos').update({ cliente_id: c.id }).eq('id', pagoPorAsignar.id));
+        asignarClienteModal.hide();
+        showAlert(`Pago asignado a ${c.nombre}`, 'success');
+        loadRecibidos();
     });
 }
 
@@ -492,7 +782,7 @@ function handlePaymentSubmit(e) {
 function loadHistoryData() {
     run(async () => {
         const d = await fetchAll(() => sb.from('ventas')
-            .select('fecha_venta,tienda,vendedor,cliente,tipo,producto,cantidad,valor_unitario')
+            .select('id,pedido_id,fecha_venta,tienda,vendedor,cliente_id,cliente,tipo,producto,cantidad,valor_unitario,valor_total')
             .order('fecha_venta', { ascending: false })
             .order('id', { ascending: false }));
         fullHistoryData = d.filter(r => (r.cliente || r.producto) && r.producto !== 'SALDO INICIAL');
@@ -501,50 +791,104 @@ function loadHistoryData() {
 }
 
 function renderHistoryTable(d) {
-    $('historicoTableBody').innerHTML = d.map(r => `<tr><td>${fmtFecha(r.fecha_venta)}</td><td>${esc(r.tienda)}</td><td>${esc(r.vendedor)}</td><td>${esc(r.cliente)}</td><td>${esc(r.tipo)}</td><td>${esc(r.producto)}</td><td class="num">${esc(r.cantidad)}</td><td class="num">${fmtQ(r.valor_unitario)}</td></tr>`).join('');
-    $('rowCount').textContent = d.length;
+    $('historicoTableBody').innerHTML = d.slice(0, 2000).map(r => `<tr><td>${fmtFecha(r.fecha_venta)}</td><td>${esc(r.pedido_id)}</td><td>${esc(r.tienda)}</td><td>${esc(r.vendedor)}</td><td class="num">${esc(r.cliente_id)}</td><td>${esc(r.cliente)}</td><td>${esc(r.tipo)}</td><td>${esc(r.producto)}</td><td class="num">${esc(r.cantidad)}</td><td class="num">${fmtQ(r.valor_unitario)}</td><td class="num">${fmtQ(r.valor_total)}</td></tr>`).join('');
+    $('rowCount').textContent = d.length + (d.length > 2000 ? ' (se muestran 2000; el Excel incluye todos)' : '');
 }
 
 function historicoFiltrado() {
     const c = norm($('filterCliente').value), t = $('filterTienda').value, tp = $('filterTipo').value, p = $('filterProducto').value;
     return fullHistoryData.filter(r =>
-        norm(r.cliente).includes(c) && (!t || r.tienda === t) && (!tp || r.tipo === tp) && (!p || r.producto === p));
+        (!c || String(r.cliente_id) === c || norm(r.cliente).includes(c)) &&
+        (!t || r.tienda === t) && (!tp || r.tipo === tp) && (!p || r.producto === p));
 }
 const filterHistory = () => renderHistoryTable(historicoFiltrado());
 
 function exportHistorico() {
     exportarExcel('Historico_ventas', 'Histórico', historicoFiltrado().map(r => ({
-        'Fecha': aFecha(r.fecha_venta), 'Tienda': r.tienda, 'Vendedor': r.vendedor, 'Cliente': r.cliente,
-        'Tipo': r.tipo, 'Producto': r.producto, 'Cantidad': r.cantidad, 'Valor unitario': r.valor_unitario,
+        'Fecha': aFecha(r.fecha_venta), 'Pedido': r.pedido_id, 'Tienda': r.tienda, 'Vendedor': r.vendedor,
+        'Código cliente': r.cliente_id, 'Cliente': r.cliente, 'Tipo': r.tipo, 'Producto': r.producto,
+        'Cantidad': r.cantidad, 'Valor unitario': r.valor_unitario, 'Valor total': r.valor_total,
     })));
 }
 
-// ---------------------------------------------------------------- cartera
-function loadCarteraTotalData() {
+// ---------------------------------------------------------------- cartera: saldos por cliente
+function loadSaldos() {
     run(async () => {
-        fullCarteraTotalData = await fetchAll(() => sb.from('cartera_total').select('*')
-            .order('tienda').order('cliente'));
-        filterCarteraTotal();
+        fullSaldosData = await fetchAll(() => sb.from('cartera_clientes').select('*').order('nombre').order('codigo'));
+        filterSaldos();
     });
 }
 
-function renderCarteraTotalTable(d) {
-    $('carteraTotalTableBody').innerHTML = d.map(r => `<tr><td>${esc(r.tienda)}</td><td>${esc(r.cliente)}</td><td class="num ${num(r.valor_cartera) < 0 ? 'saldo-negativo' : ''}">${fmtQ(r.valor_cartera)}</td></tr>`).join('');
-    $('carteraTotalSuma').textContent = fmtQ(d.reduce((s, r) => s + num(r.valor_cartera), 0));
+function saldosFiltrados() {
+    const q = norm($('filterSaldos').value), deudores = $('saldosSoloDeudores').checked;
+    return fullSaldosData.filter(r => (!deudores || num(r.saldo) > 0.005) &&
+        (!q || String(r.codigo) === q || [r.nombre, r.dpi, r.nit].some(v => norm(v).includes(q))));
 }
 
-function carteraTotalFiltrada() {
-    const t = $('filterCarteraTotalTienda').value, c = norm($('filterCarteraTotalCliente').value);
-    return fullCarteraTotalData.filter(r => (!t || r.tienda === t) && norm(r.cliente).includes(c));
+function filterSaldos() {
+    const d = saldosFiltrados();
+    $('saldosTableBody').innerHTML = d.map(r => `<tr data-codigo="${r.codigo}" style="cursor:pointer">
+        <td class="num fw-semibold">${r.codigo}</td><td>${esc(r.nombre)}</td><td>${esc(r.dpi || r.nit)}</td><td>${esc(r.telefono)}</td>
+        <td class="num">${fmtQ(r.total_ventas)}</td><td class="num">${fmtQ(r.total_pagos)}</td>
+        <td class="num fw-semibold ${num(r.saldo) < 0 ? 'saldo-negativo' : ''}">${fmtQ(r.saldo)}</td>
+        <td>${fmtFecha(r.ultima_venta)}</td><td>${fmtFecha(r.ultimo_pago)}</td></tr>`).join('');
+    const sum = k => d.reduce((s, r) => s + num(r[k]), 0);
+    $('saldosVentas').textContent = fmtQ(sum('total_ventas'));
+    $('saldosPagos').textContent = fmtQ(sum('total_pagos'));
+    $('saldosSaldo').textContent = fmtQ(sum('saldo'));
+    $('saldosRowCount').textContent = d.length;
 }
-const filterCarteraTotal = () => renderCarteraTotalTable(carteraTotalFiltrada());
 
-function exportCarteraTotal() {
-    exportarExcel('Cartera_total', 'Total Cartera', carteraTotalFiltrada().map(r => ({
-        'Tienda': r.tienda, 'Cliente': r.cliente, 'Valor cartera': r.valor_cartera,
+function exportSaldos() {
+    exportarExcel('Saldos_clientes', 'Saldos por cliente', saldosFiltrados().map(r => ({
+        'Código cliente': r.codigo, 'Cliente': r.nombre, 'DPI': r.dpi, 'NIT': r.nit, 'Teléfono': r.telefono,
+        'Compras': num(r.total_ventas), 'Pagos': num(r.total_pagos), 'Saldo': num(r.saldo),
+        'Última venta': aFecha(r.ultima_venta), 'Último pago': aFecha(r.ultimo_pago),
     })));
 }
 
+// ---------------------------------------------------------------- cartera: estado de cuenta
+let clienteEstado = null;
+
+function verEstadoCuenta(codigo) {
+    new bootstrap.Tab($('pills-estado-tab')).show();
+    cargarEstadoCuenta(codigo);
+}
+
+function cargarEstadoCuenta(codigo) {
+    run(async () => {
+        const [c, movs] = await Promise.all([
+            sb.from('clientes').select('*').eq('id', codigo).maybeSingle().then(ok),
+            fetchAll(() => sb.from('estado_cuenta').select('*').eq('cliente_id', codigo)
+                .order('fecha').order('movimiento', { ascending: false }).order('ref_id')),
+        ]);
+        if (!c) { showAlert('Cliente no encontrado', 'warning'); return; }
+        clienteEstado = c;
+        let saldo = 0;
+        estadoCuentaFilas = movs.map(m => ({ ...m, saldo: saldo += num(m.cargo) - num(m.abono) }));
+        $('ecCodigo').textContent = c.id;
+        $('ecNombre').textContent = c.nombre;
+        $('ecSaldo').textContent = fmt(saldo);
+        $('ecCliente').value = `${c.id} · ${c.nombre}`;
+        $('ecTableBody').innerHTML = estadoCuentaFilas.map(m => `<tr>
+            <td>${fmtFecha(m.fecha)}</td><td>${esc(m.movimiento)}</td><td>${esc(m.detalle)}</td><td>${esc(m.metodo_pago)}</td>
+            <td class="num">${num(m.cargo) ? fmt(m.cargo) : ''}</td><td class="num">${num(m.abono) ? fmt(m.abono) : ''}</td>
+            <td class="num fw-semibold ${m.saldo < 0 ? 'saldo-negativo' : ''}">${fmt(m.saldo)}</td></tr>`).join('')
+            || '<tr><td colspan="7" class="text-muted">Sin movimientos</td></tr>';
+        $('ecContenido').classList.remove('d-none');
+    });
+}
+
+function exportEstadoCuenta() {
+    if (!clienteEstado) { showAlert('Busque primero un cliente', 'warning'); return; }
+    exportarExcel(`Estado_cuenta_${clienteEstado.id}`, 'Estado de cuenta', estadoCuentaFilas.map(m => ({
+        'Código cliente': clienteEstado.id, 'Cliente': clienteEstado.nombre, 'Fecha': aFecha(m.fecha),
+        'Movimiento': m.movimiento, 'Detalle': m.detalle, 'Método de pago': m.metodo_pago,
+        'Cargo': num(m.cargo), 'Abono': num(m.abono), 'Saldo': m.saldo,
+    })));
+}
+
+// ---------------------------------------------------------------- cartera: por envío
 function loadCarteraDetalleData() {
     run(async () => {
         fullCarteraDetalleData = await fetchAll(() => sb.from('cartera_detalle').select('*')
@@ -569,7 +913,7 @@ function carteraDetalleFiltrada() {
 const filterCarteraDetalle = () => renderCarteraDetalleTable(carteraDetalleFiltrada());
 
 function exportCarteraDetalle() {
-    exportarExcel('Cartera_detalle', 'Detalle Cartera', carteraDetalleFiltrada().map(r => ({
+    exportarExcel('Cartera_por_envio', 'Cartera por envío', carteraDetalleFiltrada().map(r => ({
         'Fecha venta': aFecha(r.fecha_venta), 'Tienda': r.tienda, 'Cliente': r.cliente, 'Envío': r.envio,
         'Valor venta': r.valor_venta, 'Valor pago': r.valor_pago, 'Cartera': r.cartera,
     })));
@@ -581,12 +925,8 @@ async function cargarReferencias() {
     referencias = ok(await sb.from('productos').select('*').order('orden').order('nombre'));
     dropdownData.productos = referencias.filter(r => r.activo).map(r => r.nombre);
     const conInventario = referencias.filter(r => r.activo && r.controla_inventario).map(r => r.nombre);
-    const sel = $('cargaProducto').value;
-    populateDropdown('cargaProducto', conInventario, 'Seleccione Referencia...');
-    $('cargaProducto').value = sel;
-    const selH = $('filterProducto').value;
-    populateDropdown('filterProducto', referencias.map(r => r.nombre), 'Todos');
-    $('filterProducto').value = selH;
+    repoblar('cargaProducto', conInventario, 'Seleccione Referencia...');
+    repoblar('filterProducto', referencias.map(r => r.nombre), 'Todos');
 }
 
 function loadReferencias() {
@@ -663,10 +1003,24 @@ function exportReferencias() {
 // ---------------------------------------------------------------- inventario: cargas
 function loadCargas() {
     run(async () => {
-        const d = ok(await sb.from('ingresos_inventario').select('*').order('id', { ascending: false }).limit(100));
-        $('cargasTableBody').innerHTML = d.map(r => `<tr><td>${fmtFecha(r.fecha)}</td><td>${esc(r.tienda)}</td><td>${esc(r.producto)}</td><td>${esc(r.concepto)}</td><td class="num">${r.entrada ? fmt(r.entrada) : ''}</td><td class="num">${r.salida ? fmt(r.salida) : ''}</td><td>${esc(r.observaciones)}</td><td><button type="button" class="btn btn-outline-danger btn-sm delete-carga" data-id="${r.id}" title="Eliminar"><i class="bi bi-trash"></i></button></td></tr>`).join('');
+        cargasFilas = await fetchAll(() => sb.from('ingresos_inventario').select('*').order('fecha', { ascending: false }).order('id', { ascending: false }));
+        const repoblarUnicos = (id, valores, placeholder) => {
+            const v = $(id).value;
+            populateDropdown(id, [...new Set(valores.filter(Boolean))].sort(), placeholder);
+            $(id).value = v;
+        };
+        repoblarUnicos('filterCargasTienda', cargasFilas.map(r => r.tienda), 'Todas las tiendas');
+        repoblarUnicos('filterCargasProducto', cargasFilas.map(r => r.producto), 'Todas las referencias');
+        renderCargas();
         mostrarSaldoCarga();
     });
+}
+
+function renderCargas() {
+    const t = $('filterCargasTienda').value, p = $('filterCargasProducto').value;
+    const d = cargasFilas.filter(r => (!t || r.tienda === t) && (!p || r.producto === p));
+    $('cargasTableBody').innerHTML = d.slice(0, 500).map(r => `<tr><td>${fmtFecha(r.fecha)}</td><td>${esc(r.tienda)}</td><td>${esc(r.producto)}</td><td>${esc(r.concepto)}</td><td class="num">${r.entrada ? fmt(r.entrada) : ''}</td><td class="num">${r.salida ? fmt(r.salida) : ''}</td><td>${esc(r.observaciones)}</td><td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm delete-carga" data-id="${r.id}"><i class="bi bi-trash"></i> Eliminar</button></td></tr>`).join('')
+        || '<tr><td colspan="8" class="text-muted">Sin cargas</td></tr>';
 }
 
 async function mostrarSaldoCarga() {
@@ -703,10 +1057,11 @@ function handleCargaSubmit(e) {
 }
 
 function eliminarCarga(id) {
-    if (!confirm('¿Eliminar esta carga de inventario?')) return;
+    const r = cargasFilas.find(x => x.id === id);
+    if (!confirm(`¿Eliminar la carga de ${fmt(r?.entrada || r?.salida)} de ${r?.producto} en ${r?.tienda} (${fmtFecha(r?.fecha)})?`)) return;
     run(async () => {
         ok(await sb.from('ingresos_inventario').delete().eq('id', id));
-        showAlert('Carga eliminada', 'success');
+        showAlert('Carga eliminada; el saldo del inventario se recalculó', 'success');
         loadCargas();
     });
 }
@@ -804,7 +1159,11 @@ function exportMovimientos() {
 // ---------------------------------------------------------------- clientes (listado)
 function loadClientesData() {
     run(async () => {
-        fullClientesData = await fetchAll(() => sb.from('clientes').select('*').order('nombre').order('id'));
+        const [d] = await Promise.all([
+            fetchAll(() => sb.from('clientes').select('*').order('nombre').order('id')),
+            esAdmin() ? cargarPerfiles() : null,
+        ]);
+        fullClientesData = d;
         filterClientes();
     });
 }
@@ -812,40 +1171,107 @@ function loadClientesData() {
 function clientesFiltrados() {
     const q = norm($('filterClientes').value);
     return fullClientesData.filter(c =>
-        !q || String(c.id) === q || [c.nombre, c.dpi, c.nit, c.telefono].some(v => norm(v).includes(q)));
+        !q || String(c.id) === q || [c.nombre, c.dpi, c.nit, c.telefono, c.telefono2, c.correo].some(v => norm(v).includes(q)));
 }
 
 function filterClientes() {
     const d = clientesFiltrados();
-    $('clientesTableBody').innerHTML = d.map(c => `<tr><td class="num fw-semibold">${c.id}</td><td>${esc(c.nombre)}</td><td>${esc(c.dpi)}</td><td>${esc(c.nit)}</td><td>${esc(c.telefono)}</td><td>${esc(c.departamento)}</td><td>${fmtFecha(c.fecha_nacimiento)}</td><td><button type="button" class="btn btn-outline-secondary btn-sm edit-client" data-id="${c.id}" title="Editar"><i class="bi bi-pencil"></i></button></td></tr>`).join('');
-    $('clientesRowCount').textContent = d.length;
+    const admin = esAdmin();
+    $('clientesTableBody').innerHTML = d.slice(0, 1500).map(c => `<tr>
+        <td class="num fw-semibold">${c.id}</td><td>${esc(c.nombre)}</td><td>${esc(c.dpi)}</td><td>${esc(c.nit)}</td>
+        <td>${esc([c.telefono, c.telefono2].filter(Boolean).join(' / '))}</td><td>${esc(c.correo)}</td><td>${esc(c.direccion)}</td>
+        <td>${esc(c.departamento)}</td>${admin ? `<td>${esc(nombreUsuario(c.creado_por)) || '<span class="text-muted">—</span>'}</td>` : ''}
+        <td><button type="button" class="btn btn-outline-secondary btn-sm edit-client" data-id="${c.id}" title="Editar"><i class="bi bi-pencil"></i></button></td></tr>`).join('');
+    $('clientesRowCount').textContent = d.length + (d.length > 1500 ? ' (se muestran 1500; use el buscador)' : '');
 }
 
 function exportClientes() {
     exportarExcel('Clientes', 'Clientes', clientesFiltrados().map(c => ({
-        'ID Cliente': c.id, 'DPI': c.dpi, 'NIT': c.nit, 'Nombre y apellido': c.nombre, 'Fecha de nacimiento': aFecha(c.fecha_nacimiento),
-        'Departamento': c.departamento, 'Teléfono': c.telefono, 'NIT2': c.nit2, 'Código cliente': c.codigo_cliente,
+        'Código cliente': c.id, 'Nombre y apellido': c.nombre, 'DPI': c.dpi, 'NIT': c.nit, 'NIT2': c.nit2,
+        'Teléfono': c.telefono, 'Otro teléfono': c.telefono2, 'Correo': c.correo, 'Dirección': c.direccion,
+        'Departamento': c.departamento, 'Fecha de nacimiento': aFecha(c.fecha_nacimiento),
+        'Referencia anterior': c.codigo_cliente, ...(esAdmin() ? { 'Responsable': nombreUsuario(c.creado_por) } : {}),
     })));
 }
 
-// ---------------------------------------------------------------- datos en bruto
+// ---------------------------------------------------------------- usuarios (administradores)
+// Cliente de Supabase aparte para dar de alta usuarios sin cerrar la sesión del admin
+const sbAltas = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'ariga-altas' },
+});
+
+function loadUsuarios() {
+    run(async () => {
+        const [, clientes] = await Promise.all([
+            cargarPerfiles(),
+            fetchAll(() => sb.from('clientes').select('creado_por')),
+        ]);
+        const porUsuario = {};
+        clientes.forEach(c => { if (c.creado_por) porUsuario[c.creado_por] = (porUsuario[c.creado_por] || 0) + 1; });
+        $('usuariosTableBody').innerHTML = perfiles.map(p => {
+            const yo = p.id === perfil.id;
+            return `<tr class="${p.activo ? '' : 'text-muted'}">
+                <td>${esc(p.nombre)}${yo ? ' <span class="badge text-bg-light">usted</span>' : ''}</td><td>${esc(p.email)}</td>
+                <td><select class="form-select form-select-sm usr-rol" data-id="${p.id}" ${yo ? 'disabled' : ''}>
+                    <option value="vendedor" ${p.rol === 'vendedor' ? 'selected' : ''}>Vendedor</option>
+                    <option value="admin" ${p.rol === 'admin' ? 'selected' : ''}>Administrador</option></select></td>
+                <td class="text-center"><div class="form-check form-switch d-inline-block m-0"><input class="form-check-input usr-activo" type="checkbox" role="switch" data-id="${p.id}" ${p.activo ? 'checked' : ''} ${yo ? 'disabled' : ''} aria-label="Activo"></div></td>
+                <td class="num">${porUsuario[p.id] || 0}</td></tr>`;
+        }).join('');
+    });
+}
+
+function actualizarUsuario(el) {
+    const cambio = el.classList.contains('usr-rol') ? { rol: el.value } : { activo: el.checked };
+    run(async () => {
+        const r = ok(await sb.from('perfiles').update(cambio).eq('id', el.dataset.id).select());
+        if (!r.length) throw new Error('No se pudo actualizar el usuario');
+        showAlert('Usuario actualizado', 'success');
+        loadUsuarios();
+    });
+}
+
+function agregarUsuario(e) {
+    e.preventDefault();
+    const nombre = $('usrNombre').value.trim(), email = $('usrEmail').value.trim().toLowerCase();
+    const password = $('usrPassword').value, rol = $('usrRol').value;
+    run(async () => {
+        let aviso = '';
+        if (password) {
+            const { data, error } = await sbAltas.auth.signUp({ email, password, options: { data: { nombre, app: 'tiendaariga' } } });
+            if (error && !/already|registered|exists/i.test(error.message)) throw new Error(error.message);
+            if (error) aviso = ' El correo ya tenía cuenta: se le dio acceso con su contraseña actual.';
+            else if (!data.session) aviso = ' Si Supabase pide confirmar el correo, el usuario debe abrir el enlace que le llegó antes de entrar.';
+        }
+        ok(await sb.rpc('admin_agregar_usuario', { p_email: email, p_nombre: nombre, p_rol: rol }));
+        $('usuarioForm').reset();
+        showAlert(`Usuario ${email} agregado como ${rol === 'admin' ? 'administrador' : 'vendedor'}.${aviso}`, 'success');
+        loadUsuarios();
+    });
+}
+
+// ---------------------------------------------------------------- datos en bruto (administradores)
 const TABLAS_DATOS = [
     { tabla: 'ventas', titulo: 'Ventas', orden: 'id' },
     { tabla: 'pagos', titulo: 'Pagos', orden: 'id' },
     { tabla: 'clientes', titulo: 'Clientes', orden: 'id' },
+    { tabla: 'cartera_clientes', titulo: 'Cartera por cliente', orden: 'codigo' },
+    { tabla: 'estado_cuenta', titulo: 'Estado de cuenta (todos)', orden: 'cliente_id' },
+    { tabla: 'pagos_detalle', titulo: 'Pagos recibidos (detalle)', orden: 'fecha_pago' },
+    { tabla: 'cartera_detalle', titulo: 'Cartera por envío', orden: 'envio' },
     { tabla: 'devoluciones', titulo: 'Devoluciones', orden: 'id' },
     { tabla: 'ingresos_inventario', titulo: 'Ingresos de inventario', orden: 'id' },
     { tabla: 'devoluciones_oficina', titulo: 'Devolución a oficina', orden: 'id' },
     { tabla: 'inventario_items', titulo: 'Inventario (configuración)', orden: 'id' },
     { tabla: 'inventario', titulo: 'Inventario (saldos)', orden: 'tienda' },
     { tabla: 'inventario_movimientos', titulo: 'Inventario (movimientos)', orden: 'fecha' },
-    { tabla: 'cartera_detalle', titulo: 'Cartera detalle', orden: 'envio' },
-    { tabla: 'cartera_total', titulo: 'Cartera total', orden: 'tienda' },
     { tabla: 'tiendas', titulo: 'Maestro: Tiendas', orden: 'orden' },
     { tabla: 'vendedores', titulo: 'Maestro: Vendedores', orden: 'orden' },
     { tabla: 'tipos', titulo: 'Maestro: Tipos', orden: 'orden' },
     { tabla: 'productos', titulo: 'Referencias (productos)', orden: 'orden' },
     { tabla: 'metodos_pago', titulo: 'Maestro: Métodos de pago', orden: 'orden' },
+    { tabla: 'departamentos', titulo: 'Maestro: Departamentos', orden: 'orden' },
+    { tabla: 'perfiles', titulo: 'Usuarios', orden: 'nombre' },
     { tabla: 'coordenadas', titulo: 'Coordenadas', orden: 'departamento' },
 ];
 const MAX_FILAS_PANTALLA = 500;
@@ -911,14 +1337,13 @@ function exportarExcel(nombre, hoja, filas) {
     XLSX.writeFile(wb, `${nombre}_${hoyISO()}.xlsx`);
 }
 
-// ---------------------------------------------------------------- maestros: tiendas y vendedores
-// uso = tabla y columna que guardan el nombre (para saber si está en uso)
+// ---------------------------------------------------------------- maestros
 const MAESTROS = {
-    tiendas: { grupo: 'tiendas', nuevo: 'Nueva tienda o bodega', uso: ['ventas', 'tienda'] },
-    vendedores: { grupo: 'vendedores', nuevo: 'Nuevo vendedor', uso: ['ventas', 'vendedor'] },
-    metodos_pago: { grupo: 'métodos de pago', nuevo: 'Nuevo método de pago', uso: ['pagos', 'metodo_pago'] },
-    tipos: { grupo: 'tipos', nuevo: 'Nuevo tipo', uso: ['ventas', 'tipo'] },
-    departamentos: { grupo: 'departamentos', nuevo: 'Nuevo departamento', uso: ['clientes', 'departamento'] },
+    tiendas: { grupo: 'tiendas', nuevo: 'Nueva tienda o bodega' },
+    vendedores: { grupo: 'vendedores', nuevo: 'Nuevo vendedor' },
+    metodos_pago: { grupo: 'métodos de pago', nuevo: 'Nuevo método de pago' },
+    tipos: { grupo: 'tipos', nuevo: 'Nuevo tipo' },
+    departamentos: { grupo: 'departamentos', nuevo: 'Nuevo departamento' },
 };
 const maestros = { tiendas: [], vendedores: [], metodos_pago: [], tipos: [], departamentos: [] };
 
@@ -926,7 +1351,7 @@ const maestros = { tiendas: [], vendedores: [], metodos_pago: [], tipos: [], dep
 function repoblar(id, opts, placeholder) {
     const v = $(id).value;
     populateDropdown(id, opts, placeholder);
-    if (v) setSelectValue(id, v);
+    if (v && v !== OPCION_CREAR) setSelectValue(id, v);
 }
 
 async function cargarMaestros() {
@@ -942,11 +1367,13 @@ async function cargarMaestros() {
     const todos = l => l.map(x => x.nombre);
     const activos = l => l.filter(x => x.activo !== false).map(x => x.nombre);
 
-    // Filtros de consulta: todos. Venta y cargas: solo activos.
-    ['filterTienda', 'filterCarteraTotalTienda', 'filterCarteraDetalleTienda'].forEach(id => repoblar(id, todos(tiendas), 'Todas'));
+    // Filtros de consulta: todos. Formularios: solo activos.
+    ['filterTienda', 'filterCarteraDetalleTienda'].forEach(id => repoblar(id, todos(tiendas), 'Todas'));
     repoblar('tiendaSelect', activos(tiendas), 'Seleccione Tienda...');
     repoblar('cargaTienda', activos(tiendas), 'Seleccione Tienda...');
+    repoblar('saldoInicialTienda', activos(tiendas), '(opcional)');
     repoblar('vendedorSelect', activos(vendedores), 'Seleccione Vendedor...');
+    repoblar('saldoInicialVendedor', activos(vendedores), '(opcional)');
     repoblar('metodoPago', activos(metodos_pago), 'Seleccione...');
     dropdownData.tipos = activos(tipos);
     repoblar('filterTipo', todos(tipos), 'Todos');
@@ -1037,12 +1464,10 @@ function cambiarActivoMaestro(chk) {
 }
 
 function eliminarMaestro(m, nombre) {
-    const cfg = MAESTROS[m];
     run(async () => {
-        const [tabla, col] = cfg.uso;
-        const usos = ok(await sb.from(tabla).select('id').eq(col, nombre).limit(1));
-        if (usos.length) {
-            showAlert(`"${nombre}" tiene ${tabla === 'ventas' ? 'ventas registradas' : 'pagos registrados'} y no se puede eliminar. Desactívelo para que no aparezca en los formularios.`, 'warning');
+        // Revisa todos los registros del sistema, no solo los visibles para el usuario
+        if (ok(await sb.rpc('maestro_en_uso', { p_maestro: m, p_nombre: nombre }))) {
+            showAlert(`"${nombre}" está en uso (ventas, pagos, clientes o inventario) y no se puede eliminar. Desactívelo para que no aparezca en los formularios.`, 'warning');
             return;
         }
         if (!confirm(`¿Eliminar "${nombre}"?`)) return;

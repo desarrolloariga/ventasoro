@@ -277,6 +277,9 @@ def main(ruta):
                           " restart identity;\n\n")
         for t, regs in contenido:
             partes.append(insert(t, regs) + "\n")
+        if i == len(archivos):
+            partes.append("-- Vincula ventas y pagos importados con su cliente (saldo por cliente)\n"
+                          "select tiendaariga.vincular_clientes();\n")
         (SALIDA / f"02_datos_{i}.sql").write_text("".join(partes), encoding="utf-8")
 
     for t in orden:

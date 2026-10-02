@@ -19,9 +19,9 @@
         </div>
     </div>
 
-    <!-- Modal para creación de nuevo cliente -->
+    <!-- Modal de cliente: crear / editar -->
     <div class="modal fade" id="createClientModal" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="clientModalTitle">Crear Nuevo Cliente</h5>
@@ -30,16 +30,32 @@
                 <div class="modal-body">
                     <form id="createClientForm">
                         <input type="hidden" id="editClientId">
-                        <div class="alert alert-light border py-2 mb-3"><strong>ID Cliente:</strong> <span id="clientModalId">se asigna al guardar</span></div>
-                        <div class="mb-3"><label for="newClientDPI" class="form-label">DPI</label><input type="text" class="form-control" id="newClientDPI"></div>
-                        <div class="mb-3"><label for="newClientNIT" class="form-label">NIT</label><input type="text" class="form-control" id="newClientNIT"></div>
-                        <div class="mb-3"><label for="newClientNombre" class="form-label">Nombre y Apellido*</label><input type="text" class="form-control" id="newClientNombre" required></div>
-                        <div class="mb-3"><label for="newClientFechaNac" class="form-label">Fecha de Nacimiento</label><input type="date" class="form-control" id="newClientFechaNac"></div>
-                        <div class="mb-3"><label for="newClientDepto" class="form-label">Departamento</label><select class="form-select" id="newClientDepto" data-crear="departamentos"></select></div>
-                        <div class="mb-3"><label for="newClientTel" class="form-label">Teléfono</label><input type="text" class="form-control" id="newClientTel"></div>
-                        <div class="row g-2">
-                            <div class="col-6"><label for="newClientNIT2" class="form-label">NIT2</label><input type="text" class="form-control" id="newClientNIT2"></div>
-                            <div class="col-6"><label for="newClientCodigo" class="form-label">Código cliente</label><input type="text" class="form-control" id="newClientCodigo"></div>
+                        <div class="alert alert-light border py-2 mb-3"><strong>Código cliente:</strong> <span id="clientModalId" class="fs-5 fw-semibold">se asigna automáticamente al guardar</span></div>
+                        <div class="row g-3">
+                            <div class="col-md-8"><label for="newClientNombre" class="form-label">Nombre y Apellido*</label><input type="text" class="form-control" id="newClientNombre" required></div>
+                            <div class="col-md-4"><label for="newClientFechaNac" class="form-label">Fecha de Nacimiento</label><input type="date" class="form-control" id="newClientFechaNac"></div>
+                            <div class="col-md-4"><label for="newClientDPI" class="form-label">DPI</label><input type="text" class="form-control" id="newClientDPI"></div>
+                            <div class="col-md-4"><label for="newClientNIT" class="form-label">NIT</label><input type="text" class="form-control" id="newClientNIT"></div>
+                            <div class="col-md-4"><label for="newClientNIT2" class="form-label">NIT2</label><input type="text" class="form-control" id="newClientNIT2"></div>
+                            <div class="col-md-4"><label for="newClientTel" class="form-label">Teléfono</label><input type="tel" class="form-control" id="newClientTel"></div>
+                            <div class="col-md-4"><label for="newClientTel2" class="form-label">Otro teléfono</label><input type="tel" class="form-control" id="newClientTel2"></div>
+                            <div class="col-md-4"><label for="newClientCorreo" class="form-label">Correo</label><input type="email" class="form-control" id="newClientCorreo"></div>
+                            <div class="col-md-8"><label for="newClientDireccion" class="form-label">Dirección</label><input type="text" class="form-control" id="newClientDireccion"></div>
+                            <div class="col-md-4"><label for="newClientDepto" class="form-label">Departamento</label><select class="form-select" id="newClientDepto" data-crear="departamentos"></select></div>
+                            <div class="col-md-4"><label for="newClientCodigo" class="form-label">Referencia anterior</label><input type="text" class="form-control" id="newClientCodigo" placeholder="Opcional"></div>
+                            <div class="col-md-8 solo-admin d-none" id="clientResponsableGrupo"><label for="clientResponsable" class="form-label">Usuario responsable</label><select class="form-select" id="clientResponsable"></select>
+                                <div class="form-text">Solo ese usuario (y los administradores) ve al cliente, sus ventas y pagos.</div></div>
+                        </div>
+                        <!-- Solo al crear: saldo pendiente con el que llega el cliente -->
+                        <div id="saldoInicialGrupo" class="border rounded p-3 mt-3 bg-light">
+                            <div class="fw-semibold mb-2"><i class="bi bi-cash-coin me-1"></i> Saldo pendiente inicial (opcional)</div>
+                            <div class="row g-2">
+                                <div class="col-md-3"><label for="saldoInicialValor" class="form-label small">Valor Q</label><input type="number" class="form-control" id="saldoInicialValor" step="0.01" min="0" placeholder="0.00"></div>
+                                <div class="col-md-3"><label for="saldoInicialFecha" class="form-label small">Fecha</label><input type="date" class="form-control" id="saldoInicialFecha"></div>
+                                <div class="col-md-3"><label for="saldoInicialTienda" class="form-label small">Tienda / Bodega</label><select class="form-select" id="saldoInicialTienda" data-crear="tiendas"></select></div>
+                                <div class="col-md-3"><label for="saldoInicialVendedor" class="form-label small">Vendedor</label><select class="form-select" id="saldoInicialVendedor" data-crear="vendedores"></select></div>
+                            </div>
+                            <div class="form-text">Queda registrado como una venta "SALDO INICIAL" y suma a lo que debe el cliente.</div>
                         </div>
                     </form>
                 </div>
@@ -48,6 +64,42 @@
                     <button type="button" class="btn btn-gold" id="saveClientButton">Guardar Cliente</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Modal: asignar un cliente a un pago antiguo sin cliente (admin) -->
+    <div class="modal fade" id="asignarClienteModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Asignar cliente al pago</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small mb-2" id="asignarPagoInfo"></p>
+                    <div class="buscador-cliente position-relative">
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="asignarCliente" placeholder="Código, nombre o DPI del cliente" autocomplete="off">
+                                            <button class="btn btn-outline-secondary" type="button" id="asignarClienteBoton"><i class="bi bi-search"></i> Buscar</button>
+                                        </div>
+                                        <div class="list-group shadow buscador-resultados d-none" id="asignarClienteResultados"></div>
+                                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: nueva contraseña (al entrar con el enlace de recuperación) -->
+    <div class="modal fade" id="passwordModal" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-sm">
+            <form class="modal-content" id="passwordForm">
+                <div class="modal-header"><h5 class="modal-title">Nueva contraseña</h5></div>
+                <div class="modal-body">
+                    <label for="nuevaPassword" class="form-label">Contraseña nueva</label>
+                    <input type="password" class="form-control" id="nuevaPassword" minlength="6" required autocomplete="new-password">
+                </div>
+                <div class="modal-footer"><button type="submit" class="btn btn-gold">Guardar</button></div>
+            </form>
         </div>
     </div>
 
@@ -110,10 +162,42 @@
                 <img src="https://i.imgur.com/KV3f7q7.png" alt="ARIGA Logo" class="navbar-logo">
                 Joyería ARIGA
             </a>
+            <div id="userBox" class="d-none align-items-center gap-2">
+                <span class="navbar-user d-none d-md-inline"><i class="bi bi-person-circle"></i> <span id="userNombre"></span> <span class="badge text-bg-light" id="userRol"></span></span>
+                <button class="btn btn-outline-light btn-sm" id="logoutButton"><i class="bi bi-box-arrow-right"></i> Salir</button>
+            </div>
         </div>
     </nav>
 
-    <div id="appView">
+    <!-- Inicio de sesión -->
+    <div id="loginView" class="container d-none">
+        <div class="card login-card">
+            <div class="card-header card-header-custom"><i class="bi bi-lock me-2"></i> Iniciar sesión</div>
+            <div class="card-body">
+                <form id="loginForm">
+                    <div class="mb-3"><label for="loginEmail" class="form-label">Correo</label><input type="email" class="form-control" id="loginEmail" autocomplete="username" required></div>
+                    <div class="mb-3"><label for="loginPassword" class="form-label">Contraseña</label><input type="password" class="form-control" id="loginPassword" autocomplete="current-password" required></div>
+                    <div id="loginMensaje" class="alert d-none py-2"></div>
+                    <button type="submit" class="btn btn-gold w-100">Entrar</button>
+                    <button type="button" class="btn btn-link w-100 mt-2 small" id="olvidoButton">¿Olvidó su contraseña?</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Usuario sin acceso / pendiente -->
+    <div id="sinAccesoView" class="container d-none">
+        <div class="card login-card">
+            <div class="card-body text-center">
+                <i class="bi bi-hourglass-split fs-1 text-muted"></i>
+                <h5 class="mt-2">Sin acceso a ARIGA</h5>
+                <p class="text-muted mb-3">Su usuario <strong id="sinAccesoEmail"></strong> no está habilitado. Pida a un administrador que lo active en la pestaña Usuarios.</p>
+                <button class="btn btn-outline-secondary" id="sinAccesoSalir">Salir</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="appView" class="d-none">
     <div class="container text-center mt-4">
         <h1 class="main-title">Sistema de Registro ARIGA</h1>
     </div>
@@ -131,7 +215,8 @@
           <li class="nav-item"><button class="nav-link" id="cartera-tab" data-bs-toggle="tab" data-bs-target="#cartera" type="button">Cartera</button></li>
           <li class="nav-item"><button class="nav-link" id="inventario-tab" data-bs-toggle="tab" data-bs-target="#inventario" type="button">Inventario</button></li>
           <li class="nav-item"><button class="nav-link" id="maestros-tab" data-bs-toggle="tab" data-bs-target="#maestros" type="button">Maestros</button></li>
-          <li class="nav-item"><button class="nav-link" id="datos-tab" data-bs-toggle="tab" data-bs-target="#datos" type="button">Datos</button></li>
+          <li class="nav-item solo-admin d-none"><button class="nav-link" id="usuarios-tab" data-bs-toggle="tab" data-bs-target="#usuarios" type="button">Usuarios</button></li>
+          <li class="nav-item solo-admin d-none"><button class="nav-link" id="datos-tab" data-bs-toggle="tab" data-bs-target="#datos" type="button">Datos</button></li>
         </ul>
 
         <div class="tab-content" id="myTabContent">
@@ -145,14 +230,19 @@
                         <div class="card-body">
                             <div class="row g-2">
                                 <div class="col-md-4">
-                                    <label class="form-label" for="clientDPI">Buscar (ID/DPI/NIT/Nombre)</label>
-                                    <div class="input-group">
-                                        <input type="text" class="form-control" id="clientDPI">
-                                        <button class="btn btn-outline-secondary" type="button" id="searchClientButton">Buscar</button>
-                                        <button class="btn btn-outline-secondary" type="button" id="newClientSaleButton" title="Crear cliente"><i class="bi bi-person-plus"></i></button>
+                                    <label class="form-label" for="clientDPI">Buscar cliente (código, nombre o DPI)</label>
+                                    <div class="d-flex gap-1">
+                                    <div class="buscador-cliente position-relative">
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="clientDPI" placeholder="" autocomplete="off">
+                                            <button class="btn btn-outline-secondary" type="button" id="clientDPIBoton"><i class="bi bi-search"></i> Buscar</button>
+                                        </div>
+                                        <div class="list-group shadow buscador-resultados d-none" id="clientDPIResultados"></div>
+                                    </div>
+                                    <button class="btn btn-outline-secondary" type="button" id="newClientSaleButton" title="Crear cliente"><i class="bi bi-person-plus"></i></button>
                                     </div>
                                 </div>
-                                <div class="col-md-2"><label class="form-label" for="clientId">ID Cliente</label><input type="text" class="form-control fw-semibold" id="clientId" readonly></div>
+                                <div class="col-md-2"><label class="form-label" for="clientId">Código cliente</label><input type="text" class="form-control fw-semibold" id="clientId" readonly></div>
                                 <div class="col-md-3"><label class="form-label" for="clientName">Nombre</label><input type="text" class="form-control" id="clientName" readonly></div>
                                 <div class="col-md-3"><label class="form-label" for="clientNIT">NIT</label><input type="text" class="form-control" id="clientNIT" readonly></div>
                             </div>
@@ -183,9 +273,10 @@
                     <div class="card mb-3">
                         <div class="card-body">
                             <div class="row g-2">
-                                <div class="col-md-4"><label class="form-label" for="subtotal">Subtotal</label><input type="text" class="form-control" id="subtotal" readonly></div>
-                                <div class="col-md-4"><label class="form-label" for="envio">Envío</label><input type="text" class="form-control" id="envio"></div>
-                                <div class="col-md-4"><label class="form-label" for="factura">Factura</label><input type="text" class="form-control" id="factura"></div>
+                                <div class="col-md-3"><label class="form-label" for="subtotal">Subtotal</label><input type="text" class="form-control" id="subtotal" readonly></div>
+                                <div class="col-md-3"><label class="form-label" for="envio">Envío</label><input type="text" class="form-control" id="envio"></div>
+                                <div class="col-md-3"><label class="form-label" for="factura">Factura</label><input type="text" class="form-control" id="factura"></div>
+                                <div class="col-md-3"><label class="form-label" for="fechaVentaVista">Fecha de venta</label><input type="text" class="form-control" id="fechaVentaVista" value="Hoy (al registrar)" readonly></div>
                             </div>
                         </div>
                     </div>
@@ -200,62 +291,126 @@
             <!-- Pestaña: Buscar Pedido -->
             <div class="tab-pane fade" id="busqueda" role="tabpanel">
                 <div class="card mt-3">
-                  <div class="card-header card-header-custom">Buscar Pedido por Envío</div>
+                  <div class="card-header card-header-custom">Buscar Pedido</div>
                   <div class="card-body">
                     <div class="input-group">
-                      <input type="text" class="form-control" id="searchEnvioInput" placeholder="Ingrese el número de envío">
-                      <button class="btn btn-outline-secondary" type="button" id="searchEnvioButton">Buscar Pedido</button>
+                      <input type="text" class="form-control" id="searchEnvioInput" placeholder="Envío, Id de pedido, nombre o código del cliente">
+                      <button class="btn btn-outline-secondary" type="button" id="searchEnvioButton"><i class="bi bi-search"></i> Buscar</button>
                     </div>
+                    <div class="table-responsive mt-3" style="max-height: 500px; overflow-y: auto;">
+                      <table class="table table-sm table-hover table-bordered d-none" id="pedidosTabla">
+                        <thead class="table-light sticky-top"><tr><th>Fecha venta</th><th>Pedido</th><th>Envío</th><th>Código</th><th>Cliente</th><th>Tienda</th><th>Vendedor</th><th class="num">Total</th><th></th></tr></thead>
+                        <tbody id="pedidosTableBody"></tbody>
+                      </table>
+                    </div>
+                    <div class="text-muted small" id="pedidosInfo"></div>
                   </div>
                 </div>
             </div>
 
-            <!-- Pestaña: Registrar Pago -->
+            <!-- Pestaña: Pagos -->
             <div class="tab-pane fade" id="pago" role="tabpanel">
-                <form id="paymentForm" class="mt-3">
+              <div class="mt-3">
+                <ul class="nav nav-pills mb-3">
+                  <li class="nav-item"><button class="nav-link active" id="pills-pagar-tab" data-bs-toggle="pill" data-bs-target="#pills-pagar" type="button">Registrar Pago</button></li>
+                  <li class="nav-item"><button class="nav-link" id="pills-recibidos-tab" data-bs-toggle="pill" data-bs-target="#pills-recibidos" type="button">Pagos Recibidos</button></li>
+                </ul>
+                <div class="tab-content">
+                  <!-- Registrar pago: abono al total del cliente -->
+                  <div class="tab-pane fade show active" id="pills-pagar">
                     <div class="card mb-3">
-                        <div class="card-header card-header-custom">Buscar Envío</div>
+                        <div class="card-header card-header-custom"><i class="bi bi-person-badge me-2"></i> Cliente</div>
                         <div class="card-body">
-                            <div class="input-group">
-                                <input type="text" class="form-control" id="searchPaymentEnvioInput" placeholder="Número de envío...">
-                                <button class="btn btn-outline-secondary" type="button" id="searchPaymentEnvioButton">Buscar</button>
-                            </div>
+                            <div class="buscador-cliente position-relative">
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="pagoCliente" placeholder="Código, nombre o DPI del cliente" autocomplete="off">
+                                            <button class="btn btn-outline-secondary" type="button" id="pagoClienteBoton"><i class="bi bi-search"></i> Buscar</button>
+                                        </div>
+                                        <div class="list-group shadow buscador-resultados d-none" id="pagoClienteResultados"></div>
+                                    </div>
                         </div>
                     </div>
-                    <div id="shipmentInfoContainer" class="d-none">
+                    <div id="pagoClienteInfo" class="d-none">
                         <div class="card mb-3">
-                            <div class="card-header card-header-custom">Información del Envío</div>
                             <div class="card-body">
-                                <div class="row">
-                                    <div class="col-md-4 mb-2"><strong>Cliente:</strong> <span id="infoCliente"></span></div>
-                                    <div class="col-md-4 mb-2"><strong>Documento:</strong> <span id="infoDocumento"></span></div>
-                                    <div class="col-md-4 mb-2"><strong>Tienda:</strong> <span id="infoTienda"></span></div>
-                                    <div class="col-md-4 mb-2"><strong>Vendedor:</strong> <span id="infoVendedor"></span></div>
-                                    <div class="col-md-4 mb-2"><strong>Tipo:</strong> <span id="infoTipo"></span></div>
-                                    <div class="col-md-4 mb-2"><strong>Fecha Venta:</strong> <span id="infoFechaVenta"></span></div>
+                                <div class="row align-items-center">
+                                    <div class="col-md-6">
+                                        <div class="text-muted small">Código <span id="pagoInfoCodigo" class="fw-semibold"></span></div>
+                                        <h5 class="mb-1" id="pagoInfoNombre"></h5>
+                                        <div class="small text-muted" id="pagoInfoDoc"></div>
+                                    </div>
+                                    <div class="col-md-6 text-md-end">
+                                        <div class="small text-muted">Compras Q <span id="pagoInfoVentas">0.00</span> · Pagado Q <span id="pagoInfoPagos">0.00</span></div>
+                                        <div class="fs-3 fw-semibold">Debe: Q <span id="pagoInfoSaldo">0.00</span></div>
+                                    </div>
                                 </div>
-                                <hr>
-                                <div class="row text-end">
-                                    <div class="col-md-4"><h6>Total Envío: Q <span id="infoTotal">0.00</span></h6></div>
-                                    <div class="col-md-4"><h6>Pagado: Q <span id="infoPagado">0.00</span></h6></div>
-                                    <div class="col-md-4"><h4>Saldo: Q <span id="infoSaldo">0.00</span></h4></div>
-                                </div>
+                                <details class="mt-2"><summary class="small">Ver envíos con saldo</summary>
+                                    <div class="table-responsive mt-2"><table class="table table-sm table-bordered mb-0">
+                                        <thead class="table-light"><tr><th>Fecha</th><th>Envío</th><th class="num">Venta</th><th class="num">Pagado al envío</th><th class="num">Saldo envío</th></tr></thead>
+                                        <tbody id="pagoEnviosBody"></tbody></table></div>
+                                    <div class="form-text">Los abonos generales (sin envío) se descuentan del total del cliente, no de un envío.</div>
+                                </details>
                             </div>
                         </div>
-                        <div class="card mb-3">
-                            <div class="card-header card-header-custom">Registrar Nuevo Pago</div>
+                        <form id="paymentForm" class="card mb-3">
+                            <div class="card-header card-header-custom">Registrar Abono</div>
                             <div class="card-body">
                                 <div class="row g-3">
-                                    <div class="col-md-3"><label class="form-label" for="fechaPago">Fecha Pago</label><input type="date" class="form-control" id="fechaPago" required></div>
-                                    <div class="col-md-3"><label class="form-label" for="valorPagar">Valor</label><input type="number" class="form-control" id="valorPagar" step="0.01" min="0.01" required></div>
-                                    <div class="col-md-3"><label class="form-label" for="metodoPago">Método</label><select class="form-select" id="metodoPago" data-crear="metodos_pago" required></select></div>
-                                    <div class="col-md-3"><label class="form-label" for="boleta">Boleta</label><input type="text" class="form-control" id="boleta"></div>
+                                    <div class="col-md-2"><label class="form-label" for="fechaPago">Fecha pago</label><input type="date" class="form-control" id="fechaPago" required></div>
+                                    <div class="col-md-2"><label class="form-label" for="valorPagar">Valor Q</label><input type="number" class="form-control" id="valorPagar" step="0.01" min="0.01" required></div>
+                                    <div class="col-md-3"><label class="form-label" for="metodoPago">Método de pago</label><select class="form-select" id="metodoPago" data-crear="metodos_pago" required></select></div>
+                                    <div class="col-md-2"><label class="form-label" for="boleta">Boleta / Recibo</label><input type="text" class="form-control" id="boleta"></div>
+                                    <div class="col-md-3"><label class="form-label" for="pagoEnvio">Aplicar a</label><select class="form-select" id="pagoEnvio"><option value="">Abono al total del cliente</option></select></div>
+                                    <div class="col-12"><label class="form-label" for="pagoObservaciones">Observaciones</label><input type="text" class="form-control" id="pagoObservaciones"></div>
+                                </div>
+                                <div class="mt-3 d-flex justify-content-between align-items-center">
+                                    <span class="text-muted small" id="pagoNuevoSaldo"></span>
+                                    <button type="submit" class="btn btn-gold">Registrar Pago</button>
                                 </div>
                             </div>
-                        </div>
-                        <div class="text-end mb-4"><button type="submit" class="btn btn-gold">Registrar Pago</button></div>
+                        </form>
                     </div>
-                </form>
+                  </div>
+
+                  <!-- Pagos recibidos: método, fecha y quién lo registró -->
+                  <div class="tab-pane fade" id="pills-recibidos">
+                    <div class="card mb-3">
+                      <div class="card-body">
+                        <div class="row g-3 align-items-end">
+                          <div class="col-md-2"><label class="form-label" for="recDesde">Desde</label><input type="date" class="form-control" id="recDesde"></div>
+                          <div class="col-md-2"><label class="form-label" for="recHasta">Hasta</label><input type="date" class="form-control" id="recHasta"></div>
+                          <div class="col-md-2"><label class="form-label" for="recMetodo">Método</label><select class="form-select" id="recMetodo"><option value="">Todos</option></select></div>
+                          <div class="col-md-2"><label class="form-label" for="recUsuario">Registrado por</label><select class="form-select" id="recUsuario"><option value="">Todos</option></select></div>
+                          <div class="col-md-2"><label class="form-label" for="recCliente">Cliente</label><input type="text" class="form-control" id="recCliente" placeholder="Nombre o código"></div>
+                          <div class="col-md-2 d-flex gap-1">
+                            <button type="button" class="btn btn-gold flex-grow-1" id="recBuscarButton"><i class="bi bi-search"></i></button>
+                            <button type="button" class="btn btn-outline-secondary" id="exportRecibidosButton" title="Exportar a Excel"><i class="bi bi-file-earmark-excel"></i></button>
+                          </div>
+                          <div class="col-12 solo-admin d-none"><div class="form-check"><input class="form-check-input" type="checkbox" id="recSinCliente"><label class="form-check-label" for="recSinCliente">Solo pagos antiguos sin cliente asignado</label></div></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                      <div class="col-md-6"><div class="card h-100"><div class="card-header card-header-custom">Total por método de pago</div><div class="card-body p-2">
+                        <table class="table table-sm mb-0"><thead><tr><th>Método</th><th class="num">Pagos</th><th class="num">Total</th></tr></thead><tbody id="recPorMetodo"></tbody></table></div></div></div>
+                      <div class="col-md-6"><div class="card h-100"><div class="card-header card-header-custom">Total por usuario que registró</div><div class="card-body p-2">
+                        <table class="table table-sm mb-0"><thead><tr><th>Usuario</th><th class="num">Pagos</th><th class="num">Total</th></tr></thead><tbody id="recPorUsuario"></tbody></table></div></div></div>
+                    </div>
+                    <div class="card">
+                      <div class="card-body">
+                        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                          <table class="table table-sm table-hover table-bordered">
+                            <thead class="table-light sticky-top"><tr><th>Fecha</th><th>Código</th><th>Cliente</th><th>Método</th><th class="num">Valor</th><th>Boleta</th><th>Envío</th><th>Registrado por</th><th></th></tr></thead>
+                            <tbody id="recibidosTableBody"></tbody>
+                            <tfoot><tr><td colspan="4">Total</td><td class="num" id="recTotal"></td><td colspan="4"></td></tr></tfoot>
+                          </table>
+                        </div>
+                        <div class="mt-2 text-muted small" id="recInfo"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- Pestaña: Clientes -->
@@ -264,7 +419,7 @@
                 <div class="card mb-3">
                   <div class="card-body">
                     <div class="row g-3 align-items-end">
-                      <div class="col-md-8"><label class="form-label" for="filterClientes">Buscar</label><input type="text" class="form-control" id="filterClientes" placeholder="ID, nombre, DPI, NIT o teléfono..."></div>
+                      <div class="col-md-8"><label class="form-label" for="filterClientes">Buscar</label><input type="text" class="form-control" id="filterClientes" placeholder="Código, nombre, DPI, NIT, teléfono o correo..."></div>
                       <div class="col-md-4 text-md-end">
                         <button type="button" class="btn btn-gold" id="newClientButton"><i class="bi bi-person-plus"></i> Nuevo</button>
                         <button type="button" class="btn btn-outline-secondary" id="exportClientesButton"><i class="bi bi-file-earmark-excel"></i> Excel</button>
@@ -277,7 +432,7 @@
                     <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
                       <table class="table table-hover table-bordered table-sm">
                         <thead class="table-light sticky-top">
-                          <tr><th class="num">ID</th><th>Nombre</th><th>DPI</th><th>NIT</th><th>Teléfono</th><th>Departamento</th><th>Fecha Nac.</th><th></th></tr>
+                          <tr><th class="num">Código</th><th>Nombre</th><th>DPI</th><th>NIT</th><th>Teléfonos</th><th>Correo</th><th>Dirección</th><th>Departamento</th><th class="solo-admin d-none">Responsable</th><th></th></tr>
                         </thead>
                         <tbody id="clientesTableBody"></tbody>
                       </table>
@@ -294,7 +449,7 @@
                 <div class="card mb-3">
                   <div class="card-body">
                     <div class="row g-3">
-                      <div class="col-md-3"><label class="form-label" for="filterCliente">Cliente</label><input type="text" class="form-control" id="filterCliente" placeholder="Buscar cliente..."></div>
+                      <div class="col-md-3"><label class="form-label" for="filterCliente">Cliente o código</label><input type="text" class="form-control" id="filterCliente" placeholder="Nombre o código del cliente..."></div>
                       <div class="col-md-3"><label class="form-label" for="filterTienda">Tienda / Bodega</label><select class="form-select" id="filterTienda"><option value="">Todas</option></select></div>
                       <div class="col-md-3"><label class="form-label" for="filterTipo">Tipo</label><select class="form-select" id="filterTipo"><option value="">Todos</option></select></div>
                       <div class="col-md-3"><label class="form-label" for="filterProducto">Producto</label><select class="form-select" id="filterProducto"><option value="">Todos</option></select></div>
@@ -306,7 +461,7 @@
                     <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
                       <table class="table table-hover table-bordered table-sm">
                         <thead class="table-light sticky-top">
-                          <tr><th>Fecha</th><th>Tienda</th><th>Vendedor</th><th>Cliente</th><th>Tipo</th><th>Producto</th><th>Cant.</th><th>Unit.</th></tr>
+                          <tr><th>Fecha</th><th>Pedido</th><th>Tienda</th><th>Vendedor</th><th class="num">Código</th><th>Cliente</th><th>Tipo</th><th>Producto</th><th class="num">Cant.</th><th class="num">Unit.</th><th class="num">Total</th></tr>
                         </thead>
                         <tbody id="historicoTableBody"></tbody>
                       </table>
@@ -324,29 +479,60 @@
             <div class="tab-pane fade" id="cartera" role="tabpanel">
               <div class="mt-3">
                 <ul class="nav nav-pills mb-3">
-                  <li class="nav-item"><button class="nav-link active" id="pills-total-tab" data-bs-toggle="pill" data-bs-target="#pills-total" type="button">Total Cartera</button></li>
-                  <li class="nav-item"><button class="nav-link" id="pills-detalle-tab" data-bs-toggle="pill" data-bs-target="#pills-detalle" type="button">Detalle Cartera</button></li>
+                  <li class="nav-item"><button class="nav-link active" id="pills-saldoscli-tab" data-bs-toggle="pill" data-bs-target="#pills-saldoscli" type="button">Saldos por Cliente</button></li>
+                  <li class="nav-item"><button class="nav-link" id="pills-estado-tab" data-bs-toggle="pill" data-bs-target="#pills-estado" type="button">Estado de Cuenta</button></li>
+                  <li class="nav-item"><button class="nav-link" id="pills-detalle-tab" data-bs-toggle="pill" data-bs-target="#pills-detalle" type="button">Por Envío</button></li>
                 </ul>
                 <div class="tab-content">
-                  <!-- Total -->
-                  <div class="tab-pane fade show active" id="pills-total">
+                  <!-- Saldos por cliente -->
+                  <div class="tab-pane fade show active" id="pills-saldoscli">
                     <div class="card mb-3">
                       <div class="card-body">
-                        <div class="row g-3">
-                          <div class="col-md-6"><select class="form-select" id="filterCarteraTotalTienda" aria-label="Tienda"><option value="">Todas</option></select></div>
-                          <div class="col-md-6"><input type="text" class="form-control" id="filterCarteraTotalCliente" placeholder="Buscar cliente..."></div>
+                        <div class="row g-3 align-items-end">
+                          <div class="col-md-6"><label class="form-label" for="filterSaldos">Buscar</label><input type="text" class="form-control" id="filterSaldos" placeholder="Código, nombre o DPI del cliente..."></div>
+                          <div class="col-md-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="saldosSoloDeudores" checked><label class="form-check-label" for="saldosSoloDeudores">Solo clientes con saldo</label></div></div>
+                          <div class="col-md-3 text-md-end"><button type="button" class="btn btn-outline-secondary" id="exportSaldosButton"><i class="bi bi-file-earmark-excel"></i> Exportar a Excel</button></div>
                         </div>
                       </div>
                     </div>
-                    <div class="card"><div class="card-body"><div class="table-responsive" style="max-height: 500px; overflow-y: auto;"><table class="table table-sm table-bordered">
-                      <thead class="table-light sticky-top"><tr><th>Tienda</th><th>Cliente</th><th class="num">Valor Cartera</th></tr></thead>
-                      <tbody id="carteraTotalTableBody"></tbody>
-                      <tfoot><tr><td colspan="2">Total</td><td class="num" id="carteraTotalSuma"></td></tr></tfoot>
+                    <div class="card"><div class="card-body"><div class="table-responsive" style="max-height: 500px; overflow-y: auto;"><table class="table table-sm table-bordered table-hover">
+                      <thead class="table-light sticky-top"><tr><th class="num">Código</th><th>Cliente</th><th>DPI / NIT</th><th>Teléfono</th><th class="num">Compras</th><th class="num">Pagos</th><th class="num">Saldo</th><th>Última venta</th><th>Último pago</th></tr></thead>
+                      <tbody id="saldosTableBody"></tbody>
+                      <tfoot><tr><td colspan="4">Total</td><td class="num" id="saldosVentas"></td><td class="num" id="saldosPagos"></td><td class="num" id="saldosSaldo"></td><td colspan="2"></td></tr></tfoot>
                     </table></div>
-                    <div class="mt-2 text-end"><button type="button" class="btn btn-outline-secondary btn-sm" id="exportCarteraTotalButton"><i class="bi bi-file-earmark-excel"></i> Exportar a Excel</button></div>
+                    <div class="mt-2 text-muted small">Clientes: <span id="saldosRowCount">0</span> · Clic en un cliente para ver su estado de cuenta</div>
                     </div></div>
                   </div>
-                  <!-- Detalle -->
+                  <!-- Estado de cuenta -->
+                  <div class="tab-pane fade" id="pills-estado">
+                    <div class="card mb-3">
+                      <div class="card-body">
+                        <div class="row g-3 align-items-end">
+                          <div class="col-md-8"><label class="form-label" for="ecCliente">Cliente</label>
+                            <div class="buscador-cliente position-relative">
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="ecCliente" placeholder="Código, nombre o DPI del cliente" autocomplete="off">
+                                            <button class="btn btn-outline-secondary" type="button" id="ecClienteBoton"><i class="bi bi-search"></i> Buscar</button>
+                                        </div>
+                                        <div class="list-group shadow buscador-resultados d-none" id="ecClienteResultados"></div>
+                                    </div>
+                          </div>
+                          <div class="col-md-4 text-md-end"><button type="button" class="btn btn-outline-secondary" id="exportEstadoButton"><i class="bi bi-file-earmark-excel"></i> Exportar a Excel</button></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="card d-none" id="ecContenido"><div class="card-body">
+                      <div class="d-flex justify-content-between flex-wrap mb-2">
+                        <div><span class="text-muted small">Código <span id="ecCodigo" class="fw-semibold"></span></span><h5 class="mb-0" id="ecNombre"></h5></div>
+                        <div class="text-end fs-4 fw-semibold">Saldo: Q <span id="ecSaldo">0.00</span></div>
+                      </div>
+                      <div class="table-responsive" style="max-height: 500px; overflow-y: auto;"><table class="table table-sm table-bordered">
+                        <thead class="table-light sticky-top"><tr><th>Fecha</th><th>Movimiento</th><th>Detalle</th><th>Método</th><th class="num">Cargo</th><th class="num">Abono</th><th class="num">Saldo</th></tr></thead>
+                        <tbody id="ecTableBody"></tbody>
+                      </table></div>
+                    </div></div>
+                  </div>
+                  <!-- Por envío -->
                   <div class="tab-pane fade" id="pills-detalle">
                     <div class="card mb-3">
                       <div class="card-body">
@@ -355,6 +541,7 @@
                           <div class="col-md-4"><input type="text" class="form-control" id="filterCarteraDetalleCliente" placeholder="Cliente..."></div>
                           <div class="col-md-4"><input type="text" class="form-control" id="filterCarteraDetalleEnvio" placeholder="Envío..."></div>
                         </div>
+                        <div class="form-text">Solo descuenta los pagos aplicados a cada envío. Los abonos al total del cliente se ven en Saldos por Cliente.</div>
                       </div>
                     </div>
                     <div class="card"><div class="card-body"><div class="table-responsive" style="max-height: 500px; overflow-y: auto;"><table class="table table-sm table-bordered">
@@ -434,8 +621,13 @@
                       </div>
                     </form>
                     <div class="card">
-                      <div class="card-header card-header-custom">Últimas cargas</div>
+                      <div class="card-header card-header-custom">Cargas registradas</div>
                       <div class="card-body">
+                        <div class="row g-2 mb-2">
+                          <div class="col-md-4"><select class="form-select form-select-sm" id="filterCargasTienda" aria-label="Tienda"><option value="">Todas las tiendas</option></select></div>
+                          <div class="col-md-4"><select class="form-select form-select-sm" id="filterCargasProducto" aria-label="Referencia"><option value="">Todas las referencias</option></select></div>
+                          <div class="col-md-4 small text-muted d-flex align-items-center">Para corregir una carga, elimínela y regístrela de nuevo.</div>
+                        </div>
                         <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
                           <table class="table table-sm table-bordered">
                             <thead class="table-light sticky-top"><tr><th>Fecha</th><th>Tienda</th><th>Referencia</th><th>Concepto</th><th class="num">Entrada</th><th class="num">Salida</th><th>Observaciones</th><th></th></tr></thead>
@@ -585,6 +777,37 @@
                 </div>
               </div>
               <p class="text-muted small mt-2 mb-0">Los inactivos no aparecen al registrar ventas, pagos ni cargas, pero se conservan en el histórico y en los filtros. Solo se pueden eliminar los que no están en uso (ventas, pagos o clientes).</p>
+            </div>
+
+            <!-- Pestaña: Usuarios (solo administradores) -->
+            <div class="tab-pane fade" id="usuarios" role="tabpanel">
+              <div class="mt-3 row g-3">
+                <div class="col-lg-4">
+                  <form class="card" id="usuarioForm">
+                    <div class="card-header card-header-custom"><i class="bi bi-person-plus me-2"></i> Agregar usuario</div>
+                    <div class="card-body">
+                      <div class="mb-2"><label for="usrNombre" class="form-label">Nombre</label><input type="text" class="form-control" id="usrNombre" required></div>
+                      <div class="mb-2"><label for="usrEmail" class="form-label">Correo</label><input type="email" class="form-control" id="usrEmail" required autocomplete="off"></div>
+                      <div class="mb-2"><label for="usrPassword" class="form-label">Contraseña</label><input type="password" class="form-control" id="usrPassword" minlength="6" autocomplete="new-password">
+                        <div class="form-text">Déjela vacía si el correo ya tiene cuenta en el sistema.</div></div>
+                      <div class="mb-3"><label for="usrRol" class="form-label">Rol</label><select class="form-select" id="usrRol"><option value="vendedor">Vendedor (ve solo sus clientes)</option><option value="admin">Administrador (ve todo)</option></select></div>
+                      <button type="submit" class="btn btn-gold w-100">Agregar</button>
+                    </div>
+                  </form>
+                </div>
+                <div class="col-lg-8">
+                  <div class="card">
+                    <div class="card-header card-header-custom">Usuarios de ARIGA</div>
+                    <div class="card-body">
+                      <table class="table table-sm table-bordered align-middle">
+                        <thead class="table-light"><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th class="text-center">Activo</th><th class="num">Clientes</th></tr></thead>
+                        <tbody id="usuariosTableBody"></tbody>
+                      </table>
+                      <div class="form-text">Un usuario inactivo no puede entrar. Sus clientes siguen visibles para los administradores, que pueden reasignarlos desde la ficha del cliente.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- Pestaña: Datos en bruto -->

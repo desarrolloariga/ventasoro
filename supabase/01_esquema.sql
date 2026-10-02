@@ -8,6 +8,29 @@ create schema if not exists tiendaariga;
 set search_path = tiendaariga, public;
 
 -- ---------------------------------------------------------------------
+-- USUARIOS (Supabase Auth). Un usuario de Auth solo entra a ARIGA si tiene
+-- perfil activo aquí. rol: admin (ve todo) o vendedor (ve sus clientes).
+-- ---------------------------------------------------------------------
+create table if not exists tiendaariga.perfiles (
+  id          uuid primary key references auth.users(id) on delete cascade,
+  email       text,
+  nombre      text,
+  rol         text not null default 'vendedor' check (rol in ('admin', 'vendedor')),
+  activo      boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+
+create or replace function tiendaariga.usuario_activo()
+returns boolean language sql stable security definer set search_path = tiendaariga as $$
+  select exists (select 1 from perfiles where id = auth.uid() and activo)
+$$;
+
+create or replace function tiendaariga.es_admin()
+returns boolean language sql stable security definer set search_path = tiendaariga as $$
+  select exists (select 1 from perfiles where id = auth.uid() and activo and rol = 'admin')
+$$;
+
+-- ---------------------------------------------------------------------
 -- MAESTROS (hoja "Maestros": una tabla por columna)
 -- ---------------------------------------------------------------------
 create table if not exists tiendaariga.tiendas (
@@ -99,6 +122,19 @@ create table if not exists tiendaariga.clientes (
 create index if not exists clientes_dpi_idx    on tiendaariga.clientes (lower(dpi));
 create index if not exists clientes_nit_idx    on tiendaariga.clientes (lower(nit));
 create index if not exists clientes_nombre_idx on tiendaariga.clientes (lower(nombre));
+alter table tiendaariga.clientes add column if not exists direccion  text;
+alter table tiendaariga.clientes add column if not exists correo     text;
+alter table tiendaariga.clientes add column if not exists telefono2  text;
+-- Usuario dueño del cliente: solo él (y el administrador) lo ve
+alter table tiendaariga.clientes add column if not exists creado_por uuid default auth.uid() references auth.users(id) on delete set null;
+create index if not exists clientes_creado_por_idx on tiendaariga.clientes (creado_por);
+
+-- ¿El cliente pertenece al usuario actual? (para la visibilidad de ventas y pagos)
+create or replace function tiendaariga.cliente_propio(p_cliente_id bigint)
+returns boolean language sql stable security definer set search_path = tiendaariga as $$
+  select p_cliente_id is not null
+     and exists (select 1 from clientes where id = p_cliente_id and creado_por = auth.uid())
+$$;
 
 -- ---------------------------------------------------------------------
 -- VENTAS (hoja "Ventas": una fila por línea de producto)
@@ -129,6 +165,7 @@ create index if not exists ventas_cliente_idx on tiendaariga.ventas (cliente_id)
 create index if not exists ventas_envio_idx  on tiendaariga.ventas (envio);
 create index if not exists ventas_pedido_idx on tiendaariga.ventas (pedido_id);
 create index if not exists ventas_fecha_idx  on tiendaariga.ventas (fecha_venta);
+alter table tiendaariga.ventas add column if not exists creado_por uuid default auth.uid() references auth.users(id) on delete set null;
 
 -- ---------------------------------------------------------------------
 -- PAGOS (hoja "Pagos")
@@ -151,6 +188,11 @@ create table if not exists tiendaariga.pagos (
   created_at        timestamptz not null default now()
 );
 create index if not exists pagos_envio_idx on tiendaariga.pagos (envio);
+-- El pago es un abono al total del cliente; el envío es opcional
+alter table tiendaariga.pagos add column if not exists cliente_id bigint;
+alter table tiendaariga.pagos add column if not exists creado_por uuid default auth.uid() references auth.users(id) on delete set null;
+create index if not exists pagos_cliente_idx on tiendaariga.pagos (cliente_id);
+create index if not exists pagos_fecha_idx   on tiendaariga.pagos (fecha_pago);
 
 -- ---------------------------------------------------------------------
 -- DEVOLUCIONES (hoja "Devoluciones": abonan a la cartera del envío)
@@ -169,6 +211,7 @@ create table if not exists tiendaariga.devoluciones (
   created_at         timestamptz not null default now()
 );
 create index if not exists devoluciones_envio_idx on tiendaariga.devoluciones (envio);
+alter table tiendaariga.devoluciones add column if not exists creado_por uuid default auth.uid() references auth.users(id) on delete set null;
 
 -- ---------------------------------------------------------------------
 -- INVENTARIO
@@ -186,6 +229,7 @@ create table if not exists tiendaariga.ingresos_inventario (
   created_at     timestamptz not null default now()
 );
 alter table tiendaariga.ingresos_inventario add column if not exists observaciones text;
+alter table tiendaariga.ingresos_inventario add column if not exists creado_por uuid default auth.uid() references auth.users(id) on delete set null;
 
 -- Hoja "Devolución a oficina"
 create table if not exists tiendaariga.devoluciones_oficina (
@@ -262,8 +306,10 @@ group by tienda, cliente;
 drop view if exists tiendaariga.inventario_movimientos;
 drop view if exists tiendaariga.inventario;
 
+-- Se calcula con TODAS las ventas (security definer) para que el saldo sea
+-- real aunque el usuario solo vea sus propios clientes.
 create view tiendaariga.inventario
-with (security_invoker = true) as
+with (security_invoker = false) as
 with claves as (
   select trim(tienda) as tienda, trim(producto) as producto, fecha
   from tiendaariga.ingresos_inventario
@@ -313,11 +359,12 @@ cross join lateral (
               where upper(trim(o.tienda)) = b.kt and upper(trim(o.producto)) = b.kp),0)
   as salidas
 ) s
-where coalesce(p.controla_inventario, true);
+where coalesce(p.controla_inventario, true)
+  and tiendaariga.usuario_activo();
 
 -- Kardex: cada movimiento que afecta el saldo de una tienda/referencia
 create view tiendaariga.inventario_movimientos
-with (security_invoker = true) as
+with (security_invoker = false) as
 select i.tienda, i.producto, g.fecha, 'CARGA'::text as origen,
        concat_ws(' · ', g.concepto, g.observaciones) as detalle,
        coalesce(g.entrada,0) as entrada, coalesce(g.salida,0) as salida, g.id as origen_id
@@ -326,7 +373,7 @@ join tiendaariga.ingresos_inventario g
   on upper(trim(g.tienda)) = i.kt and upper(trim(g.producto)) = i.kp
 union all
 select i.tienda, i.producto, v.fecha_venta, 'VENTA',
-       concat_ws(' · ', 'Pedido ' || v.pedido_id, 'Envío ' || v.envio, v.cliente),
+       concat_ws(' · ', 'Pedido ' || v.pedido_id, 'Envío ' || v.envio),  -- sin cliente: puede ser de otro usuario
        0, coalesce(v.cantidad,0), v.id
 from tiendaariga.inventario i
 join tiendaariga.ventas v
@@ -339,12 +386,87 @@ from tiendaariga.inventario i
 join tiendaariga.devoluciones_oficina o
   on upper(trim(o.tienda)) = i.kt and upper(trim(o.producto)) = i.kp;
 
+-- ---------------------------------------------------------------------
+-- CARTERA POR CLIENTE: lo que compra suma, lo que paga (y devuelve) resta
+-- ---------------------------------------------------------------------
+create or replace view tiendaariga.estado_cuenta
+with (security_invoker = true) as
+select v.cliente_id, min(v.fecha_venta) as fecha, 'VENTA'::text as movimiento,
+       concat_ws(' · ', 'Pedido ' || v.pedido_id, 'Envío ' || v.envio,
+                 string_agg(distinct v.producto, ', ')) as detalle,
+       sum(coalesce(v.valor_total,0)) as cargo, 0::numeric as abono,
+       null::text as metodo_pago, min(v.id) as ref_id
+from tiendaariga.ventas v
+where v.cliente_id is not null
+group by v.cliente_id, v.pedido_id, v.envio
+union all
+select p.cliente_id, p.fecha_pago, 'PAGO',
+       concat_ws(' · ', 'Boleta ' || p.boleta, 'Envío ' || p.envio, p.observaciones),
+       0, coalesce(p.valor_pagado,0), p.metodo_pago, p.id
+from tiendaariga.pagos p
+where p.cliente_id is not null
+union all
+select x.cliente_id, d.fecha_devolucion, 'DEVOLUCIÓN',
+       concat_ws(' · ', d.producto, d.motivo, 'Envío ' || d.envio),
+       0, coalesce(d.valor,0), null, d.id
+from tiendaariga.devoluciones d
+join lateral (select v.cliente_id from tiendaariga.ventas v
+              where v.envio = d.envio and v.cliente_id is not null limit 1) x on true;
+
+create or replace view tiendaariga.cartera_clientes
+with (security_invoker = true) as
+select c.id as codigo, c.nombre, c.dpi, c.nit, c.telefono,
+       coalesce(m.cargos,0)                     as total_ventas,
+       coalesce(m.abonos,0)                     as total_pagos,
+       coalesce(m.cargos,0) - coalesce(m.abonos,0) as saldo,
+       m.ultima_venta, m.ultimo_pago
+from tiendaariga.clientes c
+left join (
+  select cliente_id, sum(cargo) as cargos, sum(abono) as abonos,
+         max(fecha) filter (where movimiento = 'VENTA') as ultima_venta,
+         max(fecha) filter (where movimiento = 'PAGO')  as ultimo_pago
+  from tiendaariga.estado_cuenta
+  group by cliente_id
+) m on m.cliente_id = c.id;
+
+-- Pagos recibidos: cómo, cuándo y quién registró cada pago
+create or replace view tiendaariga.pagos_detalle
+with (security_invoker = true) as
+select p.id, p.fecha_pago, p.cliente_id,
+       coalesce(c.nombre, (select v.cliente from tiendaariga.ventas v
+                           where v.envio = p.envio limit 1)) as cliente,
+       p.envio, p.metodo_pago, p.valor_pagado, p.boleta, p.vendedor, p.observaciones,
+       coalesce(u.nombre, u.email) as registrado_por, p.created_at
+from tiendaariga.pagos p
+left join tiendaariga.clientes c on c.id = p.cliente_id
+left join tiendaariga.perfiles u on u.id = p.creado_por;
+
 -- =====================================================================
--- FUNCIONES (equivalentes a las funciones de Apps Script)
+-- FUNCIONES
 -- =====================================================================
 
--- searchClient: coincidencia exacta por DPI, NIT, nombre (sin mayúsculas) o
--- ID de cliente. Si el término coincide con un DPI/NIT/nombre, gana ese.
+-- Siguiente Id interno yyyyMMdd-NNN. Ve todas las ventas (security definer)
+-- para que dos usuarios nunca obtengan el mismo número.
+create or replace function tiendaariga.siguiente_pedido_id()
+returns text
+language plpgsql
+security definer
+set search_path = tiendaariga
+as $$
+declare
+  v_prefijo text := to_char((now() at time zone 'America/Guatemala')::date, 'YYYYMMDD');
+  v_num     int;
+begin
+  perform pg_advisory_xact_lock(hashtext('tiendaariga.registrar_venta'));
+  select coalesce(max(split_part(pedido_id,'-',2)::int),0) + 1 into v_num
+  from ventas
+  where pedido_id like v_prefijo || '-%'
+    and split_part(pedido_id,'-',2) ~ '^\d+$';
+  return v_prefijo || '-' || lpad(v_num::text, 3, '0');
+end;
+$$;
+
+-- searchClient (compatibilidad): coincidencia exacta por DPI, NIT, nombre o código
 create or replace function tiendaariga.buscar_cliente(p_termino text)
 returns setof tiendaariga.clientes
 language sql stable
@@ -361,33 +483,79 @@ as $$
   limit 1;
 $$;
 
--- registerSale: genera el Id interno yyyyMMdd-NNN e inserta las líneas
+-- Búsqueda de clientes: código exacto, DPI/NIT/teléfono que empiece por el
+-- término, o nombre que lo contenga. Solo devuelve los clientes visibles.
+create or replace function tiendaariga.buscar_clientes(p_termino text)
+returns setof tiendaariga.clientes
+language sql stable
+set search_path = tiendaariga
+as $$
+  with t as (select lower(trim(coalesce(p_termino,''))) as q)
+  select c.*
+  from clientes c, t
+  where t.q <> ''
+    and (c.id::text = t.q
+         or lower(coalesce(c.dpi,'')) like t.q || '%'
+         or lower(coalesce(c.nit,'')) like t.q || '%'
+         or coalesce(c.telefono,'') like t.q || '%'
+         or lower(c.nombre) like '%' || t.q || '%')
+  order by (c.id::text = t.q) desc,
+           (lower(coalesce(c.dpi,'')) = t.q or lower(coalesce(c.nit,'')) = t.q) desc,
+           c.nombre
+  limit 25;
+$$;
+
+-- Crea un cliente y, si se indica, su saldo pendiente inicial (queda como
+-- una venta de producto "SALDO INICIAL" con envío SI-<código>).
+create or replace function tiendaariga.crear_cliente(p_cliente jsonb, p_saldo jsonb default null)
+returns tiendaariga.clientes
+language plpgsql
+set search_path = tiendaariga
+as $$
+declare
+  c        clientes;
+  x        clientes := jsonb_populate_record(null::clientes, p_cliente);
+  v_valor  numeric := nullif(p_saldo->>'valor','')::numeric;
+  v_fecha  date := coalesce(nullif(p_saldo->>'fecha','')::date, (now() at time zone 'America/Guatemala')::date);
+begin
+  if coalesce(trim(x.nombre),'') = '' then
+    raise exception 'El nombre del cliente es obligatorio';
+  end if;
+  insert into clientes (dpi, nit, nombre, fecha_nacimiento, departamento, telefono, telefono2,
+                        direccion, correo, nit2, codigo_cliente)
+  values (x.dpi, x.nit, trim(x.nombre), x.fecha_nacimiento, x.departamento, x.telefono, x.telefono2,
+          x.direccion, x.correo, x.nit2, x.codigo_cliente)
+  returning * into c;
+
+  if coalesce(v_valor,0) > 0 then
+    insert into ventas (pedido_id, fecha_venta, fecha_vencimiento, tienda, vendedor,
+                        cliente_id, cliente, documento_cliente, envio,
+                        producto, cantidad, valor_unitario, valor_total)
+    values (siguiente_pedido_id(), v_fecha, v_fecha + 30,
+            nullif(p_saldo->>'tienda',''), nullif(p_saldo->>'vendedor',''),
+            c.id, c.nombre, coalesce(c.dpi, c.nit), 'SI-' || c.id,
+            'SALDO INICIAL', 1, v_valor, v_valor);
+  end if;
+  return c;
+end;
+$$;
+
+-- registerSale: genera el Id interno e inserta las líneas
 create or replace function tiendaariga.registrar_venta(p_venta jsonb)
 returns text
 language plpgsql
 set search_path = tiendaariga
 as $$
 declare
-  v_hoy     date := (now() at time zone 'America/Guatemala')::date;
-  v_prefijo text := to_char(v_hoy, 'YYYYMMDD');
-  v_num     int;
-  v_id      text;
-  h         jsonb := p_venta->'header';
-  s         jsonb := p_venta->'summary';
+  v_hoy date := (now() at time zone 'America/Guatemala')::date;
+  v_id  text;
+  h     jsonb := p_venta->'header';
+  s     jsonb := p_venta->'summary';
 begin
   if jsonb_array_length(coalesce(p_venta->'productLines','[]'::jsonb)) = 0 then
     raise exception 'La venta no tiene productos';
   end if;
-
-  -- Evita que dos ventas simultáneas obtengan el mismo número
-  perform pg_advisory_xact_lock(hashtext('tiendaariga.registrar_venta'));
-
-  select coalesce(max(split_part(pedido_id,'-',2)::int),0) + 1 into v_num
-  from ventas
-  where pedido_id like v_prefijo || '-%'
-    and split_part(pedido_id,'-',2) ~ '^\d+$';
-
-  v_id := v_prefijo || '-' || lpad(v_num::text, 3, '0');
+  v_id := siguiente_pedido_id();
 
   insert into ventas (pedido_id, fecha_venta, fecha_vencimiento, tienda, vendedor,
                       cliente_id, cliente, documento_cliente, factura, envio,
@@ -406,8 +574,45 @@ begin
 end;
 $$;
 
--- updateSale: reemplaza las líneas de un envío conservando Id y fechas originales
-create or replace function tiendaariga.actualizar_venta(p_envio text, p_venta jsonb)
+-- Un pedido se identifica por su envío; si no tiene envío, por su Id interno.
+create or replace function tiendaariga.clave_pedido(p_envio text, p_pedido text)
+returns text language sql immutable as $$
+  select coalesce(nullif(trim(p_envio),''), p_pedido)
+$$;
+
+create or replace function tiendaariga.lineas_pedido(p_clave text)
+returns setof tiendaariga.ventas
+language sql stable
+set search_path = tiendaariga
+as $$
+  select * from ventas where clave_pedido(envio, pedido_id) = trim(p_clave) order by id;
+$$;
+
+-- Búsqueda de pedidos por envío, Id interno, cliente o código de cliente
+create or replace function tiendaariga.buscar_pedidos(p_termino text)
+returns table (clave text, pedido_id text, envio text, fecha_venta date, cliente_id bigint,
+               cliente text, tienda text, vendedor text, total numeric, lineas bigint)
+language sql stable
+set search_path = tiendaariga
+as $$
+  with t as (select lower(trim(coalesce(p_termino,''))) as q)
+  select clave_pedido(v.envio, v.pedido_id), v.pedido_id, v.envio, min(v.fecha_venta),
+         max(v.cliente_id), max(v.cliente), max(v.tienda), max(v.vendedor),
+         sum(coalesce(v.valor_total,0)), count(*)
+  from ventas v, t
+  where t.q <> ''
+    and (lower(coalesce(v.envio,'')) like '%' || t.q || '%'
+         or lower(coalesce(v.pedido_id,'')) like '%' || t.q || '%'
+         or lower(coalesce(v.cliente,'')) like '%' || t.q || '%'
+         or v.cliente_id::text = t.q)
+  group by 1, 2, 3
+  order by min(v.fecha_venta) desc nulls last, 2 desc
+  limit 60;
+$$;
+
+-- updateSale: reemplaza las líneas de un pedido conservando Id, fechas y cliente
+drop function if exists tiendaariga.actualizar_venta(text, jsonb);
+create function tiendaariga.actualizar_venta(p_envio text, p_venta jsonb)
 returns text
 language plpgsql
 set search_path = tiendaariga
@@ -422,7 +627,7 @@ declare
 begin
   select pedido_id, fecha_venta, fecha_vencimiento, cliente_id
     into v_pedido, v_fecha, v_vence, v_cliente
-  from ventas where trim(envio) = trim(p_envio)
+  from ventas where clave_pedido(envio, pedido_id) = trim(p_envio)
   order by id limit 1;
 
   if not found then
@@ -432,7 +637,7 @@ begin
     raise exception 'La venta no tiene productos';
   end if;
 
-  delete from ventas where trim(envio) = trim(p_envio);
+  delete from ventas where clave_pedido(envio, pedido_id) = trim(p_envio);
 
   insert into ventas (pedido_id, fecha_venta, fecha_vencimiento, tienda, vendedor,
                       cliente_id, cliente, documento_cliente, factura, envio,
@@ -447,7 +652,7 @@ begin
          nullif(l->>'valorTotal','')::numeric
   from jsonb_array_elements(p_venta->'productLines') l;
 
-  return format('Pedido con envío %s actualizado correctamente.', p_envio);
+  return format('Pedido %s actualizado correctamente.', p_envio);
 end;
 $$;
 
@@ -459,36 +664,267 @@ set search_path = tiendaariga
 as $$
 declare n int;
 begin
-  delete from ventas where trim(envio) = trim(p_envio);
+  delete from ventas where clave_pedido(envio, pedido_id) = trim(p_envio);
   get diagnostics n = row_count;
   if n = 0 then
     raise exception 'No se encontró ningún pedido con ese número de envío.';
   end if;
-  return format('Pedido con envío %s ha sido eliminado.', p_envio);
+  return format('Pedido %s ha sido eliminado.', p_envio);
+end;
+$$;
+
+-- Normaliza un nombre para compararlo: mayúsculas, sin tildes ni signos
+create or replace function tiendaariga.normalizar_nombre(t text)
+returns text language sql immutable as $$
+  select trim(regexp_replace(regexp_replace(
+           translate(upper(coalesce(t,'')), 'ÁÉÍÓÚÜ', 'AEIOUU'),
+           '[^A-Z0-9Ñ ]', ' ', 'g'), '\s+', ' ', 'g'))
+$$;
+
+-- Vincula ventas y pagos importados (sin cliente_id) con su cliente: primero
+-- por DPI/NIT, luego por nombre exacto; los nombres que no existen en
+-- clientes se crean. Los pagos toman el cliente de la venta de su envío.
+-- Se ejecuta al final de la carga de datos; se puede repetir.
+create or replace function tiendaariga.vincular_clientes()
+returns text
+language plpgsql
+set search_path = tiendaariga
+as $$
+declare n_doc int; n_nom int; n_nuevos int; n_nom2 int := 0; n_pag int; n_pnom int;
+begin
+  update ventas v set cliente_id = c.id
+  from clientes c
+  where v.cliente_id is null
+    and trim(v.documento_cliente) ~ '\d{5,}'
+    and trim(v.documento_cliente) in (trim(c.dpi), trim(c.nit));
+  get diagnostics n_doc = row_count;
+
+  update ventas v set cliente_id = c.id
+  from (select distinct on (upper(trim(nombre))) id, upper(trim(nombre)) as k
+        from clientes order by upper(trim(nombre)), id) c
+  where v.cliente_id is null and upper(trim(v.cliente)) = c.k;
+  get diagnostics n_nom = row_count;
+
+  insert into clientes (nombre, dpi, nota_importacion)
+  select min(trim(cliente)),
+         min(case when trim(documento_cliente) ~ '\d{5,}' then trim(documento_cliente) end),
+         'Creado al vincular ventas importadas'
+  from ventas
+  where cliente_id is null and coalesce(trim(cliente),'') <> ''
+  group by upper(trim(cliente));
+  get diagnostics n_nuevos = row_count;
+
+  if n_nuevos > 0 then
+    update ventas v set cliente_id = c.id
+    from (select distinct on (upper(trim(nombre))) id, upper(trim(nombre)) as k
+          from clientes order by upper(trim(nombre)), id) c
+    where v.cliente_id is null and upper(trim(v.cliente)) = c.k;
+    get diagnostics n_nom2 = row_count;
+  end if;
+
+  update pagos p set cliente_id = x.cliente_id
+  from (select distinct on (envio) envio, cliente_id
+        from ventas where cliente_id is not null and coalesce(trim(envio),'') <> ''
+        order by envio, id) x
+  where p.cliente_id is null and p.envio = x.envio;
+  get diagnostics n_pag = row_count;
+
+  -- En la hoja, muchos abonos se registraron con el NOMBRE del cliente en la
+  -- columna ENVÍO. Se vinculan solo si coinciden con un único cliente:
+  -- nombre exacto, o todas las palabras contenidas en el nombre del cliente.
+  with pp as (
+    select p.id, trim(regexp_replace(normalizar_nombre(p.envio), '^(ABONOS?|PAGOS?) ', '')) as k
+    from pagos p
+    where p.cliente_id is null and normalizar_nombre(p.envio) ~ '[A-Z]{3}'
+  ),
+  cc as (select id, normalizar_nombre(nombre) as n from clientes),
+  exacto as (
+    select pp.id, min(cc.id) as cliente_id from pp join cc on cc.n = pp.k
+    group by pp.id having count(*) = 1
+  ),
+  palabras as (
+    select pp.id, min(cc.id) as cliente_id
+    from pp join cc
+      on length(pp.k) >= 4
+     and not exists (select 1 from unnest(string_to_array(pp.k, ' ')) w
+                     where position(' ' || w || ' ' in ' ' || cc.n || ' ') = 0)
+    where pp.id not in (select id from exacto)
+    group by pp.id having count(*) = 1
+  ),
+  asignar as (select * from exacto union all select * from palabras)
+  update pagos p
+     set cliente_id = a.cliente_id,
+         nota_importacion = concat_ws('; ', p.nota_importacion, 'Cliente asignado por el nombre escrito en ENVIO')
+  from asignar a where p.id = a.id;
+  get diagnostics n_pnom = row_count;
+
+  return format('Ventas vinculadas por documento: %s, por nombre: %s. Clientes creados: %s. Pagos vinculados por envío: %s, por nombre del cliente: %s.',
+                n_doc, n_nom + n_nom2, n_nuevos, n_pag, n_pnom);
+end;
+$$;
+
+-- ¿Un elemento de un maestro está en uso? Revisa TODOS los registros (no solo
+-- los visibles para el usuario) antes de permitir eliminarlo.
+create or replace function tiendaariga.maestro_en_uso(p_maestro text, p_nombre text)
+returns boolean
+language plpgsql stable
+security definer
+set search_path = tiendaariga
+as $$
+begin
+  if not usuario_activo() then return true; end if;
+  return case p_maestro
+    when 'tiendas'       then exists (select 1 from ventas where tienda = p_nombre)
+                           or exists (select 1 from ingresos_inventario where tienda = p_nombre)
+    when 'vendedores'    then exists (select 1 from ventas where vendedor = p_nombre)
+    when 'tipos'         then exists (select 1 from ventas where tipo = p_nombre)
+                           or exists (select 1 from productos where tipo = p_nombre)
+    when 'metodos_pago'  then exists (select 1 from pagos where metodo_pago = p_nombre)
+    when 'departamentos' then exists (select 1 from clientes where departamento = p_nombre)
+    else true
+  end;
+end;
+$$;
+
+-- ---------------------------------------------------------------------
+-- Administración de usuarios
+-- ---------------------------------------------------------------------
+-- Da acceso a ARIGA a un usuario que ya existe en Supabase Auth (creado
+-- desde la app o desde el panel). Solo administradores.
+create or replace function tiendaariga.admin_agregar_usuario(p_email text, p_nombre text, p_rol text)
+returns tiendaariga.perfiles
+language plpgsql
+security definer
+set search_path = tiendaariga, auth
+as $$
+declare u uuid; r perfiles;
+begin
+  if not es_admin() then
+    raise exception 'Solo un administrador puede agregar usuarios';
+  end if;
+  select id into u from auth.users where lower(email) = lower(trim(p_email));
+  if u is null then
+    raise exception 'No existe un usuario con el correo %', p_email;
+  end if;
+  insert into perfiles (id, email, nombre, rol, activo)
+  values (u, lower(trim(p_email)), nullif(trim(p_nombre),''), coalesce(nullif(p_rol,''),'vendedor'), true)
+  on conflict (id) do update
+    set nombre = coalesce(excluded.nombre, perfiles.nombre), rol = excluded.rol, activo = true
+  returning * into r;
+  return r;
+end;
+$$;
+
+-- Primer administrador (o cualquier otro): ejecutar en el SQL Editor
+--   select tiendaariga.hacer_admin('correo@dominio.com');
+create or replace function tiendaariga.hacer_admin(p_email text)
+returns text
+language plpgsql
+security definer
+set search_path = tiendaariga, auth
+as $$
+declare u uuid;
+begin
+  select id into u from auth.users where lower(email) = lower(trim(p_email));
+  if u is null then
+    raise exception 'No existe un usuario con el correo %. Créelo en Authentication > Users.', p_email;
+  end if;
+  insert into perfiles (id, email, nombre, rol, activo)
+  values (u, lower(trim(p_email)), split_part(p_email,'@',1), 'admin', true)
+  on conflict (id) do update set rol = 'admin', activo = true;
+  return format('%s ahora es administrador de ARIGA.', p_email);
 end;
 $$;
 
 -- =====================================================================
--- ACCESO LIBRE: sin inicio de sesión y sin RLS. Cualquiera con la clave
--- publicable (rol anon) puede leer, crear, modificar y borrar datos.
+-- SEGURIDAD
+--   * Sin sesión (rol anon) no hay acceso a nada.
+--   * Usuarios activos: maestros, referencias e inventario compartidos.
+--   * Clientes: cada usuario ve los que creó; el administrador ve todos.
+--   * Ventas y pagos: visibles si el cliente es visible o si los registró
+--     el usuario; el administrador ve todos.
 -- =====================================================================
-grant usage on schema tiendaariga to anon, authenticated, service_role;
-grant select, insert, update, delete on all tables in schema tiendaariga to anon, authenticated, service_role;
-grant usage, select on all sequences in schema tiendaariga to anon, authenticated, service_role;
-grant execute on all functions in schema tiendaariga to anon, authenticated, service_role;
+revoke all on all tables    in schema tiendaariga from anon;
+revoke all on all sequences in schema tiendaariga from anon;
+revoke all on all functions in schema tiendaariga from anon, public;
+revoke usage on schema tiendaariga from anon;
+grant usage on schema tiendaariga to authenticated, service_role;
+grant select, insert, update, delete on all tables in schema tiendaariga to authenticated, service_role;
+grant usage, select on all sequences in schema tiendaariga to authenticated, service_role;
+grant execute on all functions in schema tiendaariga to authenticated, service_role;
+-- Solo desde el SQL Editor
+revoke execute on function tiendaariga.hacer_admin(text)     from authenticated;
+revoke execute on function tiendaariga.vincular_clientes()   from authenticated;
 
 do $$
 declare t text;
 begin
+  -- Tablas compartidas entre usuarios activos
   foreach t in array array['tiendas','tipos','vendedores','productos','metodos_pago','departamentos',
-                           'clientes','ventas','pagos','devoluciones',
-                           'ingresos_inventario','devoluciones_oficina',
-                           'inventario_items','coordenadas']
+                           'coordenadas','ingresos_inventario','devoluciones_oficina','inventario_items']
   loop
+    execute format('alter table tiendaariga.%I enable row level security', t);
     execute format('drop policy if exists "autenticados_todo" on tiendaariga.%I', t);
-    execute format('alter table tiendaariga.%I disable row level security', t);
+    execute format('drop policy if exists "usuarios_activos" on tiendaariga.%I', t);
+    execute format('create policy "usuarios_activos" on tiendaariga.%I for all to authenticated
+                    using ((select tiendaariga.usuario_activo()))
+                    with check ((select tiendaariga.usuario_activo()))', t);
+  end loop;
+
+  foreach t in array array['clientes','ventas','pagos','devoluciones','perfiles']
+  loop
+    execute format('alter table tiendaariga.%I enable row level security', t);
+    execute format('drop policy if exists "autenticados_todo" on tiendaariga.%I', t);
   end loop;
 end $$;
+
+drop policy if exists "clientes_propios" on tiendaariga.clientes;
+create policy "clientes_propios" on tiendaariga.clientes for all to authenticated
+  using ((select tiendaariga.usuario_activo())
+         and ((select tiendaariga.es_admin()) or creado_por = (select auth.uid())))
+  with check ((select tiendaariga.usuario_activo())
+              and ((select tiendaariga.es_admin()) or creado_por = (select auth.uid())));
+
+drop policy if exists "ventas_visibles" on tiendaariga.ventas;
+create policy "ventas_visibles" on tiendaariga.ventas for all to authenticated
+  using ((select tiendaariga.usuario_activo())
+         and ((select tiendaariga.es_admin()) or creado_por = (select auth.uid())
+              or tiendaariga.cliente_propio(cliente_id)))
+  -- Solo se registra sobre clientes propios (o sin cliente); el admin, sobre cualquiera
+  with check ((select tiendaariga.usuario_activo())
+              and ((select tiendaariga.es_admin())
+                   or (creado_por = (select auth.uid())
+                       and (cliente_id is null or tiendaariga.cliente_propio(cliente_id)))));
+
+drop policy if exists "pagos_visibles" on tiendaariga.pagos;
+create policy "pagos_visibles" on tiendaariga.pagos for all to authenticated
+  using ((select tiendaariga.usuario_activo())
+         and ((select tiendaariga.es_admin()) or creado_por = (select auth.uid())
+              or tiendaariga.cliente_propio(cliente_id)))
+  -- Solo se registra sobre clientes propios (o sin cliente); el admin, sobre cualquiera
+  with check ((select tiendaariga.usuario_activo())
+              and ((select tiendaariga.es_admin())
+                   or (creado_por = (select auth.uid())
+                       and (cliente_id is null or tiendaariga.cliente_propio(cliente_id)))));
+
+drop policy if exists "devoluciones_visibles" on tiendaariga.devoluciones;
+create policy "devoluciones_visibles" on tiendaariga.devoluciones for all to authenticated
+  using ((select tiendaariga.usuario_activo())
+         and ((select tiendaariga.es_admin()) or creado_por = (select auth.uid())))
+  with check ((select tiendaariga.usuario_activo())
+              and ((select tiendaariga.es_admin()) or creado_por = (select auth.uid())));
+
+-- Perfiles: cada uno ve el suyo (aunque esté inactivo); los activos ven la
+-- lista (nombres en reportes). Solo el administrador los modifica.
+drop policy if exists "perfiles_ver" on tiendaariga.perfiles;
+create policy "perfiles_ver" on tiendaariga.perfiles for select to authenticated
+  using (id = (select auth.uid()) or (select tiendaariga.usuario_activo()));
+drop policy if exists "perfiles_admin" on tiendaariga.perfiles;
+create policy "perfiles_admin" on tiendaariga.perfiles for update to authenticated
+  using ((select tiendaariga.es_admin())) with check ((select tiendaariga.es_admin()));
+
+-- Vincula datos importados que aún no tengan cliente (no hace nada si no hay)
+select tiendaariga.vincular_clientes();
 
 -- Recargar el caché de la API para que aparezcan las tablas nuevas
 notify pgrst, 'reload schema';

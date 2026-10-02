@@ -15,21 +15,30 @@ Réplica de la aplicación de Apps Script "Aplicación Ariga", usando Supabase
 
 ## Pestañas
 
-Venta, Buscar Pedido, Pagos, **Clientes** (listado, búsqueda, crear y editar),
-Histórico, Cartera, **Inventario**, **Maestros** (tiendas, bodegas, vendedores, métodos de pago, tipos y
-departamentos: agregar,
-activar/desactivar y eliminar los que no tienen ventas ni pagos) y **Datos** (cualquier
-tabla o vista en bruto).
-Histórico, Cartera, Clientes y Datos tienen botón **Exportar a Excel**, que
-descarga lo que está filtrado en pantalla.
+Venta, Buscar Pedido, Pagos, Clientes, Histórico, Cartera, Inventario, Maestros
+y, solo para administradores, Usuarios y Datos.
 
-Todas las listas desplegables de los formularios terminan con **+ Crear
-nuevo…**: crea el elemento en el momento y lo deja seleccionado (las
-referencias abren su propio formulario).
-
-Cada cliente tiene un **ID Cliente** (consecutivo único, `clientes.id`) que se
-muestra al crearlo, en la ficha, en la lista y en la venta. Las ventas nuevas
-lo guardan en `ventas.cliente_id`, y se puede buscar al cliente por ese ID.
+- **Clientes**: cada cliente tiene un **código** automático (consecutivo único,
+  `clientes.id`). Ficha con DPI, NIT, teléfonos, correo, dirección y
+  departamento. Al crearlo se puede indicar un **saldo pendiente inicial**, que
+  queda como una venta "SALDO INICIAL" (envío `SI-<código>`).
+- **Venta / Pagos / Estado de cuenta**: buscador de clientes por código,
+  nombre, DPI, NIT o teléfono (muestra la lista si hay varios).
+- **Buscar Pedido**: por envío, Id de pedido, nombre o código del cliente; la
+  lista muestra la fecha de venta. Al abrir un pedido se ve su fecha.
+- **Pagos**: el pago es un **abono al total del cliente** (opcionalmente
+  aplicado a un envío). Muestra cuánto debe y cómo queda tras el pago.
+  **Pagos Recibidos**: filtro por fechas, método, usuario y cliente, con totales
+  por método de pago y por usuario (para saber cuánto hay que liquidar).
+- **Cartera**: Saldos por Cliente, Estado de Cuenta (compras, pagos y saldo
+  acumulado) y Por Envío.
+- **Histórico**: incluye el código del cliente y se puede filtrar por él.
+- **Maestros**: tiendas, bodegas, vendedores, métodos de pago, tipos y
+  departamentos (agregar, activar/desactivar, eliminar si no están en uso).
+- Todas las listas desplegables de los formularios terminan con **+ Crear
+  nuevo…**.
+- Histórico, Cartera, Pagos Recibidos, Clientes, Inventario y Datos tienen
+  **Exportar a Excel** (exporta lo filtrado en pantalla).
 
 ## Inventario
 
@@ -58,21 +67,38 @@ lo guardan en `ventas.cliente_id`, y se puede buscar al cliente por ese ID.
 | Ingresos de inventario | `ingresos_inventario` |
 | Devolución a oficina | `devoluciones_oficina` |
 | Coordenadas | `coordenadas` |
-| Cartera 1 | vista `cartera_detalle` |
-| Cartera 2 | vista `cartera_total` |
+| Cartera 1 | vista `cartera_detalle` (por envío) |
+| Cartera 2 | vistas `cartera_clientes` y `estado_cuenta` (por cliente) |
 | Inventario | tabla `inventario_items` (tienda, producto y fecha de corte) + vista `inventario` |
 
-Funciones: `buscar_cliente`, `registrar_venta` (genera el Id `yyyyMMdd-NNN`),
-`actualizar_venta` y `eliminar_pedido`.
+Funciones: `buscar_clientes`, `crear_cliente`, `registrar_venta` (genera el Id
+`yyyyMMdd-NNN`), `actualizar_venta`, `eliminar_pedido`, `buscar_pedidos`,
+`lineas_pedido`, `vincular_clientes`, `admin_agregar_usuario` y `hacer_admin`.
+Usuarios: tabla `perfiles`. Pagos recibidos: vista `pagos_detalle`.
 
 ## Instalación
 
-1. **Crear la base**: en Supabase → *SQL Editor*, ejecutar `supabase/01_esquema.sql`.
-2. **Cargar datos**: ejecutar en orden `02_datos_1.sql` … `02_datos_7.sql`.
-   El primero vacía las tablas, así que la carga se puede repetir.
-3. **Exponer el esquema**: *Project Settings → Data API → Exposed schemas*:
-   debe incluir `tiendaariga` (ya estaba expuesto al momento de crear esto).
-4. **Publicar la web**: ver *Despliegue en Vercel*. Para probar en local:
+1. **Crear o actualizar la base**: en Supabase → *SQL Editor*, ejecutar
+   `supabase/01_esquema.sql`. Se puede repetir sin perder datos.
+2. **Cargar datos del Excel** (solo la primera vez): ejecutar en orden
+   `02_datos_1.sql` … `02_datos_7.sql`. El primero vacía las tablas. El último
+   vincula ventas y pagos importados con su cliente (`vincular_clientes()`).
+3. **Exponer el esquema**: *Project Settings → Data API → Exposed schemas* debe
+   incluir `tiendaariga`.
+4. **Configurar Auth** (*Authentication → Sign In / Providers* y *URL Configuration*):
+   - Email habilitado y **"Allow new users to sign up" activado** (la pestaña
+     Usuarios crea las cuentas con él; nadie entra a ARIGA sin que un
+     administrador lo active).
+   - Recomendado: **desactivar "Confirm email"**, para que los usuarios creados
+     por el administrador puedan entrar de inmediato.
+   - *Site URL* = la URL de Vercel (para el enlace de "¿Olvidó su contraseña?").
+5. **Primer administrador**: *Authentication → Users → Add user* (correo y
+   contraseña, marcar *Auto Confirm User*) y en el SQL Editor:
+   ```sql
+   select tiendaariga.hacer_admin('correo@dominio.com');
+   ```
+   Los demás usuarios se crean desde la pestaña **Usuarios** de la app.
+6. **Publicar la web**: ver *Despliegue en Vercel*. Para probar en local:
    `npx serve .` y abrir http://localhost:3000.
 
 ## Despliegue en Vercel
@@ -107,14 +133,26 @@ está en `.gitignore` y nunca se sube. Para recrearlos en otra máquina:
 
 ## Seguridad
 
-**Acceso libre, sin inicio de sesión y sin RLS.** El rol `anon` (clave
-publicable) tiene lectura y escritura completas sobre todas las tablas. Como la
-clave va en la página y el repositorio es público, cualquier persona puede leer
-los datos de clientes (DPI, teléfonos), y modificar o borrar ventas y pagos
-directamente contra la API de Supabase, sin pasar por la app.
+- Hay que **iniciar sesión** (Supabase Auth). Un usuario de Auth solo entra a
+  ARIGA si tiene un perfil activo en `tiendaariga.perfiles`; sin sesión (clave
+  publicable sola) no se puede leer ni escribir nada.
+- **Roles**: *admin* ve y edita todo; *vendedor* ve solo los clientes que creó,
+  con sus ventas y pagos. El administrador puede reasignar un cliente a otro
+  usuario desde su ficha.
+- Maestros, referencias e inventario son compartidos entre usuarios activos. Los
+  saldos de inventario se calculan con todas las ventas (sin mostrar clientes
+  ajenos).
+- Los clientes y ventas importados del Excel no tienen dueño: solo los ve el
+  administrador, que puede asignarlos.
+- Todo está aplicado con RLS en la base, no solo en la app.
 
-Para volver a proteger la base: activar RLS en las tablas y crear políticas
-(ver el historial de git de `supabase/01_esquema.sql`, versión con login).
+## Pagos antiguos
+
+En la hoja, muchos abonos se registraron con el **nombre del cliente** en la
+columna ENVÍO. Al cargar los datos se vinculan con su cliente cuando el nombre
+coincide con un solo cliente (quedan marcados en `nota_importacion`). Los
+restantes se asignan a mano: *Pagos → Pagos Recibidos → "Solo pagos antiguos
+sin cliente asignado" → Asignar cliente* (administradores).
 
 ## Diferencias con la versión de Apps Script
 

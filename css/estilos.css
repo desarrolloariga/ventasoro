@@ -158,3 +158,13 @@ body {
 /* --- Tabla de datos en bruto --- */
 .datos-table td, .datos-table th { white-space: nowrap; font-size: 0.8rem; }
 .datos-table td { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+
+/* --- Login --- */
+.login-card { max-width: 420px; margin: 4rem auto; }
+
+/* --- Buscador de clientes: lista de resultados bajo el campo --- */
+.buscador-cliente { flex: 1 1 auto; }
+.buscador-resultados {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 1065;
+  max-height: 320px; overflow-y: auto;
+}
