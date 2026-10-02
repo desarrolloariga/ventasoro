@@ -18,6 +18,10 @@ let usuarioActual;          // id del usuario mostrado (evita recargas repetidas
 let datosIniciados = false;
 
 const esAdmin = () => perfil?.rol === 'admin';
+// Se entra con un usuario ("maria"); Supabase Auth lo guarda como maria@ariga.local
+const DOMINIO_USUARIOS = 'ariga.local';
+const aEmail = u => { u = u.trim().toLowerCase(); return u.includes('@') ? u : `${u}@${DOMINIO_USUARIOS}`; };
+const aUsuario = email => String(email ?? '').endsWith('@' + DOMINIO_USUARIOS) ? email.split('@')[0] : email;
 
 // ---------------------------------------------------------------- utilidades
 const $ = id => document.getElementById(id);
@@ -93,12 +97,14 @@ document.addEventListener('DOMContentLoaded', () => {
     $('olvidoButton').addEventListener('click', recuperarPassword);
     $('logoutButton').addEventListener('click', salir);
     $('sinAccesoSalir').addEventListener('click', salir);
+    $('cambiarPasswordButton').addEventListener('click', () => abrirCambioPassword());
     $('passwordForm').addEventListener('submit', guardarPassword);
+    $('passwordModal').addEventListener('shown.bs.modal', () => $('nuevaPassword').focus());
     registrarEventos();
 
     // INITIAL_SESSION, SIGNED_IN, SIGNED_OUT, PASSWORD_RECOVERY...
     sb.auth.onAuthStateChange((evento, session) => {
-        if (evento === 'PASSWORD_RECOVERY') passwordModal.show();
+        if (evento === 'PASSWORD_RECOVERY') abrirCambioPassword();
         // Fuera del callback: supabase-js no admite llamadas a la API dentro de él
         setTimeout(() => mostrarVista(session), 0);
     });
@@ -120,12 +126,12 @@ async function mostrarVista(session) {
     if (error) console.warn('perfiles', error.message);
     perfil = data;
     $('userBox').classList.add('d-flex'); $('userBox').classList.remove('d-none');
-    $('userNombre').textContent = perfil?.nombre || session.user.email;
+    $('userNombre').textContent = perfil?.nombre || aUsuario(session.user.email);
     $('userRol').textContent = perfil ? (perfil.rol === 'admin' ? 'Administrador' : 'Vendedor') : '';
     ver('loginView', false);
 
     if (!perfil?.activo) {
-        $('sinAccesoEmail').textContent = session.user.email;
+        $('sinAccesoEmail').textContent = aUsuario(session.user.email);
         ver('sinAccesoView', true); ver('appView', false);
         if (error) showAlert('La base de datos no está actualizada. Ejecute supabase/01_esquema.sql en Supabase.', 'warning');
         return;
@@ -140,11 +146,11 @@ async function handleLogin(e) {
     mensajeLogin('');
     showSpinner();
     const { error } = await sb.auth.signInWithPassword({
-        email: $('loginEmail').value.trim(),
+        email: aEmail($('loginEmail').value),
         password: $('loginPassword').value,
     });
     hideSpinner();
-    if (error) mensajeLogin(/invalid/i.test(error.message) ? 'Correo o contraseña incorrectos.' : 'No se pudo iniciar sesión: ' + error.message, 'danger');
+    if (error) mensajeLogin(/invalid/i.test(error.message) ? 'Usuario o contraseña incorrectos.' : 'No se pudo iniciar sesión: ' + error.message, 'danger');
 }
 
 function mensajeLogin(texto, tipo = 'info') {
@@ -155,7 +161,8 @@ function mensajeLogin(texto, tipo = 'info') {
 
 async function recuperarPassword() {
     const email = $('loginEmail').value.trim();
-    if (!email) { mensajeLogin('Escriba su correo y vuelva a pulsar "¿Olvidó su contraseña?".', 'warning'); return; }
+    // Los usuarios sin correo real no pueden recibir el enlace: el admin les cambia la contraseña
+    if (!email.includes('@')) { mensajeLogin('Pida al administrador que le asigne una contraseña nueva (pestaña Usuarios).', 'info'); return; }
     showSpinner();
     const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
     hideSpinner();
@@ -163,10 +170,21 @@ async function recuperarPassword() {
         : 'Si el correo está registrado, le llegará un enlace para crear una contraseña nueva.', error ? 'danger' : 'success');
 }
 
+// perfilId: cambiar la contraseña de otro usuario (solo administradores); sin él, la propia
+let passwordObjetivo = null;
+function abrirCambioPassword(perfilId = null, nombre = '') {
+    passwordObjetivo = perfilId;
+    $('passwordForm').reset();
+    $('passwordTitulo').textContent = perfilId ? `Contraseña de ${nombre}` : 'Cambiar mi contraseña';
+    passwordModal.show();
+}
+
 function guardarPassword(e) {
     e.preventDefault();
+    const nueva = $('nuevaPassword').value;
     run(async () => {
-        ok(await sb.auth.updateUser({ password: $('nuevaPassword').value }));
+        if (passwordObjetivo) ok(await sb.rpc('admin_cambiar_password', { p_perfil: passwordObjetivo, p_password: nueva }));
+        else ok(await sb.auth.updateUser({ password: nueva }));
         passwordModal.hide();
         showAlert('Contraseña actualizada', 'success');
     });
@@ -237,6 +255,7 @@ function registrarEventos() {
     // Búsqueda de pedidos
     $('searchEnvioButton').addEventListener('click', buscarPedidos);
     $('searchEnvioInput').addEventListener('keydown', e => { if (e.key === 'Enter') buscarPedidos(); });
+    $('searchPedidoCampo').addEventListener('change', () => { if ($('searchEnvioInput').value.trim()) buscarPedidos(); });
     $('pedidosTableBody').addEventListener('click', e => {
         const b = e.target.closest('.abrir-pedido');
         if (b) abrirPedido(b.dataset.clave);
@@ -337,7 +356,11 @@ function registrarEventos() {
     $('usuarios-tab').addEventListener('shown.bs.tab', loadUsuarios);
     $('usuarioForm').addEventListener('submit', agregarUsuario);
     $('usuariosTableBody').addEventListener('change', e => {
-        if (e.target.matches('.usr-rol, .usr-activo')) actualizarUsuario(e.target);
+        if (e.target.matches('.usr-activo')) actualizarUsuario(e.target);
+    });
+    $('usuariosTableBody').addEventListener('click', e => {
+        const b = e.target.closest('.usr-password');
+        if (b) abrirCambioPassword(b.dataset.id, b.dataset.nombre);
     });
 
     // Datos en bruto
@@ -564,14 +587,14 @@ function buscarPedidos() {
     const q = $('searchEnvioInput').value.trim();
     if (!q) return;
     run(async () => {
-        const d = ok(await sb.rpc('buscar_pedidos', { p_termino: q }));
+        const d = ok(await sb.rpc('buscar_pedidos', { p_termino: q, p_campo: $('searchPedidoCampo').value }));
         $('pedidosTabla').classList.toggle('d-none', !d.length);
         $('pedidosTableBody').innerHTML = d.map(p => `<tr>
             <td class="fw-semibold">${fmtFecha(p.fecha_venta)}</td><td>${esc(p.pedido_id)}</td><td>${esc(p.envio)}</td>
             <td class="num">${esc(p.cliente_id)}</td><td>${esc(p.cliente)}</td><td>${esc(p.tienda)}</td><td>${esc(p.vendedor)}</td>
             <td class="num">${fmtQ(p.total)}</td>
             <td><button type="button" class="btn btn-gold btn-sm abrir-pedido" data-clave="${esc(p.clave)}">Abrir</button></td></tr>`).join('');
-        $('pedidosInfo').textContent = d.length ? `${d.length} pedido(s)${d.length === 60 ? ' (se muestran los 60 más recientes)' : ''}` : 'No se encontraron pedidos.';
+        $('pedidosInfo').textContent = d.length ? `${d.length} pedido(s)${d.length === 100 ? ' (se muestran los 100 más recientes)' : ''}` : 'No se encontraron pedidos.';
     });
 }
 
@@ -1195,11 +1218,6 @@ function exportClientes() {
 }
 
 // ---------------------------------------------------------------- usuarios (administradores)
-// Cliente de Supabase aparte para dar de alta usuarios sin cerrar la sesión del admin
-const sbAltas = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'ariga-altas' },
-});
-
 function loadUsuarios() {
     run(async () => {
         const [, clientes] = await Promise.all([
@@ -1211,41 +1229,35 @@ function loadUsuarios() {
         $('usuariosTableBody').innerHTML = perfiles.map(p => {
             const yo = p.id === perfil.id;
             return `<tr class="${p.activo ? '' : 'text-muted'}">
-                <td>${esc(p.nombre)}${yo ? ' <span class="badge text-bg-light">usted</span>' : ''}</td><td>${esc(p.email)}</td>
-                <td><select class="form-select form-select-sm usr-rol" data-id="${p.id}" ${yo ? 'disabled' : ''}>
-                    <option value="vendedor" ${p.rol === 'vendedor' ? 'selected' : ''}>Vendedor</option>
-                    <option value="admin" ${p.rol === 'admin' ? 'selected' : ''}>Administrador</option></select></td>
+                <td>${esc(p.nombre)}${yo ? ' <span class="badge text-bg-light">usted</span>' : ''}</td>
+                <td class="fw-semibold">${esc(p.usuario || aUsuario(p.email))}</td>
+                <td>${p.rol === 'admin' ? 'Administrador' : 'Vendedor'}</td>
                 <td class="text-center"><div class="form-check form-switch d-inline-block m-0"><input class="form-check-input usr-activo" type="checkbox" role="switch" data-id="${p.id}" ${p.activo ? 'checked' : ''} ${yo ? 'disabled' : ''} aria-label="Activo"></div></td>
-                <td class="num">${porUsuario[p.id] || 0}</td></tr>`;
+                <td class="num">${porUsuario[p.id] || 0}</td>
+                <td class="text-end"><button type="button" class="btn btn-outline-secondary btn-sm usr-password" data-id="${p.id}" data-nombre="${esc(p.nombre || p.usuario)}"><i class="bi bi-key"></i> Contraseña</button></td></tr>`;
         }).join('');
     });
 }
 
 function actualizarUsuario(el) {
-    const cambio = el.classList.contains('usr-rol') ? { rol: el.value } : { activo: el.checked };
     run(async () => {
-        const r = ok(await sb.from('perfiles').update(cambio).eq('id', el.dataset.id).select());
+        const r = ok(await sb.from('perfiles').update({ activo: el.checked }).eq('id', el.dataset.id).select());
         if (!r.length) throw new Error('No se pudo actualizar el usuario');
-        showAlert('Usuario actualizado', 'success');
+        showAlert(el.checked ? 'Usuario activado' : 'Usuario desactivado: ya no puede entrar', 'success');
         loadUsuarios();
     });
 }
 
 function agregarUsuario(e) {
     e.preventDefault();
-    const nombre = $('usrNombre').value.trim(), email = $('usrEmail').value.trim().toLowerCase();
-    const password = $('usrPassword').value, rol = $('usrRol').value;
+    const usuario = $('usrUsuario').value.trim().toLowerCase();
     run(async () => {
-        let aviso = '';
-        if (password) {
-            const { data, error } = await sbAltas.auth.signUp({ email, password, options: { data: { nombre, app: 'tiendaariga' } } });
-            if (error && !/already|registered|exists/i.test(error.message)) throw new Error(error.message);
-            if (error) aviso = ' El correo ya tenía cuenta: se le dio acceso con su contraseña actual.';
-            else if (!data.session) aviso = ' Si Supabase pide confirmar el correo, el usuario debe abrir el enlace que le llegó antes de entrar.';
-        }
-        ok(await sb.rpc('admin_agregar_usuario', { p_email: email, p_nombre: nombre, p_rol: rol }));
+        ok(await sb.rpc('admin_crear_usuario', {
+            p_usuario: usuario, p_nombre: $('usrNombre').value.trim(),
+            p_password: $('usrPassword').value, p_rol: 'vendedor',
+        }));
         $('usuarioForm').reset();
-        showAlert(`Usuario ${email} agregado como ${rol === 'admin' ? 'administrador' : 'vendedor'}.${aviso}`, 'success');
+        showAlert(`Vendedor creado. Entra con el usuario "${usuario}" y la contraseña que le asignó.`, 'success');
         loadUsuarios();
     });
 }

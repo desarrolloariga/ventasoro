@@ -89,16 +89,21 @@
         </div>
     </div>
 
-    <!-- Modal: nueva contraseña (al entrar con el enlace de recuperación) -->
-    <div class="modal fade" id="passwordModal" tabindex="-1" data-bs-backdrop="static">
+    <!-- Modal: nueva contraseña (la propia, o la de un usuario si es administrador) -->
+    <div class="modal fade" id="passwordModal" tabindex="-1">
         <div class="modal-dialog modal-sm">
             <form class="modal-content" id="passwordForm">
-                <div class="modal-header"><h5 class="modal-title">Nueva contraseña</h5></div>
+                <div class="modal-header"><h5 class="modal-title" id="passwordTitulo">Nueva contraseña</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                 <div class="modal-body">
                     <label for="nuevaPassword" class="form-label">Contraseña nueva</label>
                     <input type="password" class="form-control" id="nuevaPassword" minlength="6" required autocomplete="new-password">
+                    <div class="form-text">Mínimo 6 caracteres.</div>
                 </div>
-                <div class="modal-footer"><button type="submit" class="btn btn-gold">Guardar</button></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-gold">Guardar</button>
+                </div>
             </form>
         </div>
     </div>
@@ -164,6 +169,7 @@
             </a>
             <div id="userBox" class="d-none align-items-center gap-2">
                 <span class="navbar-user d-none d-md-inline"><i class="bi bi-person-circle"></i> <span id="userNombre"></span> <span class="badge text-bg-light" id="userRol"></span></span>
+                <button class="btn btn-outline-light btn-sm" id="cambiarPasswordButton" title="Cambiar mi contraseña"><i class="bi bi-key"></i><span class="d-none d-md-inline"> Contraseña</span></button>
                 <button class="btn btn-outline-light btn-sm" id="logoutButton"><i class="bi bi-box-arrow-right"></i> Salir</button>
             </div>
         </div>
@@ -175,7 +181,7 @@
             <div class="card-header card-header-custom"><i class="bi bi-lock me-2"></i> Iniciar sesión</div>
             <div class="card-body">
                 <form id="loginForm">
-                    <div class="mb-3"><label for="loginEmail" class="form-label">Correo</label><input type="email" class="form-control" id="loginEmail" autocomplete="username" required></div>
+                    <div class="mb-3"><label for="loginEmail" class="form-label">Usuario</label><input type="text" class="form-control" id="loginEmail" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Ej. admin" required></div>
                     <div class="mb-3"><label for="loginPassword" class="form-label">Contraseña</label><input type="password" class="form-control" id="loginPassword" autocomplete="current-password" required></div>
                     <div id="loginMensaje" class="alert d-none py-2"></div>
                     <button type="submit" class="btn btn-gold w-100">Entrar</button>
@@ -294,12 +300,19 @@
                   <div class="card-header card-header-custom">Buscar Pedido</div>
                   <div class="card-body">
                     <div class="input-group">
-                      <input type="text" class="form-control" id="searchEnvioInput" placeholder="Envío, Id de pedido, nombre o código del cliente">
+                      <select class="form-select flex-grow-0 w-auto" id="searchPedidoCampo" aria-label="Buscar por">
+                        <option value="todo">Buscar en todo</option>
+                        <option value="cliente">Nombre del cliente</option>
+                        <option value="codigo">Código del cliente</option>
+                        <option value="pedido">Número de pedido</option>
+                        <option value="envio">Número de envío</option>
+                      </select>
+                      <input type="text" class="form-control" id="searchEnvioInput" placeholder="Nombre, código de cliente, número de pedido o envío">
                       <button class="btn btn-outline-secondary" type="button" id="searchEnvioButton"><i class="bi bi-search"></i> Buscar</button>
                     </div>
                     <div class="table-responsive mt-3" style="max-height: 500px; overflow-y: auto;">
                       <table class="table table-sm table-hover table-bordered d-none" id="pedidosTabla">
-                        <thead class="table-light sticky-top"><tr><th>Fecha venta</th><th>Pedido</th><th>Envío</th><th>Código</th><th>Cliente</th><th>Tienda</th><th>Vendedor</th><th class="num">Total</th><th></th></tr></thead>
+                        <thead class="table-light sticky-top"><tr><th>Fecha venta</th><th>N° pedido</th><th>Envío</th><th>Código cliente</th><th>Cliente</th><th>Tienda</th><th>Vendedor</th><th class="num">Total</th><th></th></tr></thead>
                         <tbody id="pedidosTableBody"></tbody>
                       </table>
                     </div>
@@ -784,14 +797,14 @@
               <div class="mt-3 row g-3">
                 <div class="col-lg-4">
                   <form class="card" id="usuarioForm">
-                    <div class="card-header card-header-custom"><i class="bi bi-person-plus me-2"></i> Agregar usuario</div>
+                    <div class="card-header card-header-custom"><i class="bi bi-person-plus me-2"></i> Crear vendedor</div>
                     <div class="card-body">
                       <div class="mb-2"><label for="usrNombre" class="form-label">Nombre</label><input type="text" class="form-control" id="usrNombre" required></div>
-                      <div class="mb-2"><label for="usrEmail" class="form-label">Correo</label><input type="email" class="form-control" id="usrEmail" required autocomplete="off"></div>
-                      <div class="mb-2"><label for="usrPassword" class="form-label">Contraseña</label><input type="password" class="form-control" id="usrPassword" minlength="6" autocomplete="new-password">
-                        <div class="form-text">Déjela vacía si el correo ya tiene cuenta en el sistema.</div></div>
-                      <div class="mb-3"><label for="usrRol" class="form-label">Rol</label><select class="form-select" id="usrRol"><option value="vendedor">Vendedor (ve solo sus clientes)</option><option value="admin">Administrador (ve todo)</option></select></div>
-                      <button type="submit" class="btn btn-gold w-100">Agregar</button>
+                      <div class="mb-2"><label for="usrUsuario" class="form-label">Usuario</label><input type="text" class="form-control" id="usrUsuario" required autocomplete="off" autocapitalize="none" spellcheck="false" pattern="[A-Za-z0-9._\-]{3,30}" placeholder="Ej. maria">
+                        <div class="form-text">Con este usuario entra a la app. Sin espacios.</div></div>
+                      <div class="mb-3"><label for="usrPassword" class="form-label">Contraseña</label><input type="password" class="form-control" id="usrPassword" minlength="6" required autocomplete="new-password"></div>
+                      <button type="submit" class="btn btn-gold w-100">Crear vendedor</button>
+                      <div class="form-text mt-2">Cada vendedor solo ve los clientes que él crea, con sus ventas y pagos.</div>
                     </div>
                   </form>
                 </div>
@@ -800,7 +813,7 @@
                     <div class="card-header card-header-custom">Usuarios de ARIGA</div>
                     <div class="card-body">
                       <table class="table table-sm table-bordered align-middle">
-                        <thead class="table-light"><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th class="text-center">Activo</th><th class="num">Clientes</th></tr></thead>
+                        <thead class="table-light"><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th class="text-center">Activo</th><th class="num">Clientes</th><th></th></tr></thead>
                         <tbody id="usuariosTableBody"></tbody>
                       </table>
                       <div class="form-text">Un usuario inactivo no puede entrar. Sus clientes siguen visibles para los administradores, que pueden reasignarlos desde la ficha del cliente.</div>

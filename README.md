@@ -85,21 +85,25 @@ Usuarios: tabla `perfiles`. Pagos recibidos: vista `pagos_detalle`.
    vincula ventas y pagos importados con su cliente (`vincular_clientes()`).
 3. **Exponer el esquema**: *Project Settings → Data API → Exposed schemas* debe
    incluir `tiendaariga`.
-4. **Configurar Auth** (*Authentication → Sign In / Providers* y *URL Configuration*):
-   - Email habilitado y **"Allow new users to sign up" activado** (la pestaña
-     Usuarios crea las cuentas con él; nadie entra a ARIGA sin que un
-     administrador lo active).
-   - Recomendado: **desactivar "Confirm email"**, para que los usuarios creados
-     por el administrador puedan entrar de inmediato.
-   - *Site URL* = la URL de Vercel (para el enlace de "¿Olvidó su contraseña?").
-5. **Primer administrador**: *Authentication → Users → Add user* (correo y
-   contraseña, marcar *Auto Confirm User*) y en el SQL Editor:
-   ```sql
-   select tiendaariga.hacer_admin('correo@dominio.com');
-   ```
-   Los demás usuarios se crean desde la pestaña **Usuarios** de la app.
+4. **Actualizaciones**: ejecutar en orden los scripts `03_…`, `04_…` de
+   `supabase/` (ver *Actualizaciones de la base*).
+5. **Administrador inicial**: lo crea `03_usuarios_y_pedidos.sql`:
+   usuario **admin**, contraseña **admin123**. Cámbiela al entrar (botón
+   *Contraseña* de la barra superior). Los vendedores se crean desde la pestaña
+   **Usuarios** con usuario y contraseña; no se necesitan correos ni configurar
+   el envío de correos de Supabase.
 6. **Publicar la web**: ver *Despliegue en Vercel*. Para probar en local:
    `npx serve .` y abrir http://localhost:3000.
+
+## Actualizaciones de la base
+
+`01_esquema.sql` es la base inicial. Cada cambio posterior va en **un script
+propio y numerado**, que se ejecuta una vez en el SQL Editor, en orden, y se
+puede repetir sin dañar datos:
+
+| Script | Qué hace |
+|---|---|
+| `03_usuarios_y_pedidos.sql` | Usuarios con nombre de usuario (sin correo), administrador inicial `admin` / `admin123`, creación de vendedores y cambio de contraseñas por el admin, búsqueda de pedidos por cliente, código de cliente, número de pedido o envío. |
 
 ## Despliegue en Vercel
 
@@ -133,7 +137,8 @@ está en `.gitignore` y nunca se sube. Para recrearlos en otra máquina:
 
 ## Seguridad
 
-- Hay que **iniciar sesión** (Supabase Auth). Un usuario de Auth solo entra a
+- Hay que **iniciar sesión** con usuario y contraseña (Supabase Auth; el
+  usuario `maria` se guarda internamente como `maria@ariga.local`). Un usuario de Auth solo entra a
   ARIGA si tiene un perfil activo en `tiendaariga.perfiles`; sin sesión (clave
   publicable sola) no se puede leer ni escribir nada.
 - **Roles**: *admin* ve y edita todo; *vendedor* ve solo los clientes que creó,
