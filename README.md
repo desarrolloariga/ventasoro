@@ -104,6 +104,7 @@ puede repetir sin dañar datos:
 | Script | Qué hace |
 |---|---|
 | `03_usuarios_y_pedidos.sql` | Usuarios con nombre de usuario (sin correo), administrador inicial `admin` / `admin123`, creación de vendedores y cambio de contraseñas por el admin, búsqueda de pedidos por cliente, código de cliente, número de pedido o envío. |
+| `04_usuario_tienda.sql` | Vincula cada usuario a una tienda o bodega. Las ventas y cargas de inventario de un vendedor vinculado se guardan siempre con su tienda (lo impone la base). |
 
 ## Despliegue en Vercel
 

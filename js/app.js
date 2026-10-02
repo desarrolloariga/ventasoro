@@ -128,6 +128,7 @@ async function mostrarVista(session) {
     $('userBox').classList.add('d-flex'); $('userBox').classList.remove('d-none');
     $('userNombre').textContent = perfil?.nombre || aUsuario(session.user.email);
     $('userRol').textContent = perfil ? (perfil.rol === 'admin' ? 'Administrador' : 'Vendedor') : '';
+    mostrarTiendaUsuario();
     ver('loginView', false);
 
     if (!perfil?.activo) {
@@ -356,7 +357,8 @@ function registrarEventos() {
     $('usuarios-tab').addEventListener('shown.bs.tab', loadUsuarios);
     $('usuarioForm').addEventListener('submit', agregarUsuario);
     $('usuariosTableBody').addEventListener('change', e => {
-        if (e.target.matches('.usr-activo')) actualizarUsuario(e.target);
+        if (e.target.matches('.usr-activo')) actualizarUsuario(e.target, { activo: e.target.checked });
+        if (e.target.matches('.usr-tienda')) actualizarUsuario(e.target, { tienda: e.target.value || null });
     });
     $('usuariosTableBody').addEventListener('click', e => {
         const b = e.target.closest('.usr-password');
@@ -436,6 +438,7 @@ function abrirModalCliente(c = {}, origen = 'clientes') {
     // Saldo inicial: solo al crear
     $('saldoInicialGrupo').classList.toggle('d-none', !!c.id);
     $('saldoInicialFecha').value = hoyISO();
+    aplicarTiendaUsuario();  // el reset del formulario borra la tienda fija
     // Responsable: solo el administrador, al editar
     const verResponsable = esAdmin() && !!c.id;
     $('clientResponsableGrupo').classList.toggle('d-none', !verResponsable);
@@ -636,6 +639,22 @@ function setSelectValue(idOElemento, value) {
     s.dataset.previo = s.value;
 }
 
+// Usuario vinculado a una tienda: queda preseleccionada; para vendedores, fija.
+// (La base también la impone al guardar ventas y cargas.)
+function aplicarTiendaUsuario() {
+    const t = perfil?.tienda;
+    const fija = !!t && !esAdmin();
+    for (const id of ['tiendaSelect', 'cargaTienda', 'saldoInicialTienda']) {
+        if (t && (fija || !$(id).value)) setSelectValue(id, t);
+        $(id).disabled = fija;
+    }
+}
+
+function mostrarTiendaUsuario() {
+    $('userTienda').textContent = perfil?.tienda || '';
+    $('userTienda').classList.toggle('d-none', !perfil?.tienda);
+}
+
 function resetForm() {
     $('saleForm').reset();
     $('pedidoId').value = '';
@@ -646,6 +665,7 @@ function resetForm() {
     $('deleteOrderButton').classList.add('d-none');
     $('newSaleButton').classList.add('d-none');
     updateSubtotal();
+    aplicarTiendaUsuario();
 }
 
 function deleteOrder() {
@@ -1090,13 +1110,17 @@ function eliminarCarga(id) {
 }
 
 // ---------------------------------------------------------------- inventario: saldos
+let inventarioAbierto = false;
 function loadInventoryData() {
     run(async () => {
         fullInventoryData = ok(await sb.from('inventario').select('*').order('tienda').order('producto'));
         // Los filtros se arman con lo que existe en el inventario
         const keep = id => $(id).value;
-        const [t, p] = [keep('filterInventarioTienda'), keep('filterInventarioProducto')];
-        populateDropdown('filterInventarioTienda', [...new Set(fullInventoryData.map(r => r.tienda))], 'Todas');
+        let [t, p] = [keep('filterInventarioTienda'), keep('filterInventarioProducto')];
+        // La primera vez muestra la tienda del usuario
+        if (!inventarioAbierto) { inventarioAbierto = true; t = t || perfil?.tienda || ''; }
+        // Incluye la tienda del usuario aunque todavía no tenga inventario cargado
+        populateDropdown('filterInventarioTienda', [...new Set([...fullInventoryData.map(r => r.tienda), perfil?.tienda].filter(Boolean))], 'Todas');
         populateDropdown('filterInventarioProducto', [...new Set(fullInventoryData.map(r => r.producto))].sort(), 'Todas');
         $('filterInventarioTienda').value = t;
         $('filterInventarioProducto').value = p;
@@ -1232,6 +1256,10 @@ function loadUsuarios() {
                 <td>${esc(p.nombre)}${yo ? ' <span class="badge text-bg-light">usted</span>' : ''}</td>
                 <td class="fw-semibold">${esc(p.usuario || aUsuario(p.email))}</td>
                 <td>${p.rol === 'admin' ? 'Administrador' : 'Vendedor'}</td>
+                <td><select class="form-select form-select-sm usr-tienda" data-id="${p.id}" aria-label="Tienda">
+                    <option value="">(sin tienda)</option>
+                    ${[...new Set([...maestros.tiendas.filter(x => x.activo !== false).map(x => x.nombre), p.tienda].filter(Boolean))]
+                        .map(n => `<option value="${esc(n)}" ${n === p.tienda ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></td>
                 <td class="text-center"><div class="form-check form-switch d-inline-block m-0"><input class="form-check-input usr-activo" type="checkbox" role="switch" data-id="${p.id}" ${p.activo ? 'checked' : ''} ${yo ? 'disabled' : ''} aria-label="Activo"></div></td>
                 <td class="num">${porUsuario[p.id] || 0}</td>
                 <td class="text-end"><button type="button" class="btn btn-outline-secondary btn-sm usr-password" data-id="${p.id}" data-nombre="${esc(p.nombre || p.usuario)}"><i class="bi bi-key"></i> Contraseña</button></td></tr>`;
@@ -1239,11 +1267,14 @@ function loadUsuarios() {
     });
 }
 
-function actualizarUsuario(el) {
+function actualizarUsuario(el, cambio) {
     run(async () => {
-        const r = ok(await sb.from('perfiles').update({ activo: el.checked }).eq('id', el.dataset.id).select());
+        const r = ok(await sb.from('perfiles').update(cambio).eq('id', el.dataset.id).select());
         if (!r.length) throw new Error('No se pudo actualizar el usuario');
-        showAlert(el.checked ? 'Usuario activado' : 'Usuario desactivado: ya no puede entrar', 'success');
+        if ('activo' in cambio) showAlert(cambio.activo ? 'Usuario activado' : 'Usuario desactivado: ya no puede entrar', 'success');
+        else showAlert(cambio.tienda ? `Usuario vinculado a ${cambio.tienda}` : 'Usuario sin tienda asignada', 'success');
+        // Si el admin cambia su propia tienda, se aplica de inmediato
+        if (r[0].id === perfil.id) { perfil = { ...perfil, ...r[0] }; mostrarTiendaUsuario(); aplicarTiendaUsuario(); }
         loadUsuarios();
     });
 }
@@ -1252,12 +1283,14 @@ function agregarUsuario(e) {
     e.preventDefault();
     const usuario = $('usrUsuario').value.trim().toLowerCase();
     run(async () => {
-        ok(await sb.rpc('admin_crear_usuario', {
+        const tienda = $('usrTienda').value || null;
+        const nuevo = unico(ok(await sb.rpc('admin_crear_usuario', {
             p_usuario: usuario, p_nombre: $('usrNombre').value.trim(),
             p_password: $('usrPassword').value, p_rol: 'vendedor',
-        }));
+        })));
+        if (tienda) ok(await sb.from('perfiles').update({ tienda }).eq('id', nuevo.id));
         $('usuarioForm').reset();
-        showAlert(`Vendedor creado. Entra con el usuario "${usuario}" y la contraseña que le asignó.`, 'success');
+        showAlert(`Vendedor creado${tienda ? ` en ${tienda}` : ''}. Entra con el usuario "${usuario}" y la contraseña que le asignó.`, 'success');
         loadUsuarios();
     });
 }
@@ -1391,6 +1424,8 @@ async function cargarMaestros() {
     repoblar('filterTipo', todos(tipos), 'Todos');
     repoblar('refTipo', activos(tipos), '(sin tipo)');
     repoblar('newClientDepto', activos(departamentos), 'Seleccione...');
+    repoblar('usrTienda', activos(tiendas), '(sin tienda)');
+    aplicarTiendaUsuario();
 
     for (const m of Object.keys(MAESTROS)) {
         $(`maestro-${m}`).innerHTML = maestros[m].map(x => `<tr class="${x.activo === false ? 'text-muted' : ''}">
@@ -1479,7 +1514,7 @@ function eliminarMaestro(m, nombre) {
     run(async () => {
         // Revisa todos los registros del sistema, no solo los visibles para el usuario
         if (ok(await sb.rpc('maestro_en_uso', { p_maestro: m, p_nombre: nombre }))) {
-            showAlert(`"${nombre}" está en uso (ventas, pagos, clientes o inventario) y no se puede eliminar. Desactívelo para que no aparezca en los formularios.`, 'warning');
+            showAlert(`"${nombre}" está en uso (ventas, pagos, clientes, inventario o usuarios) y no se puede eliminar. Desactívelo para que no aparezca en los formularios.`, 'warning');
             return;
         }
         if (!confirm(`¿Eliminar "${nombre}"?`)) return;
