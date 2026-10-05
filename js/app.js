@@ -127,6 +127,7 @@ async function mostrarVista(session) {
     perfil = data;
     $('userBox').classList.add('d-flex'); $('userBox').classList.remove('d-none');
     $('userNombre').textContent = perfil?.nombre || aUsuario(session.user.email);
+    $('userIniciales').textContent = iniciales($('userNombre').textContent);
     $('userRol').textContent = perfil ? (perfil.rol === 'admin' ? 'Administrador' : 'Vendedor') : '';
     mostrarTiendaUsuario();
     ver('loginView', false);
@@ -213,7 +214,38 @@ async function cargarPerfiles() {
 }
 const nombreUsuario = id => { const u = perfiles.find(p => p.id === id); return u ? (u.nombre || u.email) : ''; };
 
+// "Maria Lopez" -> "ML"
+const iniciales = nombre => String(nombre || '').trim().split(/\s+/).slice(0, 2).map(p => p[0] || '').join('').toUpperCase();
+
+// ---------------------------------------------------------------- armazón: menú lateral y cabecera
+function abrirSeccion(idPestana) {
+    bootstrap.Tab.getOrCreateInstance($(idPestana)).show();
+}
+
+function registrarArmazon() {
+    // Cabecera: migaja y título de la sección abierta
+    $('menuPrincipal').addEventListener('shown.bs.tab', e => {
+        $('cabeceraMigaja').textContent = e.target.dataset.migaja || '';
+        $('cabeceraTitulo').textContent = e.target.dataset.titulo || e.target.textContent.trim();
+        document.querySelectorAll('.barra-movil [data-ir]').forEach(b => b.classList.toggle('activo', b.dataset.ir === e.target.id));
+        $('appView').classList.remove('menu-abierto');
+        window.scrollTo({ top: 0, behavior: 'instant' });
+    });
+    // Accesos directos (barra inferior en móvil y botón "Nueva venta")
+    document.querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', () => {
+        if (b.id === 'accionNuevaVenta' && $('envioOriginal').value) resetForm();
+        abrirSeccion(b.dataset.ir);
+    }));
+    // Cajón del menú en móvil
+    $('abrirMenu').addEventListener('click', () => $('appView').classList.add('menu-abierto'));
+    $('cerrarMenu').addEventListener('click', () => $('appView').classList.remove('menu-abierto'));
+    $('menuVelo').addEventListener('click', () => $('appView').classList.remove('menu-abierto'));
+    document.querySelector('.barra-movil [data-ir="registro-tab"]').classList.add('activo');
+}
+
 function registrarEventos() {
+    registrarArmazon();
+
     // "+ Crear nuevo…" en cualquier lista: recuerda el valor previo y abre el formulario
     document.addEventListener('focusin', e => {
         if (e.target.tagName === 'SELECT' && e.target.dataset.crear) e.target.dataset.previo = e.target.value;
@@ -1761,8 +1793,10 @@ function puedeAnular(t) {
 async function actualizarBadgeTraslados() {
     const { data } = await sb.from('traslados').select('id,destino').eq('estado', 'ENVIADO');
     const n = (data || []).filter(t => esAdmin() || t.destino === perfil?.tienda).length;
-    $('badgeTraslados').textContent = n;
-    $('badgeTraslados').classList.toggle('d-none', !n);
+    for (const id of ['badgeTraslados', 'badgeTrasladosMenu']) {
+        $(id).textContent = n;
+        $(id).classList.toggle('d-none', !n);
+    }
 }
 
 function loadTraslados() {

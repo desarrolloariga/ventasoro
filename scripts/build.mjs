@@ -28,7 +28,7 @@ if (config.SUPABASE_KEY.startsWith("sb_secret_") || payloadJwt(config.SUPABASE_K
 
 fs.rmSync(dist, { recursive: true, force: true });
 fs.mkdirSync(dist);
-for (const item of ["index.html", "css", "js"]) {
+for (const item of ["index.html", "css", "js", "img"]) {
   fs.cpSync(path.join(raiz, item), path.join(dist, item), { recursive: true });
 }
 fs.writeFileSync(
