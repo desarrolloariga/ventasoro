@@ -168,3 +168,45 @@ body {
   position: absolute; left: 0; right: 0; top: 100%; z-index: 1065;
   max-height: 320px; overflow-y: auto;
 }
+
+/* --- Inteligencia comercial: tarjetas de indicador --- */
+.kpi {
+  --texto-1: #1f1f1e;
+  --texto-2: #52514e;
+}
+.kpi .kpi-titulo { font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--texto-2); }
+.kpi .kpi-titulo .bi { color: var(--pastel-accent); }
+.kpi .kpi-valor { font-size: clamp(1.5rem, 2.2vw, 2rem); white-space: nowrap; font-weight: 600; color: var(--texto-1); line-height: 1.15; margin: .35rem 0; font-variant-numeric: tabular-nums; }
+.kpi .kpi-heroe { font-size: clamp(1.7rem, 2.6vw, 2.4rem); }
+.kpi .kpi-sub { font-size: 0.85rem; color: var(--texto-2); }
+.kpi .kpi-sub .fila { display: flex; justify-content: space-between; gap: .5rem; border-top: 1px solid #eee; padding: .2rem 0; }
+.kpi .kpi-sub .fila b { color: var(--texto-1); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* --- Gráfico de línea (precio por gramo) --- */
+.viz {
+  --viz-surface: #ffffff;
+  --viz-text-1: #1f1f1e;
+  --viz-text-2: #6b6a66;
+  --viz-grid: #e9e8e4;
+  --viz-series-1: #2a78d6;
+  position: relative; margin-bottom: .75rem;
+}
+.viz-titulo { font-size: .85rem; font-weight: 600; color: var(--viz-text-1); margin-bottom: .1rem; }
+.viz svg { display: block; width: 100%; height: auto; overflow: visible; }
+.viz .grid line { stroke: var(--viz-grid); stroke-width: 1; }
+.viz .eje text { fill: var(--viz-text-2); font-size: 11px; font-family: inherit; }
+.viz .linea { fill: none; stroke: var(--viz-series-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.viz .punto { fill: var(--viz-series-1); stroke: var(--viz-surface); stroke-width: 2; }
+.viz .etiqueta { fill: var(--viz-text-1); font-size: 11px; font-weight: 600; }
+.viz .guia { stroke: var(--viz-text-2); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0; }
+.viz .zona { fill: transparent; cursor: crosshair; }
+.viz-tooltip {
+  position: absolute; pointer-events: none; background: #1f1f1e; color: #fff;
+  font-size: .78rem; padding: .35rem .5rem; border-radius: 6px; white-space: nowrap;
+  transform: translate(-50%, -110%); opacity: 0; z-index: 2;
+}
+.viz-tooltip b { font-variant-numeric: tabular-nums; }
+
+/* Tabla de gramos por bodega: compacta */
+#intGramosBody td, #intGramosHead th, #intGramosFoot td { font-size: .85rem; }
+#intGramosFoot td { font-weight: 600; background: var(--pastel-header); }

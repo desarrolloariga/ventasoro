@@ -203,6 +203,8 @@ function cargarDatosIniciales() {
         $('fechaPago').value = hoyISO();
         $('recDesde').value = inicioMesISO();
         $('recHasta').value = hoyISO();
+        $('trasladoFecha').value = hoyISO();
+        actualizarBadgeTraslados();
     });
 }
 
@@ -253,6 +255,16 @@ function registrarEventos() {
         if (e.target.classList.contains('delete-row')) { e.target.closest('tr').remove(); updateSubtotal(); }
     });
 
+    // Inteligencia comercial
+    $('inteligencia-tab').addEventListener('shown.bs.tab', loadInteligencia);
+    $('intPeriodo').addEventListener('change', () => {
+        $('intRango').classList.toggle('d-none', $('intPeriodo').value !== 'rango');
+        if ($('intPeriodo').value !== 'rango') loadInteligencia();
+    });
+    ['intDesde', 'intHasta'].forEach(id => $(id).addEventListener('change', loadInteligencia));
+    $('intActualizar').addEventListener('click', loadInteligencia);
+    $('exportGramosButton').addEventListener('click', exportGramos);
+
     // Búsqueda de pedidos
     $('searchEnvioButton').addEventListener('click', buscarPedidos);
     $('searchEnvioInput').addEventListener('keydown', e => { if (e.key === 'Enter') buscarPedidos(); });
@@ -296,7 +308,8 @@ function registrarEventos() {
 
     // Inventario: cada sub-sección se recarga al abrirla
     const subInventario = { 'pills-saldos-tab': loadInventoryData, 'pills-carga-tab': loadCargas,
-        'pills-referencias-tab': loadReferencias, 'pills-movimientos-tab': loadMovimientos };
+        'pills-referencias-tab': loadReferencias, 'pills-movimientos-tab': loadMovimientos,
+        'pills-traslados-tab': loadTraslados };
     $('inventario-tab').addEventListener('shown.bs.tab', () =>
         subInventario[document.querySelector('#inventario .nav-pills .active').id]());
     Object.entries(subInventario).forEach(([id, fn]) => $(id).addEventListener('shown.bs.tab', fn));
@@ -326,6 +339,16 @@ function registrarEventos() {
     });
 
     ['movTienda', 'movProducto'].forEach(id => $(id).addEventListener('change', loadMovimientos));
+
+    // Traslados
+    $('trasladoForm').addEventListener('submit', enviarTraslado);
+    ['trasladoOrigen', 'trasladoProducto'].forEach(id => $(id).addEventListener('change', () => { prepararDestinos(); mostrarSaldoTraslado(); }));
+    $('filterTrasladoEstado').addEventListener('input', renderTraslados);
+    $('exportTrasladosButton').addEventListener('click', exportTraslados);
+    ['porRecibirBody', 'trasladosBody'].forEach(id => $(id).addEventListener('click', e => {
+        const b = e.target.closest('[data-accion]');
+        if (b) (b.dataset.accion === 'recibir' ? recibirTraslado : anularTraslado)(Number(b.dataset.id));
+    }));
     $('exportMovimientosButton').addEventListener('click', exportMovimientos);
 
     // Clientes
@@ -1062,7 +1085,9 @@ function loadCargas() {
 function renderCargas() {
     const t = $('filterCargasTienda').value, p = $('filterCargasProducto').value;
     const d = cargasFilas.filter(r => (!t || r.tienda === t) && (!p || r.producto === p));
-    $('cargasTableBody').innerHTML = d.slice(0, 500).map(r => `<tr><td>${fmtFecha(r.fecha)}</td><td>${esc(r.tienda)}</td><td>${esc(r.producto)}</td><td>${esc(r.concepto)}</td><td class="num">${r.entrada ? fmt(r.entrada) : ''}</td><td class="num">${r.salida ? fmt(r.salida) : ''}</td><td>${esc(r.observaciones)}</td><td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm delete-carga" data-id="${r.id}"><i class="bi bi-trash"></i> Eliminar</button></td></tr>`).join('')
+    $('cargasTableBody').innerHTML = d.slice(0, 500).map(r => `<tr><td>${fmtFecha(r.fecha)}</td><td>${esc(r.tienda)}</td><td>${esc(r.producto)}</td><td>${esc(r.concepto)}</td><td class="num">${r.entrada ? fmt(r.entrada) : ''}</td><td class="num">${r.salida ? fmt(r.salida) : ''}</td><td>${esc(r.observaciones)}</td><td class="text-end">${r.traslado_id
+        ? `<span class="badge text-bg-light" title="Se anula desde Inventario > Traslados">Traslado #${r.traslado_id}</span>`
+        : `<button type="button" class="btn btn-outline-danger btn-sm delete-carga" data-id="${r.id}"><i class="bi bi-trash"></i> Eliminar</button>`}</td></tr>`).join('')
         || '<tr><td colspan="8" class="text-muted">Sin cargas</td></tr>';
 }
 
@@ -1536,4 +1561,279 @@ function cambiarClaseTienda(sel) {
         await cargarMaestros();
         showAlert(`"${sel.dataset.nombre}" ahora es ${sel.value === 'BODEGA' ? 'bodega' : 'tienda'}`, 'success');
     });
+}
+
+// ---------------------------------------------------------------- inteligencia comercial
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const etiquetaMes = ym => { const [y, m] = ym.split('-'); return `${MESES[Number(m) - 1]} ${y.slice(2)}`; };
+const fmtG = v => num(v).toLocaleString('es-GT', { maximumFractionDigits: 2 }) + ' g';
+let indicadores = null;
+
+// Desde / hasta del periodo elegido para el precio promedio
+function rangoPeriodo() {
+    const hoy = hoyISO(), [y, m] = hoy.split('-').map(Number);
+    const hace = meses => { const d = new Date(Date.UTC(y, m - 1 - meses, 1)); return d.toISOString().slice(0, 10); };
+    switch ($('intPeriodo').value) {
+        case 'mes': return [hace(0), hoy];
+        case '3m': return [hace(2), hoy];
+        case '12m': return [hace(11), hoy];
+        case 'anio': return [`${y}-01-01`, hoy];
+        case 'rango': return [$('intDesde').value || null, $('intHasta').value || null];
+        default: return [null, null];
+    }
+}
+
+function loadInteligencia() {
+    run(async () => {
+        const [desde, hasta] = rangoPeriodo();
+        indicadores = ok(await sb.rpc('indicadores_comerciales', { p_desde: desde, p_hasta: hasta }));
+        renderInteligencia();
+    });
+}
+
+function renderInteligencia() {
+    const d = indicadores;
+    $('intAlcance').textContent = esAdmin() ? 'Cartera y ventas de todos los clientes · inventario de todas las bodegas'
+        : 'Cartera y ventas de sus clientes · inventario de todas las bodegas';
+    const fila = (a, b) => `<div class="fila"><span>${a}</span><b>${b}</b></div>`;
+
+    // 1. Cartera por cobrar
+    $('kpiCartera').textContent = fmtQ(d.cartera.por_cobrar);
+    $('kpiCarteraSub').innerHTML = fila('Clientes con saldo', `${d.cartera.clientes_con_saldo} de ${d.cartera.clientes}`)
+        + (num(d.cartera.saldo_a_favor) ? fila('Saldo a favor de clientes', fmtQ(d.cartera.saldo_a_favor)) : '');
+
+    // 2. Gramos disponibles por tipo + en tránsito
+    const porTipo = {};
+    d.gramos.forEach(g => porTipo[g.tipo] = (porTipo[g.tipo] || 0) + num(g.gramos));
+    const total = Object.values(porTipo).reduce((a, b) => a + b, 0);
+    const transito = d.transito.reduce((a, t) => a + num(t.gramos), 0);
+    $('kpiGramos').textContent = fmtG(total);
+    $('kpiGramosSub').innerHTML = Object.entries(porTipo).map(([t, g]) => fila(esc(t), fmtG(g))).join('')
+        + (transito ? fila('<i class="bi bi-truck"></i> En tránsito (no incluido)', fmtG(transito)) : '')
+        + (d.traslados_por_recibir ? fila('Traslados por recibir', d.traslados_por_recibir) : '');
+
+    // 3. Precio promedio del gramo vendido (general y por tipo)
+    const p = d.promedio;
+    $('kpiPromedio').textContent = num(p.gramos) ? `${fmtQ(num(p.valor) / num(p.gramos))} / g` : 'Sin ventas';
+    $('kpiPromedioSub').innerHTML = p.por_tipo.map(t => fila(esc(t.tipo), `${fmtQ(num(t.valor) / num(t.gramos))} / g`)).join('')
+        + fila('Gramos vendidos', fmtG(p.gramos)) + fila('Valor vendido', fmtQ(p.valor));
+
+    // Gramos por bodega: una columna por tipo
+    const tipos = [...new Set(d.gramos.map(g => g.tipo))].sort();
+    const bodegas = {};
+    d.gramos.forEach(g => (bodegas[g.tienda] ??= {})[g.tipo] = num(g.gramos));
+    const totalFila = b => tipos.reduce((a, t) => a + (bodegas[b][t] || 0), 0);
+    const celda = v => `<td class="num ${v < 0 ? 'saldo-negativo' : ''}">${v === undefined ? '' : fmt(v)}</td>`;
+    $('intGramosHead').innerHTML = `<tr><th>Bodega</th>${tipos.map(t => `<th class="num">${esc(t)}</th>`).join('')}<th class="num">Total</th></tr>`;
+    $('intGramosBody').innerHTML = Object.keys(bodegas).sort().map(b =>
+        `<tr><td>${esc(b)}</td>${tipos.map(t => celda(bodegas[b][t])).join('')}${celda(totalFila(b))}</tr>`).join('')
+        || `<tr><td colspan="${tipos.length + 2}" class="text-muted">Sin inventario en gramos</td></tr>`;
+    $('intGramosFoot').innerHTML = `<tr><td>Total</td>${tipos.map(t => celda(porTipo[t])).join('')}${celda(total)}</tr>`;
+
+    // Evolución mensual: un gráfico por tipo (oro y plata tienen escalas muy distintas)
+    const meses = [];
+    for (let i = 11; i >= 0; i--) {
+        const [y, m] = hoyISO().split('-').map(Number);
+        meses.push(new Date(Date.UTC(y, m - 1 - i, 1)).toISOString().slice(0, 7));
+    }
+    const tiposMes = [...new Set(d.mensual.map(x => x.tipo))].sort();
+    $('intGraficos').innerHTML = tiposMes.length ? '' : '<p class="text-muted small mb-0">Sin ventas por gramo en los últimos 12 meses.</p>';
+    tiposMes.forEach(t => {
+        const puntos = meses.map(mes => {
+            const x = d.mensual.find(r => r.mes === mes && r.tipo === t);
+            return { mes, gramos: x ? num(x.gramos) : 0, valor: x ? num(x.valor) / num(x.gramos) : null };
+        });
+        const div = document.createElement('div');
+        $('intGraficos').appendChild(div);
+        graficoLinea(div, `${t} · Q por gramo`, puntos);
+    });
+    $('intMensualBody').innerHTML = [...d.mensual].reverse().map(x => `<tr><td>${etiquetaMes(x.mes)}</td><td>${esc(x.tipo)}</td>
+        <td class="num">${fmt(x.gramos)}</td><td class="num">${fmtQ(x.valor)}</td><td class="num">${fmtQ(num(x.valor) / num(x.gramos))}</td></tr>`).join('');
+}
+
+// Línea simple en SVG: una serie, un eje, cuadrícula tenue, marcadores con anillo,
+// etiqueta directa en el último valor y tooltip con guía al pasar el cursor.
+function graficoLinea(cont, titulo, puntos) {
+    const W = 600, H = 150, M = { t: 14, r: 56, b: 22, l: 58 };
+    const vals = puntos.map(p => p.valor).filter(v => v !== null);
+    let min = Math.min(...vals), max = Math.max(...vals);
+    if (min === max) { min *= 0.9; max *= 1.1; }
+    const pad = (max - min) * 0.15; min -= pad; max += pad;
+    const x = i => M.l + i * (W - M.l - M.r) / (puntos.length - 1);
+    const y = v => M.t + (max - v) * (H - M.t - M.b) / (max - min);
+    const ticks = [0, 0.5, 1].map(f => min + (max - min) * f);
+
+    // Tramos de línea: se cortan en los meses sin ventas
+    let d = '', abierto = false;
+    puntos.forEach((p, i) => {
+        if (p.valor === null) { abierto = false; return; }
+        d += `${abierto ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.valor).toFixed(1)}`; abierto = true;
+    });
+    const ultimo = [...puntos.keys()].reverse().find(i => puntos[i].valor !== null);
+    const ancho = (W - M.l - M.r) / (puntos.length - 1);
+
+    cont.className = 'viz';
+    cont.innerHTML = `<div class="viz-titulo">${esc(titulo)}</div>
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(titulo)}, últimos 12 meses">
+        <g class="grid">${ticks.map(t => `<line x1="${M.l}" x2="${W - M.r}" y1="${y(t)}" y2="${y(t)}"></line>`).join('')}</g>
+        <g class="eje">${ticks.map(t => `<text x="${M.l - 6}" y="${y(t) + 4}" text-anchor="end">Q${Math.round(t).toLocaleString('es-GT')}</text>`).join('')}
+          ${puntos.map((p, i) => i % 2 === (puntos.length - 1) % 2 ? `<text x="${x(i)}" y="${H - 4}" text-anchor="middle">${etiquetaMes(p.mes)}</text>` : '').join('')}</g>
+        <line class="guia" y1="${M.t}" y2="${H - M.b}"></line>
+        <path class="linea" d="${d}"></path>
+        ${puntos.map((p, i) => p.valor === null ? '' : `<circle class="punto" cx="${x(i)}" cy="${y(p.valor)}" r="4"></circle>`).join('')}
+        ${ultimo !== undefined ? `<text class="etiqueta" x="${x(ultimo) + 8}" y="${y(puntos[ultimo].valor) + 4}">Q${fmt(puntos[ultimo].valor)}</text>` : ''}
+        ${puntos.map((p, i) => `<rect class="zona" data-i="${i}" x="${x(i) - ancho / 2}" y="${M.t}" width="${ancho}" height="${H - M.t - M.b}"></rect>`).join('')}
+      </svg>
+      <div class="viz-tooltip"></div>`;
+
+    const svg = cont.querySelector('svg'), guia = cont.querySelector('.guia'), tip = cont.querySelector('.viz-tooltip');
+    svg.addEventListener('mousemove', e => {
+        const z = e.target.closest('.zona');
+        if (!z) return;
+        const i = Number(z.dataset.i), p = puntos[i], escala = svg.getBoundingClientRect().width / W;
+        guia.setAttribute('x1', x(i)); guia.setAttribute('x2', x(i)); guia.style.opacity = 1;
+        tip.innerHTML = `${etiquetaMes(p.mes)}<br>` + (p.valor === null ? 'Sin ventas'
+            : `<b>Q${fmt(p.valor)}</b> / g · ${fmtG(p.gramos)}`);
+        tip.style.left = `${x(i) * escala}px`;
+        tip.style.top = `${(p.valor === null ? M.t : y(p.valor)) * escala + cont.querySelector('.viz-titulo').offsetHeight}px`;
+        tip.style.opacity = 1;
+    });
+    svg.addEventListener('mouseleave', () => { guia.style.opacity = 0; tip.style.opacity = 0; });
+}
+
+function exportGramos() {
+    if (!indicadores) return;
+    exportarExcel('Gramos_por_bodega', 'Gramos por bodega', indicadores.gramos.map(g => ({
+        'Bodega': g.tienda, 'Tipo': g.tipo, 'Gramos': num(g.gramos),
+    })));
+}
+
+// ---------------------------------------------------------------- traslados entre bodegas
+let trasladosFilas = [];
+
+// El vendedor envía desde su tienda; el administrador desde cualquiera
+function puedeRecibir(t) { return t.estado === 'ENVIADO' && (esAdmin() || t.destino === perfil?.tienda); }
+function puedeAnular(t) {
+    return t.estado === 'ENVIADO' && (esAdmin() || [t.origen, t.destino].includes(perfil?.tienda) || t.enviado_por === perfil?.id);
+}
+
+async function actualizarBadgeTraslados() {
+    const { data } = await sb.from('traslados').select('id,destino').eq('estado', 'ENVIADO');
+    const n = (data || []).filter(t => esAdmin() || t.destino === perfil?.tienda).length;
+    $('badgeTraslados').textContent = n;
+    $('badgeTraslados').classList.toggle('d-none', !n);
+}
+
+function loadTraslados() {
+    run(async () => {
+        const [filas] = await Promise.all([
+            fetchAll(() => sb.from('traslados').select('*').order('id', { ascending: false })),
+            cargarPerfiles(),
+        ]);
+        trasladosFilas = filas;
+        // Formulario
+        const activas = maestros.tiendas.filter(x => x.activo !== false).map(x => x.nombre);
+        const sinTienda = !esAdmin() && !perfil?.tienda;
+        $('trasladoSinTienda').classList.toggle('d-none', !sinTienda);
+        $('trasladoForm').querySelectorAll('input, select, button').forEach(el => el.disabled = sinTienda);
+        if (esAdmin()) repoblar('trasladoOrigen', activas, 'Seleccione...');
+        else { populateDropdown('trasladoOrigen', perfil?.tienda ? [perfil.tienda] : [], '—'); $('trasladoOrigen').value = perfil?.tienda || ''; $('trasladoOrigen').disabled = true; }
+        const refs = referencias.filter(r => r.activo && r.controla_inventario)
+            .sort((a, b) => (a.unidad === 'GRAMOS' ? 0 : 1) - (b.unidad === 'GRAMOS' ? 0 : 1));
+        repoblar('trasladoProducto', refs.map(r => r.nombre), 'Seleccione...');
+        if (!$('trasladoFecha').value) $('trasladoFecha').value = hoyISO();
+        prepararDestinos();
+        mostrarSaldoTraslado();
+        renderTraslados();
+        actualizarBadgeTraslados();
+    });
+}
+
+function prepararDestinos() {
+    const origen = $('trasladoOrigen').value;
+    repoblar('trasladoDestino', maestros.tiendas.filter(x => x.activo !== false && x.nombre !== origen).map(x => x.nombre), 'Seleccione...');
+    const ref = referencias.find(r => r.nombre === $('trasladoProducto').value);
+    $('trasladoUnidad').textContent = ref ? `(${ref.unidad.toLowerCase()})` : '';
+}
+
+async function mostrarSaldoTraslado() {
+    const o = $('trasladoOrigen').value, p = $('trasladoProducto').value;
+    if (!o || !p) { $('trasladoSaldo').textContent = ''; return; }
+    const { data } = await sb.from('inventario').select('saldo').eq('kt', o.trim().toUpperCase()).eq('kp', p.trim().toUpperCase());
+    $('trasladoSaldo').textContent = `Disponible en ${o}: ${data?.length ? fmt(data[0].saldo) : 'sin inventario cargado'}`;
+    $('trasladoSaldo').dataset.saldo = data?.length ? data[0].saldo : 0;
+}
+
+function renderTraslados() {
+    const usuario = id => nombreUsuario(id) || '';
+    const fechaHora = f => f ? new Date(f).toLocaleString('es-GT', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    const insignia = { ENVIADO: 'text-bg-warning', RECIBIDO: 'text-bg-success', ANULADO: 'text-bg-secondary' };
+    const nombreEstado = { ENVIADO: 'En tránsito', RECIBIDO: 'Recibido', ANULADO: 'Anulado' };
+    const botones = t => (puedeRecibir(t) ? `<button type="button" class="btn btn-gold btn-sm" data-accion="recibir" data-id="${t.id}"><i class="bi bi-box-arrow-in-down"></i> Recibir</button> ` : '')
+        + (puedeAnular(t) ? `<button type="button" class="btn btn-outline-danger btn-sm" data-accion="anular" data-id="${t.id}">${t.destino === perfil?.tienda && !esAdmin() ? 'Rechazar' : 'Anular'}</button>` : '');
+
+    const pendientes = trasladosFilas.filter(puedeRecibir);
+    $('porRecibirBody').innerHTML = pendientes.map(t => `<tr><td>${t.id}</td><td>${fmtFecha(t.fecha_envio)}</td><td>${esc(t.origen)}</td><td>${esc(t.destino)}</td>
+        <td>${esc(t.producto)}</td><td class="num fw-semibold">${fmt(t.cantidad)}</td><td>${esc(usuario(t.enviado_por))}</td><td>${esc(t.observaciones)}</td>
+        <td class="text-nowrap">${botones(t)}</td></tr>`).join('')
+        || '<tr><td colspan="9" class="text-muted">No hay traslados pendientes por recibir.</td></tr>';
+
+    const e = $('filterTrasladoEstado').value;
+    $('trasladosBody').innerHTML = trasladosFilas.filter(t => !e || t.estado === e).map(t => `<tr>
+        <td>${t.id}</td><td>${fmtFecha(t.fecha_envio)}<div class="small text-muted">${esc(usuario(t.enviado_por))}</div></td>
+        <td>${esc(t.origen)} → ${esc(t.destino)}</td><td>${esc(t.producto)}</td><td class="num">${fmt(t.cantidad)}</td>
+        <td><span class="badge ${insignia[t.estado]}">${nombreEstado[t.estado]}</span></td>
+        <td class="small">${fechaHora(t.fecha_recepcion)}<div class="text-muted">${esc(usuario(t.recibido_por))}</div></td>
+        <td class="small">${esc([t.observaciones, t.obs_recepcion].filter(Boolean).join(' · '))}</td>
+        <td class="text-nowrap">${puedeRecibir(t) ? '' : botones(t)}</td></tr>`).join('')
+        || '<tr><td colspan="9" class="text-muted">Sin traslados.</td></tr>';
+}
+
+function enviarTraslado(e) {
+    e.preventDefault();
+    const datos = {
+        p_origen: $('trasladoOrigen').value, p_destino: $('trasladoDestino').value, p_producto: $('trasladoProducto').value,
+        p_cantidad: num($('trasladoCantidad').value), p_fecha: $('trasladoFecha').value, p_observaciones: $('trasladoObs').value.trim() || null,
+    };
+    const disponible = num($('trasladoSaldo').dataset.saldo);
+    if (datos.p_cantidad > disponible && !confirm(`${datos.p_origen} tiene ${fmt(disponible)} disponibles de ${datos.p_producto} y va a enviar ${fmt(datos.p_cantidad)}. ¿Enviar de todas formas?`)) return;
+    if (!confirm(`¿Enviar ${fmt(datos.p_cantidad)} de ${datos.p_producto} de ${datos.p_origen} a ${datos.p_destino}?`)) return;
+    run(async () => {
+        const t = unico(ok(await sb.rpc('enviar_traslado', datos)));
+        showAlert(`Traslado #${t.id} enviado: ${fmt(t.cantidad)} de ${t.producto} a ${t.destino}. Queda en tránsito hasta que lo reciban.`, 'success');
+        $('trasladoCantidad').value = ''; $('trasladoObs').value = '';
+        loadTraslados();
+    });
+}
+
+function recibirTraslado(id) {
+    const t = trasladosFilas.find(x => x.id === id);
+    if (!confirm(`¿Confirmar que ${t.destino} recibió ${fmt(t.cantidad)} de ${t.producto} enviados por ${t.origen}?`)) return;
+    const obs = prompt('Observación de la recepción (opcional):', '');
+    if (obs === null) return;
+    run(async () => {
+        ok(await sb.rpc('recibir_traslado', { p_id: id, p_observaciones: obs || null }));
+        showAlert(`Traslado #${id} recibido: ${fmt(t.cantidad)} de ${t.producto} ingresaron a ${t.destino}.`, 'success');
+        loadTraslados();
+    });
+}
+
+function anularTraslado(id) {
+    const t = trasladosFilas.find(x => x.id === id);
+    const motivo = prompt(`Motivo para anular el traslado #${id} (${fmt(t.cantidad)} de ${t.producto}). El inventario vuelve a ${t.origen}:`, '');
+    if (motivo === null) return;
+    run(async () => {
+        ok(await sb.rpc('anular_traslado', { p_id: id, p_motivo: motivo || null }));
+        showAlert(`Traslado #${id} anulado; ${fmt(t.cantidad)} de ${t.producto} regresaron a ${t.origen}.`, 'success');
+        loadTraslados();
+    });
+}
+
+function exportTraslados() {
+    const e = $('filterTrasladoEstado').value;
+    exportarExcel('Traslados', 'Traslados', trasladosFilas.filter(t => !e || t.estado === e).map(t => ({
+        'Traslado': t.id, 'Fecha envío': aFecha(t.fecha_envio), 'Origen': t.origen, 'Destino': t.destino,
+        'Referencia': t.producto, 'Cantidad': num(t.cantidad), 'Estado': t.estado, 'Enviado por': nombreUsuario(t.enviado_por),
+        'Recibido / anulado por': nombreUsuario(t.recibido_por), 'Observaciones': t.observaciones, 'Obs. recepción': t.obs_recepcion,
+    })));
 }

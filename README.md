@@ -33,6 +33,12 @@ y, solo para administradores, Usuarios y Datos.
 - **Cartera**: Saldos por Cliente, Estado de Cuenta (compras, pagos y saldo
   acumulado) y Por Envío.
 - **Histórico**: incluye el código del cliente y se puede filtrar por él.
+- **Inteligencia**: cartera por cobrar, gramos disponibles en todas las bodegas
+  (por tipo y por bodega, más los que están en tránsito) y precio promedio del
+  gramo vendido (general y por tipo, con periodo), con su evolución mensual.
+- **Inventario → Traslados**: la bodega origen envía (sale de su inventario) y la
+  destino recibe (entra al suyo); aviso de traslados por recibir; se pueden
+  anular o rechazar mientras están en tránsito.
 - **Maestros**: tiendas, bodegas, vendedores, métodos de pago, tipos y
   departamentos (agregar, activar/desactivar, eliminar si no están en uso).
 - Todas las listas desplegables de los formularios terminan con **+ Crear
@@ -105,6 +111,7 @@ puede repetir sin dañar datos:
 |---|---|
 | `03_usuarios_y_pedidos.sql` | Usuarios con nombre de usuario (sin correo), administrador inicial `admin` / `admin123`, creación de vendedores y cambio de contraseñas por el admin, búsqueda de pedidos por cliente, código de cliente, número de pedido o envío. |
 | `04_usuario_tienda.sql` | Vincula cada usuario a una tienda o bodega. Las ventas y cargas de inventario de un vendedor vinculado se guardan siempre con su tienda (lo impone la base). |
+| `05_inteligencia_y_traslados.sql` | Traslados entre bodegas (el origen envía, el destino recibe; se puede anular o rechazar en tránsito) e indicadores de Inteligencia Comercial: cartera por cobrar, gramos disponibles por bodega y precio promedio del gramo vendido. |
 
 ## Despliegue en Vercel
 
