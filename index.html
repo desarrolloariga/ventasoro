@@ -44,9 +44,12 @@
                             <div class="col-md-4"><label for="newClientCorreo" class="form-label">Correo</label><input type="email" class="form-control" id="newClientCorreo"></div>
                             <div class="col-md-8"><label for="newClientDireccion" class="form-label">Dirección</label><input type="text" class="form-control" id="newClientDireccion"></div>
                             <div class="col-md-4"><label for="newClientDepto" class="form-label">Departamento</label><select class="form-select" id="newClientDepto" data-crear="departamentos"></select></div>
+                            <div class="col-md-4"><label for="newClientTipo" class="form-label">Tipo de cliente</label><select class="form-select" id="newClientTipo">
+                                <option value="MINORISTA">Minorista</option><option value="MAYORISTA">Mayorista</option></select>
+                                <div class="form-text" id="newClientTipoAyuda"></div></div>
                             <div class="col-md-4"><label for="newClientCodigo" class="form-label">Referencia anterior</label><input type="text" class="form-control" id="newClientCodigo" placeholder="Opcional"></div>
-                            <div class="col-md-8 solo-admin d-none" id="clientResponsableGrupo"><label for="clientResponsable" class="form-label">Usuario responsable</label><select class="form-select" id="clientResponsable"></select>
-                                <div class="form-text">Solo ese usuario (y los administradores) ve al cliente, sus ventas y pagos.</div></div>
+                            <div class="col-md-8 solo-admin d-none" id="clientResponsableGrupo"><label for="clientResponsable" class="form-label">Vendedor dueño del cliente</label><select class="form-select" id="clientResponsable"></select>
+                                <div class="form-text">El cliente toma el consecutivo de ese vendedor, y solo él (y los administradores) lo ve con sus ventas y pagos.</div></div>
                         </div>
                         <!-- Solo al crear: saldo pendiente con el que llega el cliente -->
                         <div id="saldoInicialGrupo" class="border rounded p-3 mt-3 bg-light">
@@ -332,6 +335,8 @@
             <!-- Pestaña: Inteligencia Comercial -->
             <div class="tab-pane fade" id="inteligencia" role="tabpanel">
               <div class="d-flex flex-wrap gap-2 align-items-end mt-3 mb-3">
+                <div><label class="form-label small mb-1" for="intBodega">Bodega</label>
+                  <select class="form-select" id="intBodega"><option value="">Todas las bodegas</option></select></div>
                 <div><label class="form-label small mb-1" for="intPeriodo">Periodo del precio promedio</label>
                   <select class="form-select" id="intPeriodo">
                     <option value="todo">Todo el historial</option>
@@ -354,7 +359,7 @@
                   <div class="kpi-sub" id="kpiCarteraSub"></div>
                 </div></div></div>
                 <div class="col-lg-4"><div class="card kpi h-100"><div class="card-body">
-                  <div class="kpi-titulo"><i class="bi bi-boxes"></i> Gramos disponibles (todas las bodegas)</div>
+                  <div class="kpi-titulo"><i class="bi bi-boxes"></i> Gramos disponibles <span id="kpiGramosAlcance">(todas las bodegas)</span></div>
                   <div class="kpi-valor" id="kpiGramos">—</div>
                   <div class="kpi-sub" id="kpiGramosSub"></div>
                 </div></div></div>
@@ -538,7 +543,8 @@
                 <div class="card mb-3">
                   <div class="card-body">
                     <div class="row g-3 align-items-end">
-                      <div class="col-md-8"><label class="form-label" for="filterClientes">Buscar</label><input type="text" class="form-control" id="filterClientes" placeholder="Código, nombre, DPI, NIT, teléfono o correo..."></div>
+                      <div class="col-md-5"><label class="form-label" for="filterClientes">Buscar</label><input type="text" class="form-control" id="filterClientes" placeholder="Código, nombre, DPI, NIT, teléfono o correo..."></div>
+                      <div class="col-md-3"><label class="form-label" for="filterClientesTipo">Tipo</label><select class="form-select" id="filterClientesTipo"><option value="">Todos</option><option value="MINORISTA">Minoristas</option><option value="MAYORISTA">Mayoristas</option></select></div>
                       <div class="col-md-4 text-md-end">
                         <button type="button" class="btn btn-gold" id="newClientButton"><i class="bi bi-person-plus"></i> Nuevo</button>
                         <button type="button" class="btn btn-outline-secondary" id="exportClientesButton"><i class="bi bi-file-earmark-excel"></i> Excel</button>
@@ -551,7 +557,7 @@
                     <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
                       <table class="table table-hover table-bordered table-sm">
                         <thead class="table-light sticky-top">
-                          <tr><th class="num">Código</th><th>Nombre</th><th>DPI</th><th>NIT</th><th>Teléfonos</th><th>Correo</th><th>Dirección</th><th>Departamento</th><th class="solo-admin d-none">Responsable</th><th></th></tr>
+                          <tr><th class="num">Código</th><th>Nombre</th><th>Tipo</th><th>DPI</th><th>NIT</th><th>Teléfonos</th><th>Correo</th><th>Dirección</th><th>Departamento</th><th class="solo-admin d-none">Vendedor</th><th></th></tr>
                         </thead>
                         <tbody id="clientesTableBody"></tbody>
                       </table>
@@ -878,7 +884,7 @@
                         <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button>
                       </form>
                       <table class="table table-sm table-bordered align-middle">
-                        <thead class="table-light"><tr><th>Nombre</th><th>Tipo</th><th class="text-center">Activa</th><th></th></tr></thead>
+                        <thead class="table-light"><tr><th>Nombre</th><th>Tipo</th><th>Usuarios</th><th class="text-center">Activa</th><th></th></tr></thead>
                         <tbody id="maestro-tiendas"></tbody>
                       </table>
                     </div>

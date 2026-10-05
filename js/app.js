@@ -18,6 +18,16 @@ let usuarioActual;          // id del usuario mostrado (evita recargas repetidas
 let datosIniciados = false;
 
 const esAdmin = () => perfil?.rol === 'admin';
+// Consecutivo interno de los clientes del vendedor (id -> 1, 2, 3...)
+let consecutivos = {};
+const cod = id => (id === null || id === undefined || id === '') ? '' : (esAdmin() ? id : (consecutivos[id] ?? id));
+const coincideCodigo = (id, q) => !!q && (String(id) === q || String(cod(id)) === q);
+async function cargarConsecutivos() {
+    if (esAdmin()) return;
+    const filas = await fetchAll(() => sb.from('clientes').select('id,consecutivo'));
+    consecutivos = Object.fromEntries(filas.filter(c => c.consecutivo != null).map(c => [c.id, c.consecutivo]));
+}
+const recordarConsecutivo = c => { if (c?.consecutivo != null) consecutivos[c.id] = c.consecutivo; };
 // Se entra con un usuario ("maria"); Supabase Auth lo guarda como maria@ariga.local
 const DOMINIO_USUARIOS = 'ariga.local';
 const aEmail = u => { u = u.trim().toLowerCase(); return u.includes('@') ? u : `${u}@${DOMINIO_USUARIOS}`; };
@@ -199,7 +209,7 @@ async function salir() {
 
 function cargarDatosIniciales() {
     run(async () => {
-        await Promise.all([cargarMaestros(), cargarReferencias(), esAdmin() ? cargarPerfiles() : null]);
+        await Promise.all([cargarMaestros(), cargarReferencias(), esAdmin() ? cargarPerfiles() : null, cargarConsecutivos()]);
         $('cargaFecha').value = hoyISO();
         $('fechaPago').value = hoyISO();
         $('recDesde').value = inicioMesISO();
@@ -295,6 +305,7 @@ function registrarEventos() {
     });
     ['intDesde', 'intHasta'].forEach(id => $(id).addEventListener('change', loadInteligencia));
     $('intActualizar').addEventListener('click', loadInteligencia);
+    $('intBodega').addEventListener('change', loadInteligencia);
     $('exportGramosButton').addEventListener('click', exportGramos);
 
     // Búsqueda de pedidos
@@ -386,6 +397,9 @@ function registrarEventos() {
     // Clientes
     $('clientes-tab').addEventListener('shown.bs.tab', loadClientesData);
     $('filterClientes').addEventListener('input', filterClientes);
+    $('filterClientesTipo').addEventListener('input', filterClientes);
+    // Al elegir otro vendedor dueño en un cliente nuevo, cambia el código propuesto
+    $('clientResponsable').addEventListener('change', () => { if (!$('editClientId').value) mostrarProximoCodigo(); });
     $('newClientButton').addEventListener('click', () => abrirModalCliente({}, 'clientes'));
     $('clientesTableBody').addEventListener('click', e => {
         const b = e.target.closest('.edit-client');
@@ -447,6 +461,7 @@ function crearBuscadorCliente(id, alElegir, { alNoEncontrar } = {}) {
         if (!q) return;
         run(async () => {
             resultados = ok(await sb.rpc('buscar_clientes', { p_termino: q }));
+            resultados.forEach(recordarConsecutivo);
             if (resultados.length === 1) { cerrar(); alElegir(resultados[0]); return; }
             if (!resultados.length) {
                 cerrar();
@@ -454,7 +469,7 @@ function crearBuscadorCliente(id, alElegir, { alNoEncontrar } = {}) {
                 return;
             }
             lista.innerHTML = resultados.map((c, i) => `<button type="button" class="list-group-item list-group-item-action" data-i="${i}">
-                <span class="badge text-bg-secondary me-2">${c.id}</span>${esc(c.nombre)}
+                <span class="badge text-bg-secondary me-2">${esAdmin() ? c.id : (c.consecutivo ?? c.id)}</span>${esc(c.nombre)}${c.tipo_cliente === 'MAYORISTA' ? ' <span class="badge text-bg-warning ms-1">Mayorista</span>' : ''}
                 <small class="text-muted ms-1">${esc(c.dpi || c.nit || c.telefono || '')}</small></button>`).join('');
             lista.classList.remove('d-none');
         });
@@ -466,7 +481,7 @@ function crearBuscadorCliente(id, alElegir, { alNoEncontrar } = {}) {
     });
     lista.addEventListener('click', e => {
         const b = e.target.closest('[data-i]');
-        if (b) { cerrar(); alElegir(resultados[Number(b.dataset.i)]); }
+        if (b) { cerrar(); recordarConsecutivo(resultados[Number(b.dataset.i)]); alElegir(resultados[Number(b.dataset.i)]); }
     });
     document.addEventListener('click', e => { if (!lista.contains(e.target) && e.target !== input) cerrar(); });
 }
@@ -478,6 +493,7 @@ const CAMPOS_CLIENTE = {
     newClientFechaNac: 'fecha_nacimiento', newClientDepto: 'departamento',
     newClientTel: 'telefono', newClientTel2: 'telefono2', newClientCorreo: 'correo',
     newClientDireccion: 'direccion', newClientNIT2: 'nit2', newClientCodigo: 'codigo_cliente',
+    newClientTipo: 'tipo_cliente',
 };
 let origenModalCliente = 'venta'; // 'venta' llena el formulario de venta al guardar
 
@@ -487,32 +503,44 @@ function abrirModalCliente(c = {}, origen = 'clientes') {
     $('createClientForm').reset();
     $('editClientId').value = c.id || '';
     $('clientModalTitle').textContent = c.id ? 'Editar Cliente' : 'Crear Nuevo Cliente';
-    $('clientModalId').textContent = c.id ?? 'se asigna automáticamente al guardar';
-    if (!c.id) mostrarProximoCodigo();
+    $('clientModalId').textContent = c.id ? textoCodigo(c) : 'se asigna automáticamente al guardar';
     for (const [id, col] of Object.entries(CAMPOS_CLIENTE)) {
         if (id === 'newClientDepto') setSelectValue(id, c[col]); else $(id).value = c[col] ?? '';
     }
+    // Mayorista: solo el administrador lo asigna
+    if (!c.tipo_cliente) $('newClientTipo').value = 'MINORISTA';
+    $('newClientTipo').disabled = !esAdmin();
+    $('newClientTipoAyuda').textContent = esAdmin() ? '' : 'Solo el administrador crea clientes mayoristas.';
     // Saldo inicial: solo al crear
     $('saldoInicialGrupo').classList.toggle('d-none', !!c.id);
     $('saldoInicialFecha').value = hoyISO();
     aplicarTiendaUsuario();  // el reset del formulario borra la tienda fija
-    // Responsable: solo el administrador, al editar
-    const verResponsable = esAdmin() && !!c.id;
-    $('clientResponsableGrupo').classList.toggle('d-none', !verResponsable);
-    if (verResponsable) {
-        $('clientResponsable').innerHTML = '<option value="">(sin asignar: solo administradores)</option>' +
-            perfiles.map(p => `<option value="${p.id}">${esc(p.nombre || p.email)}${p.activo ? '' : ' (inactivo)'}</option>`).join('');
-        $('clientResponsable').value = c.creado_por ?? '';
+    // Vendedor dueño: el administrador lo elige al crear o al editar
+    $('clientResponsableGrupo').classList.toggle('d-none', !esAdmin());
+    if (esAdmin()) {
+        $('clientResponsable').innerHTML = (c.id ? '<option value="">(sin asignar: solo administradores)</option>' : '') +
+            perfiles.map(p => `<option value="${p.id}">${esc(p.nombre || p.email)}${p.id === perfil.id ? ' (usted)' : ''}${p.rango_desde ? ` · códigos ${p.rango_desde}-${p.rango_hasta}` : ''}${p.activo ? '' : ' (inactivo)'}</option>`).join('');
+        $('clientResponsable').value = c.id ? (c.creado_por ?? '') : perfil.id;
     }
+    if (!c.id) mostrarProximoCodigo();
     createClientModal.show();
+}
+
+// "1003 · consecutivo 3 de Pablo" (admin) o "3" (vendedor)
+function textoCodigo(c) {
+    if (!esAdmin()) return String(c.consecutivo ?? c.id);
+    const dueno = nombreUsuario(c.creado_por);
+    return `${c.id}` + (c.consecutivo != null ? ` · consecutivo ${c.consecutivo}${dueno ? ` de ${dueno}` : ''}` : '');
 }
 
 // Código que tendrá el cliente nuevo según el rango del usuario
 async function mostrarProximoCodigo() {
-    const { data, error } = await sb.rpc('proximo_codigo_cliente');
+    const dueno = esAdmin() ? ($('clientResponsable').value || perfil.id) : null;
+    const { data, error } = await sb.rpc('proximo_codigo_cliente', { p_dueno: dueno });
     if (error || $('editClientId').value) return;   // base sin actualizar o se abrió otra ficha
-    $('clientModalId').textContent = data === null ? 'su rango de códigos está lleno: pida al administrador que lo amplíe'
-        : `${data} (se confirma al guardar)`;
+    const s = unico(data);
+    $('clientModalId').textContent = !s || s.codigo === null ? 'el rango de códigos de ese vendedor está lleno: amplíelo en Usuarios'
+        : `${textoCodigo({ id: s.codigo, consecutivo: s.consecutivo, creado_por: dueno })} (se confirma al guardar)`;
 }
 
 function saveNewClient() {
@@ -524,8 +552,9 @@ function saveNewClient() {
     const saldo = num($('saldoInicialValor').value);
     run(async () => {
         let c;
+        if (esAdmin()) d.creado_por = $('clientResponsable').value || null;
+        else delete d.tipo_cliente;   // la base no deja a un vendedor crear mayoristas
         if (id) {
-            if (esAdmin()) d.creado_por = $('clientResponsable').value || null;
             c = ok(await sb.from('clientes').update(d).eq('id', id).select().single());
         } else {
             c = unico(ok(await sb.rpc('crear_cliente', {
@@ -537,6 +566,7 @@ function saveNewClient() {
             })));
         }
         createClientModal.hide();
+        recordarConsecutivo(c);
         if (origenModalCliente === 'venta') {
             ponerClienteEnVenta(c);
         } else {
@@ -544,13 +574,15 @@ function saveNewClient() {
             if (i >= 0) fullClientesData[i] = c; else fullClientesData.unshift(c);
             filterClientes();
         }
-        showAlert(id ? `Cliente ${c.id} actualizado con éxito`
-            : `Cliente creado. Código cliente: ${c.id}` + (saldo > 0 ? ` · Saldo inicial ${fmtQ(saldo)} registrado` : ''), 'success');
+        showAlert(id ? `Cliente ${cod(c.id)} actualizado con éxito`
+            : `Cliente creado. Código cliente: ${textoCodigo(c)}` + (saldo > 0 ? ` · Saldo inicial ${fmtQ(saldo)} registrado` : ''), 'success');
     });
 }
 
 function ponerClienteEnVenta(c) {
-    $('clientId').value = c.id ?? '';
+    recordarConsecutivo(c);
+    $('clientId').dataset.real = c.id ?? '';
+    $('clientId').value = cod(c.id);
     $('clientDPI').value = c.dpi || c.nit || c.nombre;
     $('clientName').value = c.nombre;
     $('clientNIT').value = c.nit || '';
@@ -599,7 +631,7 @@ function handleFormSubmit(e) {
         vendedor: $('vendedorSelect').value,
         clienteNombre: $('clientName').value,
         clienteDPI: $('clientDPI').value,
-        clienteId: $('clientId').value,
+        clienteId: $('clientId').dataset.real || '',
         pedidoId: $('pedidoId').value,
     };
     const productLines = [...document.querySelectorAll('#productLines tr')].map(r => ({
@@ -659,7 +691,7 @@ function buscarPedidos() {
         $('pedidosTabla').classList.toggle('d-none', !d.length);
         $('pedidosTableBody').innerHTML = d.map(p => `<tr>
             <td class="fw-semibold">${fmtFecha(p.fecha_venta)}</td><td>${esc(p.pedido_id)}</td><td>${esc(p.envio)}</td>
-            <td class="num">${esc(p.cliente_id)}</td><td>${esc(p.cliente)}</td><td>${esc(p.tienda)}</td><td>${esc(p.vendedor)}</td>
+            <td class="num">${esc(cod(p.cliente_id))}</td><td>${esc(p.cliente)}</td><td>${esc(p.tienda)}</td><td>${esc(p.vendedor)}</td>
             <td class="num">${fmtQ(p.total)}</td>
             <td><button type="button" class="btn btn-gold btn-sm abrir-pedido" data-clave="${esc(p.clave)}">Abrir</button></td></tr>`).join('');
         $('pedidosInfo').textContent = d.length ? `${d.length} pedido(s)${d.length === 100 ? ' (se muestran los 100 más recientes)' : ''}` : 'No se encontraron pedidos.';
@@ -671,7 +703,8 @@ function abrirPedido(clave) {
         const rows = await lineasPedido(clave);
         if (!rows.length) { showAlert('No se encontró el pedido', 'warning'); return; }
         const h = rows[0];
-        $('clientId').value = h.cliente_id ?? '';
+        $('clientId').dataset.real = h.cliente_id ?? '';
+        $('clientId').value = cod(h.cliente_id);
         $('clientDPI').value = h.documento_cliente || '';
         $('clientName').value = h.cliente || '';
         $('clientNIT').value = '';
@@ -722,6 +755,7 @@ function mostrarTiendaUsuario() {
 
 function resetForm() {
     $('saleForm').reset();
+    delete $('clientId').dataset.real;
     $('pedidoId').value = '';
     $('envioOriginal').value = '';
     $('clientId').value = '';
@@ -755,7 +789,7 @@ function seleccionarClientePago(c) {
         ]);
         clientePago = c;
         saldoClientePago = num(resumen?.saldo);
-        $('pagoInfoCodigo').textContent = c.id;
+        $('pagoInfoCodigo').textContent = cod(c.id);
         $('pagoInfoNombre').textContent = c.nombre;
         $('pagoInfoDoc').textContent = [c.dpi && `DPI ${c.dpi}`, c.nit && `NIT ${c.nit}`, c.telefono && `Tel. ${c.telefono}`].filter(Boolean).join(' · ');
         $('pagoInfoVentas').textContent = fmt(resumen?.total_ventas);
@@ -836,7 +870,7 @@ function loadRecibidos() {
 function recibidosFiltrados() {
     const m = $('recMetodo').value, u = $('recUsuario').value, c = norm($('recCliente').value);
     return recibidosFilas.filter(r => (!m || r.metodo_pago === m) && (!u || r.registrado_por === u)
-        && (!c || String(r.cliente_id) === c || norm(r.cliente).includes(c)));
+        && (!c || coincideCodigo(r.cliente_id, c) || norm(r.cliente).includes(c)));
 }
 
 function renderRecibidos() {
@@ -852,7 +886,7 @@ function renderRecibidos() {
     $('recPorMetodo').innerHTML = agrupar('metodo_pago');
     $('recPorUsuario').innerHTML = agrupar('registrado_por');
     $('recibidosTableBody').innerHTML = d.slice(0, 1000).map(r => `<tr>
-        <td>${fmtFecha(r.fecha_pago)}</td><td class="num">${esc(r.cliente_id)}</td><td>${esc(r.cliente)}</td><td>${esc(r.metodo_pago)}</td>
+        <td>${fmtFecha(r.fecha_pago)}</td><td class="num">${esc(cod(r.cliente_id))}</td><td>${esc(r.cliente)}</td><td>${esc(r.metodo_pago)}</td>
         <td class="num">${fmtQ(r.valor_pagado)}</td><td>${esc(r.boleta)}</td><td>${esc(r.envio)}</td><td>${esc(r.registrado_por)}</td>
         <td>${!r.cliente_id && esAdmin() ? `<button type="button" class="btn btn-outline-secondary btn-sm asignar-pago" data-id="${r.id}">Asignar cliente</button>` : ''}</td></tr>`).join('');
     $('recTotal').textContent = fmtQ(total);
@@ -861,7 +895,7 @@ function renderRecibidos() {
 
 function exportRecibidos() {
     exportarExcel('Pagos_recibidos', 'Pagos recibidos', recibidosFiltrados().map(r => ({
-        'Fecha pago': aFecha(r.fecha_pago), 'Código cliente': r.cliente_id, 'Cliente': r.cliente,
+        'Fecha pago': aFecha(r.fecha_pago), 'Código cliente': cod(r.cliente_id), 'Cliente': r.cliente,
         'Método de pago': r.metodo_pago, 'Valor': num(r.valor_pagado), 'Boleta': r.boleta, 'Envío': r.envio,
         'Registrado por': r.registrado_por, 'Observaciones': r.observaciones,
     })));
@@ -899,14 +933,14 @@ function loadHistoryData() {
 }
 
 function renderHistoryTable(d) {
-    $('historicoTableBody').innerHTML = d.slice(0, 2000).map(r => `<tr><td>${fmtFecha(r.fecha_venta)}</td><td>${esc(r.pedido_id)}</td><td>${esc(r.tienda)}</td><td>${esc(r.vendedor)}</td><td class="num">${esc(r.cliente_id)}</td><td>${esc(r.cliente)}</td><td>${esc(r.tipo)}</td><td>${esc(r.producto)}</td><td class="num">${esc(r.cantidad)}</td><td class="num">${fmtQ(r.valor_unitario)}</td><td class="num">${fmtQ(r.valor_total)}</td></tr>`).join('');
+    $('historicoTableBody').innerHTML = d.slice(0, 2000).map(r => `<tr><td>${fmtFecha(r.fecha_venta)}</td><td>${esc(r.pedido_id)}</td><td>${esc(r.tienda)}</td><td>${esc(r.vendedor)}</td><td class="num">${esc(cod(r.cliente_id))}</td><td>${esc(r.cliente)}</td><td>${esc(r.tipo)}</td><td>${esc(r.producto)}</td><td class="num">${esc(r.cantidad)}</td><td class="num">${fmtQ(r.valor_unitario)}</td><td class="num">${fmtQ(r.valor_total)}</td></tr>`).join('');
     $('rowCount').textContent = d.length + (d.length > 2000 ? ' (se muestran 2000; el Excel incluye todos)' : '');
 }
 
 function historicoFiltrado() {
     const c = norm($('filterCliente').value), t = $('filterTienda').value, tp = $('filterTipo').value, p = $('filterProducto').value;
     return fullHistoryData.filter(r =>
-        (!c || String(r.cliente_id) === c || norm(r.cliente).includes(c)) &&
+        (!c || coincideCodigo(r.cliente_id, c) || norm(r.cliente).includes(c)) &&
         (!t || r.tienda === t) && (!tp || r.tipo === tp) && (!p || r.producto === p));
 }
 const filterHistory = () => renderHistoryTable(historicoFiltrado());
@@ -914,7 +948,7 @@ const filterHistory = () => renderHistoryTable(historicoFiltrado());
 function exportHistorico() {
     exportarExcel('Historico_ventas', 'Histórico', historicoFiltrado().map(r => ({
         'Fecha': aFecha(r.fecha_venta), 'Pedido': r.pedido_id, 'Tienda': r.tienda, 'Vendedor': r.vendedor,
-        'Código cliente': r.cliente_id, 'Cliente': r.cliente, 'Tipo': r.tipo, 'Producto': r.producto,
+        'Código cliente': cod(r.cliente_id), 'Cliente': r.cliente, 'Tipo': r.tipo, 'Producto': r.producto,
         'Cantidad': r.cantidad, 'Valor unitario': r.valor_unitario, 'Valor total': r.valor_total,
     })));
 }
@@ -930,13 +964,13 @@ function loadSaldos() {
 function saldosFiltrados() {
     const q = norm($('filterSaldos').value), deudores = $('saldosSoloDeudores').checked;
     return fullSaldosData.filter(r => (!deudores || num(r.saldo) > 0.005) &&
-        (!q || String(r.codigo) === q || [r.nombre, r.dpi, r.nit].some(v => norm(v).includes(q))));
+        (!q || coincideCodigo(r.codigo, q) || [r.nombre, r.dpi, r.nit].some(v => norm(v).includes(q))));
 }
 
 function filterSaldos() {
     const d = saldosFiltrados();
     $('saldosTableBody').innerHTML = d.map(r => `<tr data-codigo="${r.codigo}" style="cursor:pointer">
-        <td class="num fw-semibold">${r.codigo}</td><td>${esc(r.nombre)}</td><td>${esc(r.dpi || r.nit)}</td><td>${esc(r.telefono)}</td>
+        <td class="num fw-semibold">${cod(r.codigo)}</td><td>${esc(r.nombre)}</td><td>${esc(r.dpi || r.nit)}</td><td>${esc(r.telefono)}</td>
         <td class="num">${fmtQ(r.total_ventas)}</td><td class="num">${fmtQ(r.total_pagos)}</td>
         <td class="num fw-semibold ${num(r.saldo) < 0 ? 'saldo-negativo' : ''}">${fmtQ(r.saldo)}</td>
         <td>${fmtFecha(r.ultima_venta)}</td><td>${fmtFecha(r.ultimo_pago)}</td></tr>`).join('');
@@ -949,7 +983,7 @@ function filterSaldos() {
 
 function exportSaldos() {
     exportarExcel('Saldos_clientes', 'Saldos por cliente', saldosFiltrados().map(r => ({
-        'Código cliente': r.codigo, 'Cliente': r.nombre, 'DPI': r.dpi, 'NIT': r.nit, 'Teléfono': r.telefono,
+        'Código cliente': cod(r.codigo), 'Cliente': r.nombre, 'DPI': r.dpi, 'NIT': r.nit, 'Teléfono': r.telefono,
         'Compras': num(r.total_ventas), 'Pagos': num(r.total_pagos), 'Saldo': num(r.saldo),
         'Última venta': aFecha(r.ultima_venta), 'Último pago': aFecha(r.ultimo_pago),
     })));
@@ -974,7 +1008,8 @@ function cargarEstadoCuenta(codigo) {
         clienteEstado = c;
         let saldo = 0;
         estadoCuentaFilas = movs.map(m => ({ ...m, saldo: saldo += num(m.cargo) - num(m.abono) }));
-        $('ecCodigo').textContent = c.id;
+        recordarConsecutivo(c);
+        $('ecCodigo').textContent = cod(c.id);
         $('ecNombre').textContent = c.nombre;
         $('ecSaldo').textContent = fmt(saldo);
         $('ecCliente').value = `${c.id} · ${c.nombre}`;
@@ -990,7 +1025,7 @@ function cargarEstadoCuenta(codigo) {
 function exportEstadoCuenta() {
     if (!clienteEstado) { showAlert('Busque primero un cliente', 'warning'); return; }
     exportarExcel(`Estado_cuenta_${clienteEstado.id}`, 'Estado de cuenta', estadoCuentaFilas.map(m => ({
-        'Código cliente': clienteEstado.id, 'Cliente': clienteEstado.nombre, 'Fecha': aFecha(m.fecha),
+        'Código cliente': cod(clienteEstado.id), 'Cliente': clienteEstado.nombre, 'Fecha': aFecha(m.fecha),
         'Movimiento': m.movimiento, 'Detalle': m.detalle, 'Método de pago': m.metodo_pago,
         'Cargo': num(m.cargo), 'Abono': num(m.abono), 'Saldo': m.saldo,
     })));
@@ -1278,30 +1313,35 @@ function loadClientesData() {
             esAdmin() ? cargarPerfiles() : null,
         ]);
         fullClientesData = d;
+        d.forEach(recordarConsecutivo);
         filterClientes();
     });
 }
 
 function clientesFiltrados() {
-    const q = norm($('filterClientes').value);
-    return fullClientesData.filter(c =>
-        !q || String(c.id) === q || [c.nombre, c.dpi, c.nit, c.telefono, c.telefono2, c.correo].some(v => norm(v).includes(q)));
+    const q = norm($('filterClientes').value), tipo = $('filterClientesTipo').value;
+    return fullClientesData.filter(c => (!tipo || c.tipo_cliente === tipo) &&
+        (!q || coincideCodigo(c.id, q) || [c.nombre, c.dpi, c.nit, c.telefono, c.telefono2, c.correo].some(v => norm(v).includes(q))));
 }
 
 function filterClientes() {
     const d = clientesFiltrados();
     const admin = esAdmin();
     $('clientesTableBody').innerHTML = d.slice(0, 1500).map(c => `<tr>
-        <td class="num fw-semibold">${c.id}</td><td>${esc(c.nombre)}</td><td>${esc(c.dpi)}</td><td>${esc(c.nit)}</td>
+        <td class="num fw-semibold">${esc(cod(c.id))}</td><td>${esc(c.nombre)}</td>
+        <td>${c.tipo_cliente === 'MAYORISTA' ? '<span class="badge text-bg-warning">Mayorista</span>' : '<span class="badge text-bg-light">Minorista</span>'}</td>
+        <td>${esc(c.dpi)}</td><td>${esc(c.nit)}</td>
         <td>${esc([c.telefono, c.telefono2].filter(Boolean).join(' / '))}</td><td>${esc(c.correo)}</td><td>${esc(c.direccion)}</td>
-        <td>${esc(c.departamento)}</td>${admin ? `<td>${esc(nombreUsuario(c.creado_por)) || '<span class="text-muted">—</span>'}</td>` : ''}
+        <td>${esc(c.departamento)}</td>${admin ? `<td>${c.creado_por ? `${esc(nombreUsuario(c.creado_por))} <span class="text-muted">#${c.consecutivo ?? ''}</span>` : '<span class="text-muted">—</span>'}</td>` : ''}
         <td><button type="button" class="btn btn-outline-secondary btn-sm edit-client" data-id="${c.id}" title="Editar"><i class="bi bi-pencil"></i></button></td></tr>`).join('');
     $('clientesRowCount').textContent = d.length + (d.length > 1500 ? ' (se muestran 1500; use el buscador)' : '');
 }
 
 function exportClientes() {
     exportarExcel('Clientes', 'Clientes', clientesFiltrados().map(c => ({
-        'Código cliente': c.id, 'Nombre y apellido': c.nombre, 'DPI': c.dpi, 'NIT': c.nit, 'NIT2': c.nit2,
+        'Código cliente': cod(c.id), ...(esAdmin() ? { 'Consecutivo del vendedor': c.consecutivo } : {}),
+        'Tipo': c.tipo_cliente === 'MAYORISTA' ? 'Mayorista' : 'Minorista',
+        'Nombre y apellido': c.nombre, 'DPI': c.dpi, 'NIT': c.nit, 'NIT2': c.nit2,
         'Teléfono': c.telefono, 'Otro teléfono': c.telefono2, 'Correo': c.correo, 'Dirección': c.direccion,
         'Departamento': c.departamento, 'Fecha de nacimiento': aFecha(c.fecha_nacimiento),
         'Referencia anterior': c.codigo_cliente, ...(esAdmin() ? { 'Responsable': nombreUsuario(c.creado_por) } : {}),
@@ -1317,6 +1357,12 @@ function loadUsuarios() {
             sb.rpc('uso_rangos_clientes').then(({ data }) => data || []),
         ]);
         const usoRango = Object.fromEntries(uso.map(u => [u.perfil_id, u]));
+        // Propone el siguiente bloque libre de 1,000 códigos: 1001-2000, 2001-3000...
+        if (!$('usrRangoDesde').value && !$('usrRangoHasta').value) {
+            const ultimo = Math.max(1000, ...perfiles.map(p => p.rango_hasta || 0));
+            const desde = Math.ceil(ultimo / 1000) * 1000 + 1;
+            $('usrRangoDesde').value = desde; $('usrRangoHasta').value = desde + 999;
+        }
         const porUsuario = {};
         clientes.forEach(c => { if (c.creado_por) porUsuario[c.creado_por] = (porUsuario[c.creado_por] || 0) + 1; });
         $('usuariosTableBody').innerHTML = perfiles.map(p => {
@@ -1489,6 +1535,7 @@ const MAESTROS = {
     departamentos: { grupo: 'departamentos', nuevo: 'Nuevo departamento' },
 };
 const maestros = { tiendas: [], vendedores: [], metodos_pago: [], tipos: [], departamentos: [] };
+let usuariosPorTienda = {};
 
 // Vuelve a llenar un select conservando lo que estaba elegido
 function repoblar(id, opts, placeholder) {
@@ -1505,6 +1552,10 @@ async function cargarMaestros() {
             if (error) { console.warn(t, error.message); faltantes.push(t); return []; }
             return data;
         })));
+    // Usuarios vinculados a cada bodega (una bodega puede tener varios)
+    const { data: usuarios } = await sb.from('perfiles').select('nombre,usuario,tienda,activo');
+    usuariosPorTienda = {};
+    (usuarios || []).filter(u => u.tienda && u.activo).forEach(u => (usuariosPorTienda[u.tienda] ??= []).push(u.nombre || u.usuario));
     if (faltantes.length) showAlert(`La base de datos no está actualizada (${faltantes.join(', ')}). Ejecute supabase/01_esquema.sql en el SQL Editor de Supabase.`, 'warning');
     Object.assign(maestros, { tiendas, vendedores, metodos_pago, tipos, departamentos });
     const todos = l => l.map(x => x.nombre);
@@ -1529,7 +1580,8 @@ async function cargarMaestros() {
         $(`maestro-${m}`).innerHTML = maestros[m].map(x => `<tr class="${x.activo === false ? 'text-muted' : ''}">
             <td>${esc(x.nombre)}</td>
             ${m === 'tiendas' ? `<td><select class="form-select form-select-sm maestro-clase" data-nombre="${esc(x.nombre)}" aria-label="Tipo">
-                ${['TIENDA', 'BODEGA'].map(c => `<option value="${c}" ${x.clase === c ? 'selected' : ''}>${c === 'TIENDA' ? 'Tienda' : 'Bodega'}</option>`).join('')}</select></td>` : ''}
+                ${['TIENDA', 'BODEGA'].map(c => `<option value="${c}" ${x.clase === c ? 'selected' : ''}>${c === 'TIENDA' ? 'Tienda' : 'Bodega'}</option>`).join('')}</select></td>
+                <td class="small">${esc(usuariosPorTienda[x.nombre]?.join(', ') || '—')}</td>` : ''}
             <td class="text-center"><div class="form-check form-switch d-inline-block m-0"><input class="form-check-input maestro-activo" type="checkbox" role="switch" data-maestro="${m}" data-nombre="${esc(x.nombre)}" ${x.activo === false ? '' : 'checked'} aria-label="Activo"></div></td>
             <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm maestro-delete" data-maestro="${m}" data-nombre="${esc(x.nombre)}" title="Eliminar"><i class="bi bi-trash"></i></button></td>
         </tr>`).join('');
@@ -1656,18 +1708,27 @@ function rangoPeriodo() {
     }
 }
 
+let bodegaInteligenciaLista = false;
 function loadInteligencia() {
     run(async () => {
         const [desde, hasta] = rangoPeriodo();
-        indicadores = ok(await sb.rpc('indicadores_comerciales', { p_desde: desde, p_hasta: hasta }));
+        if (!bodegaInteligenciaLista) {   // la primera vez, el vendedor ve su bodega
+            bodegaInteligenciaLista = true;
+            repoblar('intBodega', maestros.tiendas.map(t => t.nombre), 'Todas las bodegas');
+            if (!esAdmin() && perfil?.tienda) setSelectValue('intBodega', perfil.tienda);
+        }
+        indicadores = ok(await sb.rpc('indicadores_comerciales', { p_desde: desde, p_hasta: hasta, p_tienda: $('intBodega').value || null }));
         renderInteligencia();
     });
 }
 
 function renderInteligencia() {
     const d = indicadores;
-    $('intAlcance').textContent = esAdmin() ? 'Cartera y ventas de todos los clientes · inventario de todas las bodegas'
-        : 'Cartera y ventas de sus clientes · inventario de todas las bodegas';
+    const bodega = $('intBodega').value;
+    $('kpiGramosAlcance').textContent = bodega ? `(${bodega})` : '(todas las bodegas)';
+    $('intAlcance').textContent = (esAdmin() ? 'Clientes de todos los vendedores' : 'Sus clientes')
+        + (bodega ? ` · cartera de clientes cuya última compra fue en ${bodega}` : ' · todas las bodegas')
+        + (bodega && d.usuarios_bodega?.length ? ` · usuarios: ${d.usuarios_bodega.join(', ')}` : '');
     const fila = (a, b) => `<div class="fila"><span>${a}</span><b>${b}</b></div>`;
 
     // 1. Cartera por cobrar

@@ -106,6 +106,9 @@ Usuarios: tabla `perfiles`. Pagos recibidos: vista `pagos_detalle`.
 `01_esquema.sql` es la base inicial. Cada cambio posterior va en **un script
 propio y numerado**, que se ejecuta una vez en el SQL Editor, en orden, y se
 puede repetir sin dañar datos:
+(si se vuelve a ejecutar uno anterior, hay que volver a ejecutar también los
+siguientes, porque algunos reemplazan funciones de los anteriores)
+
 
 | Script | Qué hace |
 |---|---|
@@ -113,6 +116,7 @@ puede repetir sin dañar datos:
 | `04_usuario_tienda.sql` | Vincula cada usuario a una tienda o bodega. Las ventas y cargas de inventario de un vendedor vinculado se guardan siempre con su tienda (lo impone la base). |
 | `05_inteligencia_y_traslados.sql` | Traslados entre bodegas (el origen envía, el destino recibe; se puede anular o rechazar en tránsito) e indicadores de Inteligencia Comercial: cartera por cobrar, gramos disponibles por bodega y precio promedio del gramo vendido. |
 | `06_rangos_codigo_cliente.sql` | Rango de códigos de cliente por usuario (ej. Pablo 1-5000, Carlos 5001-10000): cada uno numera a sus clientes en orden dentro de su rango; sin rango se usa la numeración general, que salta los rangos asignados. |
+| `07_consecutivo_tipo_cliente_bodega.sql` | Consecutivo interno de clientes por vendedor (1, 2, 3…; con rango 1001-2000 el código general es 1001, 1002…), el admin crea clientes para un vendedor con el consecutivo de ese vendedor, tipo de cliente minorista/mayorista (solo el admin crea mayoristas) e Inteligencia Comercial filtrable por bodega. |
 
 ## Despliegue en Vercel
 
