@@ -929,6 +929,10 @@
                       <div class="mb-2"><label for="usrPassword" class="form-label">Contraseña</label><input type="password" class="form-control" id="usrPassword" minlength="6" required autocomplete="new-password"></div>
                       <div class="mb-3"><label for="usrTienda" class="form-label">Tienda / Bodega</label><select class="form-select" id="usrTienda" data-crear="tiendas"></select>
                         <div class="form-text">Sus ventas y cargas de inventario quedan siempre en esta tienda.</div></div>
+                      <div class="mb-3"><label class="form-label" for="usrRangoDesde">Códigos de cliente (opcional)</label>
+                        <div class="input-group"><span class="input-group-text">Del</span><input type="number" class="form-control" id="usrRangoDesde" min="1" step="1">
+                          <span class="input-group-text">al</span><input type="number" class="form-control" id="usrRangoHasta" min="1" step="1"></div>
+                        <div class="form-text">Sus clientes se numeran en orden dentro de este rango. Vacío = numeración general.</div></div>
                       <button type="submit" class="btn btn-gold w-100">Crear vendedor</button>
                       <div class="form-text mt-2">Cada vendedor solo ve los clientes que él crea, con sus ventas y pagos.</div>
                     </div>
@@ -939,7 +943,7 @@
                     <div class="card-header card-header-custom">Usuarios de ARIGA</div>
                     <div class="card-body">
                       <table class="table table-sm table-bordered align-middle">
-                        <thead class="table-light"><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Tienda / Bodega</th><th class="text-center">Activo</th><th class="num">Clientes</th><th></th></tr></thead>
+                        <thead class="table-light"><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Tienda / Bodega</th><th>Códigos de cliente</th><th class="text-center">Activo</th><th class="num">Clientes</th><th></th></tr></thead>
                         <tbody id="usuariosTableBody"></tbody>
                       </table>
                       <div class="form-text">Un usuario inactivo no puede entrar. Sus clientes siguen visibles para los administradores, que pueden reasignarlos desde la ficha del cliente.</div>

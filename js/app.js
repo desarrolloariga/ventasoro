@@ -382,6 +382,7 @@ function registrarEventos() {
     $('usuariosTableBody').addEventListener('change', e => {
         if (e.target.matches('.usr-activo')) actualizarUsuario(e.target, { activo: e.target.checked });
         if (e.target.matches('.usr-tienda')) actualizarUsuario(e.target, { tienda: e.target.value || null });
+        if (e.target.matches('.usr-rango')) guardarRangoUsuario(e.target.closest('tr'));
     });
     $('usuariosTableBody').addEventListener('click', e => {
         const b = e.target.closest('.usr-password');
@@ -455,6 +456,7 @@ function abrirModalCliente(c = {}, origen = 'clientes') {
     $('editClientId').value = c.id || '';
     $('clientModalTitle').textContent = c.id ? 'Editar Cliente' : 'Crear Nuevo Cliente';
     $('clientModalId').textContent = c.id ?? 'se asigna automáticamente al guardar';
+    if (!c.id) mostrarProximoCodigo();
     for (const [id, col] of Object.entries(CAMPOS_CLIENTE)) {
         if (id === 'newClientDepto') setSelectValue(id, c[col]); else $(id).value = c[col] ?? '';
     }
@@ -471,6 +473,14 @@ function abrirModalCliente(c = {}, origen = 'clientes') {
         $('clientResponsable').value = c.creado_por ?? '';
     }
     createClientModal.show();
+}
+
+// Código que tendrá el cliente nuevo según el rango del usuario
+async function mostrarProximoCodigo() {
+    const { data, error } = await sb.rpc('proximo_codigo_cliente');
+    if (error || $('editClientId').value) return;   // base sin actualizar o se abrió otra ficha
+    $('clientModalId').textContent = data === null ? 'su rango de códigos está lleno: pida al administrador que lo amplíe'
+        : `${data} (se confirma al guardar)`;
 }
 
 function saveNewClient() {
@@ -1269,15 +1279,18 @@ function exportClientes() {
 // ---------------------------------------------------------------- usuarios (administradores)
 function loadUsuarios() {
     run(async () => {
-        const [, clientes] = await Promise.all([
+        const [, clientes, uso] = await Promise.all([
             cargarPerfiles(),
             fetchAll(() => sb.from('clientes').select('creado_por')),
+            sb.rpc('uso_rangos_clientes').then(({ data }) => data || []),
         ]);
+        const usoRango = Object.fromEntries(uso.map(u => [u.perfil_id, u]));
         const porUsuario = {};
         clientes.forEach(c => { if (c.creado_por) porUsuario[c.creado_por] = (porUsuario[c.creado_por] || 0) + 1; });
         $('usuariosTableBody').innerHTML = perfiles.map(p => {
             const yo = p.id === perfil.id;
-            return `<tr class="${p.activo ? '' : 'text-muted'}">
+            const u = usoRango[p.id];
+            return `<tr class="${p.activo ? '' : 'text-muted'}" data-id="${p.id}">
                 <td>${esc(p.nombre)}${yo ? ' <span class="badge text-bg-light">usted</span>' : ''}</td>
                 <td class="fw-semibold">${esc(p.usuario || aUsuario(p.email))}</td>
                 <td>${p.rol === 'admin' ? 'Administrador' : 'Vendedor'}</td>
@@ -1285,6 +1298,12 @@ function loadUsuarios() {
                     <option value="">(sin tienda)</option>
                     ${[...new Set([...maestros.tiendas.filter(x => x.activo !== false).map(x => x.nombre), p.tienda].filter(Boolean))]
                         .map(n => `<option value="${esc(n)}" ${n === p.tienda ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></td>
+                <td style="min-width: 210px"><div class="input-group input-group-sm">
+                    <input type="number" class="form-control usr-rango usr-desde" value="${p.rango_desde ?? ''}" min="1" placeholder="desde" aria-label="Desde">
+                    <span class="input-group-text">–</span>
+                    <input type="number" class="form-control usr-rango usr-hasta" value="${p.rango_hasta ?? ''}" min="1" placeholder="hasta" aria-label="Hasta"></div>
+                    <div class="small text-muted">${p.rango_desde == null ? 'Numeración general'
+                        : u ? `${u.usados} usados · ${u.proximo == null ? '<span class="text-danger">rango lleno</span>' : `próximo ${u.proximo}`}` : ''}</div></td>
                 <td class="text-center"><div class="form-check form-switch d-inline-block m-0"><input class="form-check-input usr-activo" type="checkbox" role="switch" data-id="${p.id}" ${p.activo ? 'checked' : ''} ${yo ? 'disabled' : ''} aria-label="Activo"></div></td>
                 <td class="num">${porUsuario[p.id] || 0}</td>
                 <td class="text-end"><button type="button" class="btn btn-outline-secondary btn-sm usr-password" data-id="${p.id}" data-nombre="${esc(p.nombre || p.usuario)}"><i class="bi bi-key"></i> Contraseña</button></td></tr>`;
@@ -1304,16 +1323,38 @@ function actualizarUsuario(el, cambio) {
     });
 }
 
+function guardarRangoUsuario(tr) {
+    const desde = tr.querySelector('.usr-desde').value, hasta = tr.querySelector('.usr-hasta').value;
+    if (!!desde !== !!hasta) return;   // espera a que estén los dos (o ninguno)
+    const cambio = { rango_desde: desde ? Number(desde) : null, rango_hasta: hasta ? Number(hasta) : null };
+    run(async () => {
+        try {
+            ok(await sb.from('perfiles').update(cambio).eq('id', tr.dataset.id));
+        } catch (err) { loadUsuarios(); throw err; }   // vuelve a mostrar el rango que quedó guardado
+        showAlert(desde ? `Rango de códigos ${desde} a ${hasta} asignado` : 'Usuario con numeración general', 'success');
+        loadUsuarios();
+    });
+}
+
 function agregarUsuario(e) {
     e.preventDefault();
     const usuario = $('usrUsuario').value.trim().toLowerCase();
+    if (!!$('usrRangoDesde').value !== !!$('usrRangoHasta').value) {
+        showAlert('Para el rango de códigos indique "del" y "al", o deje ambos vacíos.', 'warning');
+        return;
+    }
     run(async () => {
         const tienda = $('usrTienda').value || null;
         const nuevo = unico(ok(await sb.rpc('admin_crear_usuario', {
             p_usuario: usuario, p_nombre: $('usrNombre').value.trim(),
             p_password: $('usrPassword').value, p_rol: 'vendedor',
         })));
-        if (tienda) ok(await sb.from('perfiles').update({ tienda }).eq('id', nuevo.id));
+        const desde = $('usrRangoDesde').value, hasta = $('usrRangoHasta').value;
+        const extra = { ...(tienda ? { tienda } : {}), ...(desde && hasta ? { rango_desde: Number(desde), rango_hasta: Number(hasta) } : {}) };
+        if (Object.keys(extra).length) {
+            const { error } = await sb.from('perfiles').update(extra).eq('id', nuevo.id);
+            if (error) { loadUsuarios(); throw new Error(`Usuario creado, pero no se pudo guardar su tienda o rango: ${error.message}`); }
+        }
         $('usuarioForm').reset();
         showAlert(`Vendedor creado${tienda ? ` en ${tienda}` : ''}. Entra con el usuario "${usuario}" y la contraseña que le asignó.`, 'success');
         loadUsuarios();
