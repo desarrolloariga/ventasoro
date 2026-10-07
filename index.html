@@ -224,19 +224,19 @@
           </div>
           <nav class="menu nav" role="tablist" id="menuPrincipal" aria-label="Secciones">
               <div class="menu-grupo">
-                <div class="menu-rotulo">OPERACIÓN</div>
+                <button type="button" class="menu-rotulo" aria-expanded="true" data-grupo="OPERACIÓN"><span>OPERACIÓN</span><i class="bi bi-chevron-down"></i></button>
                 <button class="nav-link menu-item active" id="registro-tab" data-bs-toggle="tab" data-bs-target="#registro" type="button" role="tab" data-titulo="Registrar venta" data-migaja="OPERACIÓN" aria-selected="true"><span class="rombo"></span><i class="bi bi-bag"></i><span class="menu-texto">Venta</span></button><button class="nav-link menu-item" id="busqueda-tab" data-bs-toggle="tab" data-bs-target="#busqueda" type="button" role="tab" data-titulo="Buscar pedido" data-migaja="OPERACIÓN"><span class="rombo"></span><i class="bi bi-search"></i><span class="menu-texto">Buscar pedido</span></button><button class="nav-link menu-item" id="pago-tab" data-bs-toggle="tab" data-bs-target="#pago" type="button" role="tab" data-titulo="Pagos" data-migaja="OPERACIÓN"><span class="rombo"></span><i class="bi bi-cash-coin"></i><span class="menu-texto">Pagos</span></button><button class="nav-link menu-item" id="clientes-tab" data-bs-toggle="tab" data-bs-target="#clientes" type="button" role="tab" data-titulo="Clientes" data-migaja="OPERACIÓN"><span class="rombo"></span><i class="bi bi-people"></i><span class="menu-texto">Clientes</span></button>
               </div>
               <div class="menu-grupo">
-                <div class="menu-rotulo">CONSULTAS</div>
+                <button type="button" class="menu-rotulo" aria-expanded="true" data-grupo="CONSULTAS"><span>CONSULTAS</span><i class="bi bi-chevron-down"></i></button>
                 <button class="nav-link menu-item" id="inteligencia-tab" data-bs-toggle="tab" data-bs-target="#inteligencia" type="button" role="tab" data-titulo="Inteligencia comercial" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-graph-up"></i><span class="menu-texto">Inteligencia</span></button><button class="nav-link menu-item" id="historico-tab" data-bs-toggle="tab" data-bs-target="#historico" type="button" role="tab" data-titulo="Histórico de ventas" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-clock-history"></i><span class="menu-texto">Histórico</span></button><button class="nav-link menu-item" id="cartera-tab" data-bs-toggle="tab" data-bs-target="#cartera" type="button" role="tab" data-titulo="Cartera" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-wallet2"></i><span class="menu-texto">Cartera</span></button>
               </div>
               <div class="menu-grupo">
-                <div class="menu-rotulo">INVENTARIO</div>
+                <button type="button" class="menu-rotulo" aria-expanded="true" data-grupo="INVENTARIO"><span>INVENTARIO</span><i class="bi bi-chevron-down"></i></button>
                 <button class="nav-link menu-item" id="inventario-tab" data-bs-toggle="tab" data-bs-target="#inventario" type="button" role="tab" data-titulo="Inventario" data-migaja="INVENTARIO"><span class="rombo"></span><i class="bi bi-box-seam"></i><span class="menu-texto">Inventario</span><span class="menu-insignia d-none" id="badgeTrasladosMenu"></span></button>
               </div>
               <div class="menu-grupo">
-                <div class="menu-rotulo">ADMINISTRACIÓN</div>
+                <button type="button" class="menu-rotulo" aria-expanded="true" data-grupo="ADMINISTRACIÓN"><span>ADMINISTRACIÓN</span><i class="bi bi-chevron-down"></i></button>
                 <button class="nav-link menu-item" id="maestros-tab" data-bs-toggle="tab" data-bs-target="#maestros" type="button" role="tab" data-titulo="Maestros" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-sliders"></i><span class="menu-texto">Maestros</span></button><button class="nav-link menu-item solo-admin d-none" id="usuarios-tab" data-bs-toggle="tab" data-bs-target="#usuarios" type="button" role="tab" data-titulo="Usuarios" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-person-gear"></i><span class="menu-texto">Usuarios</span></button><button class="nav-link menu-item solo-admin d-none" id="datos-tab" data-bs-toggle="tab" data-bs-target="#datos" type="button" role="tab" data-titulo="Datos en bruto" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-database"></i><span class="menu-texto">Datos</span></button>
               </div>
           </nav>
@@ -746,6 +746,34 @@
                         </div>
                       </div>
                     </form>
+                    <div class="card mb-3">
+                      <div class="card-header card-header-custom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <span><i class="bi bi-file-earmark-spreadsheet me-2"></i> Carga masiva desde Excel</span>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="plantillaCargaButton"><i class="bi bi-download me-1"></i> Descargar plantilla</button>
+                      </div>
+                      <div class="card-body">
+                        <p class="small text-muted mb-2">1. Descargue la plantilla y llénela: una fila por movimiento (la hoja <em>Listas</em> trae las bodegas y referencias válidas). 2. Súbala aquí, revise la vista previa y confirme.</p>
+                        <div class="row g-2 align-items-center">
+                          <div class="col-md-8"><input type="file" class="form-control" id="archivoCarga" accept=".xlsx,.xls,.csv" aria-label="Archivo de Excel"></div>
+                          <div class="col-md-4 small text-muted" id="masivaTiendaNota"></div>
+                        </div>
+                        <div id="masivaVista" class="d-none mt-3">
+                          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                            <span class="small" id="masivaResumen"></span>
+                            <div class="d-flex gap-2">
+                              <button type="button" class="btn btn-outline-secondary btn-sm" id="masivaCancelar">Cancelar</button>
+                              <button type="button" class="btn btn-gold btn-sm" id="masivaConfirmar"><i class="bi bi-upload me-1"></i> Cargar</button>
+                            </div>
+                          </div>
+                          <div class="table-responsive" style="max-height: 360px; overflow-y: auto;">
+                            <table class="table table-sm align-middle">
+                              <thead class="table-light sticky-top"><tr><th class="num">Fila</th><th>Fecha</th><th>Tienda / Bodega</th><th>Referencia</th><th>Movimiento</th><th class="num">Cantidad</th><th>Concepto</th><th>Observaciones</th><th>Revisión</th></tr></thead>
+                              <tbody id="masivaBody"></tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                     <div class="card">
                       <div class="card-header card-header-custom">Cargas registradas</div>
                       <div class="card-body">
@@ -868,92 +896,13 @@
               </div>
             </div>
 
-            <!-- Pestaña: Maestros (tiendas, vendedores y métodos de pago) -->
+            <!-- Pestaña: Maestros (una pestaña por maestro; se arma en js/app.js) -->
             <div class="tab-pane fade" id="maestros" role="tabpanel">
-              <div class="row g-3 mt-1">
-                <div class="col-md-6">
-                  <div class="card h-100">
-                    <div class="card-header card-header-custom"><i class="bi bi-shop me-2"></i> Tiendas y bodegas</div>
-                    <div class="card-body">
-                      <form class="input-group mb-3 maestro-form" data-maestro="tiendas">
-                        <select class="form-select flex-grow-0 w-auto maestro-clase-nueva" aria-label="Tipo">
-                          <option value="TIENDA">Tienda</option>
-                          <option value="BODEGA">Bodega</option>
-                        </select>
-                        <input type="text" class="form-control" placeholder="Nombre de la nueva tienda o bodega" aria-label="Nombre" required>
-                        <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button>
-                      </form>
-                      <table class="table table-sm table-bordered align-middle">
-                        <thead class="table-light"><tr><th>Nombre</th><th>Tipo</th><th>Usuarios</th><th class="text-center">Activa</th><th></th></tr></thead>
-                        <tbody id="maestro-tiendas"></tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-                <div class="col-md-6">
-                  <div class="card h-100">
-                    <div class="card-header card-header-custom"><i class="bi bi-person-vcard me-2"></i> Vendedores</div>
-                    <div class="card-body">
-                      <form class="input-group mb-3 maestro-form" data-maestro="vendedores">
-                        <input type="text" class="form-control" placeholder="Nombre del nuevo vendedor" aria-label="Nuevo vendedor" required>
-                        <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button>
-                      </form>
-                      <table class="table table-sm table-bordered align-middle">
-                        <thead class="table-light"><tr><th>Nombre</th><th class="text-center">Activo</th><th></th></tr></thead>
-                        <tbody id="maestro-vendedores"></tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-                <div class="col-md-6">
-                  <div class="card h-100">
-                    <div class="card-header card-header-custom"><i class="bi bi-credit-card me-2"></i> Métodos de pago</div>
-                    <div class="card-body">
-                      <form class="input-group mb-3 maestro-form" data-maestro="metodos_pago">
-                        <input type="text" class="form-control" placeholder="Nombre del nuevo método de pago" aria-label="Nuevo método de pago" required>
-                        <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button>
-                      </form>
-                      <table class="table table-sm table-bordered align-middle">
-                        <thead class="table-light"><tr><th>Nombre</th><th class="text-center">Activo</th><th></th></tr></thead>
-                        <tbody id="maestro-metodos_pago"></tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-                <div class="col-md-6">
-                  <div class="card h-100">
-                    <div class="card-header card-header-custom"><i class="bi bi-gem me-2"></i> Tipos (materiales)</div>
-                    <div class="card-body">
-                      <form class="input-group mb-3 maestro-form" data-maestro="tipos">
-                        <input type="text" class="form-control" placeholder="Nuevo tipo (ej. ORO, PLATA)" aria-label="Nuevo tipo" required>
-                        <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button>
-                      </form>
-                      <table class="table table-sm table-bordered align-middle">
-                        <thead class="table-light"><tr><th>Nombre</th><th class="text-center">Activo</th><th></th></tr></thead>
-                        <tbody id="maestro-tipos"></tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-                <div class="col-md-6">
-                  <div class="card h-100">
-                    <div class="card-header card-header-custom"><i class="bi bi-geo-alt me-2"></i> Departamentos</div>
-                    <div class="card-body">
-                      <form class="input-group mb-3 maestro-form" data-maestro="departamentos">
-                        <input type="text" class="form-control" placeholder="Nuevo departamento" aria-label="Nuevo departamento" required>
-                        <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button>
-                      </form>
-                      <div style="max-height: 360px; overflow-y: auto;">
-                      <table class="table table-sm table-bordered align-middle">
-                        <thead class="table-light sticky-top"><tr><th>Nombre</th><th class="text-center">Activo</th><th></th></tr></thead>
-                        <tbody id="maestro-departamentos"></tbody>
-                      </table>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              <div class="mt-3">
+                <ul class="nav nav-pills mb-3" id="maestrosPestanas"></ul>
+                <div class="tab-content" id="maestrosPaneles"></div>
+                <p class="text-muted small mt-2 mb-0">Los inactivos no aparecen al registrar ventas, pagos ni cargas, pero se conservan en el histórico y en los filtros. Solo se pueden eliminar los que no están en uso (ventas, pagos o clientes). <span class="solo-admin d-none">Al cambiar un nombre, se actualiza también en todo el histórico.</span></p>
               </div>
-              <p class="text-muted small mt-2 mb-0">Los inactivos no aparecen al registrar ventas, pagos ni cargas, pero se conservan en el histórico y en los filtros. Solo se pueden eliminar los que no están en uso (ventas, pagos o clientes).</p>
             </div>
 
             <!-- Pestaña: Usuarios (solo administradores) -->

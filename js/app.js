@@ -256,6 +256,21 @@ function registrarArmazon() {
     $('cerrarMenu').addEventListener('click', () => $('appView').classList.remove('menu-abierto'));
     $('menuVelo').addEventListener('click', () => $('appView').classList.remove('menu-abierto'));
     document.querySelector('.barra-movil [data-ir="registro-tab"]').classList.add('activo');
+
+    // Grupos del menú: el rótulo los contrae o despliega (se recuerda en este navegador)
+    const CLAVE_GRUPOS = 'ariga.menuContraido';
+    let contraidos = [];
+    try { contraidos = JSON.parse(localStorage.getItem(CLAVE_GRUPOS)) || []; } catch { contraidos = []; }
+    document.querySelectorAll('.menu-rotulo').forEach(b => {
+        const grupo = b.closest('.menu-grupo');
+        const contraer = c => { grupo.classList.toggle('contraido', c); b.setAttribute('aria-expanded', String(!c)); };
+        contraer(contraidos.includes(b.dataset.grupo));
+        b.addEventListener('click', () => {
+            contraer(!grupo.classList.contains('contraido'));
+            const lista = [...document.querySelectorAll('.menu-grupo.contraido .menu-rotulo')].map(x => x.dataset.grupo);
+            try { localStorage.setItem(CLAVE_GRUPOS, JSON.stringify(lista)); } catch { /* sin almacenamiento */ }
+        });
+    });
 }
 
 function registrarEventos() {
@@ -371,6 +386,13 @@ function registrarEventos() {
     $('cargaForm').addEventListener('submit', handleCargaSubmit);
     ['cargaTienda', 'cargaProducto'].forEach(id => $(id).addEventListener('change', mostrarSaldoCarga));
     $('cargaNuevaRefButton').addEventListener('click', () => abrirModalReferencia(null, $('cargaProducto')));
+    $('plantillaCargaButton').addEventListener('click', descargarPlantillaCarga);
+    $('archivoCarga').addEventListener('change', e => { if (e.target.files[0]) leerArchivoCarga(e.target.files[0]); });
+    $('masivaCancelar').addEventListener('click', limpiarCargaMasiva);
+    $('masivaConfirmar').addEventListener('click', confirmarCargaMasiva);
+    $('pills-carga-tab').addEventListener('shown.bs.tab', () => {
+        $('masivaTiendaNota').textContent = !esAdmin() && perfil?.tienda ? `Todo se carga en su bodega: ${perfil.tienda}` : '';
+    });
     ['filterCargasTienda', 'filterCargasProducto'].forEach(id => $(id).addEventListener('input', renderCargas));
     $('cargasTableBody').addEventListener('click', e => {
         const b = e.target.closest('.delete-carga');
@@ -412,8 +434,10 @@ function registrarEventos() {
     });
 
     // Maestros
+    construirMaestros();
     $('maestros-tab').addEventListener('shown.bs.tab', () => run(cargarMaestros));
     $('maestros').addEventListener('submit', e => {
+        if (e.target.classList.contains('maestro-editar-form')) { e.preventDefault(); renombrarMaestro(e.target); return; }
         if (!e.target.classList.contains('maestro-form')) return;
         e.preventDefault();
         agregarMaestro(e.target.dataset.maestro, e.target.querySelector('input'), e.target.querySelector('.maestro-clase-nueva')?.value);
@@ -425,6 +449,15 @@ function registrarEventos() {
     $('maestros').addEventListener('click', e => {
         const b = e.target.closest('.maestro-delete');
         if (b) eliminarMaestro(b.dataset.maestro, b.dataset.nombre);
+        const ed = e.target.closest('.maestro-editar');
+        if (ed && esAdmin()) editarMaestro(ed.dataset.maestro, ed.dataset.nombre);
+        if (e.target.closest('.maestro-cancelar')) editarMaestro(null);
+    });
+    $('maestros').addEventListener('input', e => {
+        if (e.target.classList.contains('maestro-buscar')) renderMaestro(e.target.dataset.maestro);
+    });
+    $('maestros').addEventListener('keydown', e => {
+        if (e.key === 'Escape' && e.target.closest('.maestro-editar-form')) editarMaestro(null);
     });
 
     // Usuarios (administradores)
@@ -1224,6 +1257,157 @@ function eliminarCarga(id) {
     });
 }
 
+// ---------------------------------------------------------------- inventario: carga masiva desde Excel
+const COLS_CARGA = ['Fecha', 'Tienda / Bodega', 'Referencia', 'Movimiento', 'Cantidad', 'Concepto', 'Observaciones'];
+const MAX_FILAS_CARGA = 5000;
+let filasMasivas = [];
+
+function descargarPlantillaCarga() {
+    const fija = !esAdmin() && perfil?.tienda;
+    const tiendas = fija ? [perfil.tienda] : maestros.tiendas.filter(x => x.activo !== false).map(x => x.nombre);
+    const refs = referencias.filter(r => r.activo && r.controla_inventario);
+    const wb = XLSX.utils.book_new();
+    const carga = XLSX.utils.aoa_to_sheet([COLS_CARGA]);
+    carga['!cols'] = [12, 24, 30, 12, 10, 16, 30].map(wch => ({ wch }));
+    XLSX.utils.book_append_sheet(wb, carga, 'Carga');
+    const filas = Math.max(tiendas.length, refs.length, 5);
+    const conceptos = ['INV INICIAL', 'COMPRA', 'AJUSTE', 'DEVOLUCION'];
+    const listas = XLSX.utils.aoa_to_sheet([['Tiendas / Bodegas', 'Referencias', 'Unidad', 'Movimiento', 'Conceptos sugeridos'],
+        ...Array.from({ length: filas }, (_, i) => [tiendas[i] ?? '', refs[i]?.nombre ?? '', refs[i] ? (refs[i].unidad || '').toLowerCase() : '',
+            ['ENTRADA', 'SALIDA'][i] ?? '', conceptos[i] ?? ''])]);
+    listas['!cols'] = [24, 30, 10, 12, 20].map(wch => ({ wch }));
+    XLSX.utils.book_append_sheet(wb, listas, 'Listas');
+    const ayuda = XLSX.utils.aoa_to_sheet([
+        ['Cómo llenar la hoja "Carga" (una fila por movimiento)'], [],
+        ['Fecha', 'Fecha del movimiento (dd/mm/aaaa). Si se deja vacía se usa la fecha de hoy.'],
+        ['Tienda / Bodega', fija ? `Se carga siempre en su bodega (${fija}); puede dejarla vacía.` : 'Igual que en la hoja "Listas".'],
+        ['Referencia', 'Igual que en la hoja "Listas". Si no existe, créela antes en Inventario > Referencias.'],
+        ['Movimiento', 'ENTRADA (suma) o SALIDA (resta). Si se deja vacío se toma ENTRADA.'],
+        ['Cantidad', 'Mayor que cero, en la unidad de la referencia (gramos o unidades).'],
+        ['Concepto', 'Ej. INV INICIAL, COMPRA, AJUSTE. Si se deja vacío se usa CARGA MASIVA.'],
+        ['Observaciones', 'Opcional.'], [],
+        ['Si alguna fila tiene un error no se carga nada: corrija el archivo y súbalo de nuevo.'],
+    ]);
+    ayuda['!cols'] = [{ wch: 18 }, { wch: 90 }];
+    XLSX.utils.book_append_sheet(wb, ayuda, 'Instrucciones');
+    XLSX.writeFile(wb, 'Plantilla_carga_inventario.xlsx');
+}
+
+// "1,234.5" o "1234,5" -> número (la coma es decimal solo si no hay punto y no separa miles)
+function numeroDeTexto(v) {
+    const t = String(v ?? '').replace(/\s/g, '');
+    if (!t) return NaN;
+    if (t.includes('.') || /^\d{1,3}(,\d{3})+$/.test(t)) return Number(t.replace(/,/g, ''));
+    return Number(t.replace(',', '.'));
+}
+
+// Fecha de Excel (número de serie, texto dd/mm/aaaa o aaaa-mm-dd) -> 'aaaa-mm-dd'
+function fechaDeExcel(v) {
+    if (v === '' || v === null || v === undefined) return hoyISO();
+    if (typeof v === 'number') return new Date(Math.round((v - 25569) * 86400000)).toISOString().slice(0, 10);
+    const t = String(v).trim();
+    let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return valida(m[1], m[2], m[3]);
+    m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+    if (m) return valida(m[3].length === 2 ? '20' + m[3] : m[3], m[2], m[1]);
+    return null;
+    function valida(y, mo, d) {
+        const iso = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const f = new Date(iso + 'T00:00:00Z');
+        return !isNaN(f) && f.toISOString().slice(0, 10) === iso ? iso : null;
+    }
+}
+
+function leerArchivoCarga(archivo) {
+    run(async () => {
+        const wb = XLSX.read(await archivo.arrayBuffer());
+        const hoja = wb.Sheets.Carga || wb.Sheets[wb.SheetNames[0]];
+        const crudas = XLSX.utils.sheet_to_json(hoja, { defval: '', raw: true });
+        // Columnas por nombre (sin importar mayúsculas, tildes ni el orden)
+        const clave = k => norm(k).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const col = (r, ...prefijos) => { const k = Object.keys(r).find(k => prefijos.some(p => clave(k).startsWith(p))); return k ? r[k] : ''; };
+        const fija = !esAdmin() && perfil?.tienda;
+        const tiendas = maestros.tiendas.filter(x => x.activo !== false);
+        const refs = referencias.filter(r => r.activo && r.controla_inventario);
+        filasMasivas = [];
+        crudas.forEach((r, i) => {
+            const valores = Object.values(r).map(v => String(v).trim());
+            if (!valores.some(Boolean)) return;   // fila vacía
+            const errores = [];
+            const fecha = fechaDeExcel(col(r, 'fecha'));
+            if (!fecha) errores.push('Fecha no válida');
+            const tTexto = String(col(r, 'tienda', 'bodega')).trim();
+            let tienda = tiendas.find(t => norm(t.nombre) === norm(tTexto))?.nombre;
+            if (fija) {
+                if (tTexto && norm(tTexto) !== norm(fija)) errores.push(`Solo puede cargar en su bodega (${fija})`);
+                tienda = fija;
+            } else if (!tTexto) errores.push('Falta la tienda / bodega');
+            else if (!tienda) errores.push(`Tienda "${tTexto}" no existe o está inactiva`);
+            const pTexto = String(col(r, 'referencia', 'producto')).trim();
+            const ref = refs.find(x => norm(x.nombre) === norm(pTexto));
+            if (!pTexto) errores.push('Falta la referencia');
+            else if (!ref) errores.push(`Referencia "${pTexto}" no existe, está inactiva o no controla inventario`);
+            const mov = norm(col(r, 'movimiento', 'tipo de movimiento'));
+            const esEntrada = !mov || ['entrada', 'e', '+', 'ingreso'].includes(mov);
+            if (!esEntrada && !['salida', 's', '-', 'ajuste', 'salida / ajuste'].includes(mov)) errores.push('Movimiento debe ser ENTRADA o SALIDA');
+            const cTexto = col(r, 'cantidad');
+            const cant = typeof cTexto === 'number' ? cTexto : numeroDeTexto(cTexto);
+            if (!(cant > 0)) errores.push('Cantidad debe ser mayor que cero');
+            filasMasivas.push({
+                fila: (r.__rowNum__ ?? i + 1) + 1, errores,
+                d: {
+                    fecha, tienda: tienda || tTexto, producto: ref?.nombre || pTexto,
+                    concepto: String(col(r, 'concepto')).trim().toUpperCase() || 'CARGA MASIVA',
+                    entrada: esEntrada ? Math.round(cant * 100) / 100 : null,
+                    salida: esEntrada ? null : Math.round(cant * 100) / 100,
+                    observaciones: String(col(r, 'observ')).trim() || null,
+                },
+                unidad: (ref?.unidad || '').toLowerCase(),
+            });
+        });
+        if (!filasMasivas.length) { limpiarCargaMasiva(); showAlert('El archivo no tiene filas para cargar (revise que use la hoja "Carga" de la plantilla).', 'warning'); return; }
+        if (filasMasivas.length > MAX_FILAS_CARGA) { limpiarCargaMasiva(); showAlert(`El archivo tiene ${filasMasivas.length} filas; el máximo por carga es ${MAX_FILAS_CARGA}. Divídalo en varios archivos.`, 'warning'); return; }
+        renderCargaMasiva();
+    });
+}
+
+function renderCargaMasiva() {
+    const malas = filasMasivas.filter(x => x.errores.length).length;
+    // Primero las filas con error, para corregirlas
+    const orden = [...filasMasivas].sort((a, b) => (b.errores.length > 0) - (a.errores.length > 0) || a.fila - b.fila);
+    $('masivaBody').innerHTML = orden.map(({ fila, errores, d, unidad }) => `<tr class="${errores.length ? 'con-error' : ''}">
+        <td class="num">${fila}</td><td>${d.fecha ? fmtFecha(d.fecha) : ''}</td><td>${esc(d.tienda)}</td><td>${esc(d.producto)}</td>
+        <td>${d.entrada !== null ? 'Entrada' : 'Salida'}</td><td class="num">${fmt(d.entrada ?? d.salida)} <span class="text-muted small">${esc(unidad)}</span></td>
+        <td>${esc(d.concepto)}</td><td>${esc(d.observaciones)}</td>
+        <td>${errores.length ? `<span class="revision-error">${errores.map(esc).join('<br>')}</span>` : '<span class="revision-ok"><i class="bi bi-check2"></i> Lista</span>'}</td></tr>`).join('');
+    const total = (campo) => filasMasivas.filter(x => !x.errores.length).reduce((s, x) => s + num(x.d[campo]), 0);
+    $('masivaResumen').innerHTML = malas
+        ? `<span class="revision-error fw-semibold">${malas} de ${filasMasivas.length} fila(s) con error.</span> Corrija el archivo y súbalo de nuevo; no se cargará nada mientras haya errores.`
+        : `<strong>${filasMasivas.length}</strong> fila(s) listas · entradas ${fmt(total('entrada'))} · salidas ${fmt(total('salida'))}`;
+    $('masivaConfirmar').disabled = malas > 0;
+    $('masivaConfirmar').innerHTML = `<i class="bi bi-upload me-1"></i> Cargar ${filasMasivas.length} fila(s)`;
+    $('masivaVista').classList.remove('d-none');
+}
+
+function limpiarCargaMasiva() {
+    filasMasivas = [];
+    $('archivoCarga').value = '';
+    $('masivaVista').classList.add('d-none');
+    $('masivaBody').innerHTML = '';
+}
+
+function confirmarCargaMasiva() {
+    if (!filasMasivas.length || filasMasivas.some(x => x.errores.length)) return;
+    if (!confirm(`¿Cargar ${filasMasivas.length} movimiento(s) de inventario?`)) return;
+    run(async () => {
+        // Un solo insert: se guardan todas las filas o ninguna
+        ok(await sb.from('ingresos_inventario').insert(filasMasivas.map(x => x.d)));
+        showAlert(`${filasMasivas.length} movimiento(s) de inventario cargados`, 'success');
+        limpiarCargaMasiva();
+        loadCargas();
+    });
+}
+
 // ---------------------------------------------------------------- inventario: saldos
 let inventarioAbierto = false;
 function loadInventoryData() {
@@ -1541,12 +1725,81 @@ function exportarExcel(nombre, hoja, filas) {
 
 // ---------------------------------------------------------------- maestros
 const MAESTROS = {
-    tiendas: { grupo: 'tiendas', nuevo: 'Nueva tienda o bodega' },
-    vendedores: { grupo: 'vendedores', nuevo: 'Nuevo vendedor' },
-    metodos_pago: { grupo: 'métodos de pago', nuevo: 'Nuevo método de pago' },
-    tipos: { grupo: 'tipos', nuevo: 'Nuevo tipo' },
-    departamentos: { grupo: 'departamentos', nuevo: 'Nuevo departamento' },
+    tiendas: { grupo: 'tiendas', nuevo: 'Nueva tienda o bodega', titulo: 'Tiendas y bodegas', icono: 'shop', ayuda: 'Nombre de la nueva tienda o bodega' },
+    vendedores: { grupo: 'vendedores', nuevo: 'Nuevo vendedor', titulo: 'Vendedores', icono: 'person-vcard', ayuda: 'Nombre del nuevo vendedor' },
+    metodos_pago: { grupo: 'métodos de pago', nuevo: 'Nuevo método de pago', titulo: 'Métodos de pago', icono: 'credit-card', ayuda: 'Nombre del nuevo método de pago' },
+    tipos: { grupo: 'tipos', nuevo: 'Nuevo tipo', titulo: 'Tipos (materiales)', icono: 'gem', ayuda: 'Nuevo tipo (ej. ORO, PLATA)' },
+    departamentos: { grupo: 'departamentos', nuevo: 'Nuevo departamento', titulo: 'Departamentos', icono: 'geo-alt', ayuda: 'Nuevo departamento' },
 };
+let maestroEditando = null;   // { m, nombre } del que se está renombrando
+
+// Una pestaña por maestro, cada una con su formulario para agregar, buscador y lista
+function construirMaestros() {
+    const claves = Object.keys(MAESTROS);
+    $('maestrosPestanas').innerHTML = claves.map((m, i) => `<li class="nav-item"><button class="nav-link ${i ? '' : 'active'}" id="maestro-tab-${m}"
+        data-bs-toggle="pill" data-bs-target="#maestro-panel-${m}" type="button"><i class="bi bi-${MAESTROS[m].icono} me-1"></i>${MAESTROS[m].titulo}
+        <span class="text-muted small ms-1" id="maestro-n-${m}"></span></button></li>`).join('');
+    $('maestrosPaneles').innerHTML = claves.map((m, i) => `<div class="tab-pane fade ${i ? '' : 'show active'}" id="maestro-panel-${m}">
+        <div class="card"><div class="card-body">
+          <div class="row g-2 mb-3">
+            <div class="col-lg-7"><form class="input-group maestro-form" data-maestro="${m}">
+              ${m === 'tiendas' ? `<select class="form-select flex-grow-0 w-auto maestro-clase-nueva" aria-label="Tipo"><option value="TIENDA">Tienda</option><option value="BODEGA">Bodega</option></select>` : ''}
+              <input type="text" class="form-control" placeholder="${MAESTROS[m].ayuda}" aria-label="${MAESTROS[m].nuevo}" required>
+              <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button></form></div>
+            <div class="col-lg-5"><input type="search" class="form-control maestro-buscar" data-maestro="${m}" placeholder="Buscar en ${MAESTROS[m].grupo}…" aria-label="Buscar"></div>
+          </div>
+          <ul class="list-group maestro-lista" id="maestro-${m}"></ul>
+        </div></div></div>`).join('');
+}
+
+function renderMaestro(m) {
+    const q = norm(document.querySelector(`.maestro-buscar[data-maestro="${m}"]`)?.value);
+    const admin = esAdmin();
+    const lista = maestros[m].filter(x => !q || norm(x.nombre).includes(q));
+    const n = maestros[m].length, inactivos = maestros[m].filter(x => x.activo === false).length;
+    $(`maestro-n-${m}`).textContent = n;
+    $(`maestro-${m}`).innerHTML = lista.map(x => {
+        const nombre = esc(x.nombre), datos = `data-maestro="${m}" data-nombre="${nombre}"`;
+        if (maestroEditando?.m === m && maestroEditando.nombre === x.nombre)
+            return `<li class="list-group-item"><form class="maestro-editar-form" ${datos}>
+                <input type="text" class="form-control form-control-sm" value="${nombre}" aria-label="Nuevo nombre" required>
+                <button type="submit" class="btn btn-gold btn-sm">Guardar</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm maestro-cancelar">Cancelar</button></form></li>`;
+        const detalle = m === 'tiendas' ? `<small>Usuarios: ${esc(usuariosPorTienda[x.nombre]?.join(', ') || '—')}</small>` : '';
+        return `<li class="list-group-item ${x.activo === false ? 'inactivo' : ''}">
+            <div class="maestro-nombre">${admin ? `<span role="button" class="maestro-editar" ${datos} title="Cambiar nombre">${nombre}</span>` : nombre}${detalle}</div>
+            <div class="maestro-acciones">
+              ${m === 'tiendas' ? `<select class="form-select form-select-sm maestro-clase" data-nombre="${nombre}" aria-label="Tipo">
+                ${['TIENDA', 'BODEGA'].map(c => `<option value="${c}" ${x.clase === c ? 'selected' : ''}>${c === 'TIENDA' ? 'Tienda' : 'Bodega'}</option>`).join('')}</select>` : ''}
+              <div class="form-check form-switch m-0" title="${x.activo === false ? 'Inactivo' : 'Activo'}"><input class="form-check-input maestro-activo" type="checkbox" role="switch" ${datos} ${x.activo === false ? '' : 'checked'} aria-label="Activo"></div>
+              ${admin ? `<button type="button" class="btn btn-outline-secondary btn-sm maestro-editar" ${datos} title="Cambiar nombre"><i class="bi bi-pencil"></i></button>` : ''}
+              <button type="button" class="btn btn-outline-danger btn-sm maestro-delete" ${datos} title="Eliminar"><i class="bi bi-trash"></i></button>
+            </div></li>`;
+    }).join('') || `<li class="list-group-item text-muted">${q ? 'Sin coincidencias' : 'Sin registros'}</li>`;
+    $(`maestro-n-${m}`).title = inactivos ? `${inactivos} inactivo(s)` : '';
+}
+
+function editarMaestro(m, nombre) {
+    const antes = maestroEditando?.m;
+    maestroEditando = m ? { m, nombre } : null;
+    if (antes && antes !== m) renderMaestro(antes);
+    if (m || antes) renderMaestro(m || antes);
+    if (m) { const i = document.querySelector(`#maestro-${m} .maestro-editar-form input`); i?.focus(); i?.select(); }
+}
+
+function renombrarMaestro(form) {
+    const { maestro: m, nombre } = form.dataset;
+    const nuevo = normalizarNombre(form.querySelector('input').value);
+    if (!nuevo) return;
+    if (nuevo === nombre) { editarMaestro(null); return; }
+    if (!confirm(`¿Cambiar "${nombre}" por "${nuevo}"?\n\nEl nombre se actualizará también en todas las ventas, pagos, cargas y demás registros que lo usan.`)) return;
+    run(async () => {
+        const guardado = ok(await sb.rpc('renombrar_maestro', { p_maestro: m, p_viejo: nombre, p_nuevo: nuevo }));
+        maestroEditando = null;
+        await Promise.all([cargarMaestros(), m === 'tipos' ? cargarReferencias() : null, m === 'tiendas' && esAdmin() ? cargarPerfiles() : null]);
+        showAlert(`"${nombre}" ahora se llama "${guardado || nuevo}"`, 'success');
+    });
+}
 const maestros = { tiendas: [], vendedores: [], metodos_pago: [], tipos: [], departamentos: [] };
 let usuariosPorTienda = {};
 
@@ -1589,16 +1842,7 @@ async function cargarMaestros() {
     repoblar('usrTienda', activos(tiendas), '(sin tienda)');
     aplicarTiendaUsuario();
 
-    for (const m of Object.keys(MAESTROS)) {
-        $(`maestro-${m}`).innerHTML = maestros[m].map(x => `<tr class="${x.activo === false ? 'text-muted' : ''}">
-            <td>${esc(x.nombre)}</td>
-            ${m === 'tiendas' ? `<td><select class="form-select form-select-sm maestro-clase" data-nombre="${esc(x.nombre)}" aria-label="Tipo">
-                ${['TIENDA', 'BODEGA'].map(c => `<option value="${c}" ${x.clase === c ? 'selected' : ''}>${c === 'TIENDA' ? 'Tienda' : 'Bodega'}</option>`).join('')}</select></td>
-                <td class="small">${esc(usuariosPorTienda[x.nombre]?.join(', ') || '—')}</td>` : ''}
-            <td class="text-center"><div class="form-check form-switch d-inline-block m-0"><input class="form-check-input maestro-activo" type="checkbox" role="switch" data-maestro="${m}" data-nombre="${esc(x.nombre)}" ${x.activo === false ? '' : 'checked'} aria-label="Activo"></div></td>
-            <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm maestro-delete" data-maestro="${m}" data-nombre="${esc(x.nombre)}" title="Eliminar"><i class="bi bi-trash"></i></button></td>
-        </tr>`).join('');
-    }
+    Object.keys(MAESTROS).forEach(renderMaestro);
 }
 
 const normalizarNombre = v => v.trim().toUpperCase().replace(/\s+/g, ' ');

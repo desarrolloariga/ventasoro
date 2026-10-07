@@ -98,9 +98,17 @@ body {
 .menu { flex: 1; display: flex; flex-direction: column; flex-wrap: nowrap; gap: 22px; overflow-y: auto; }
 .menu-grupo { display: flex; flex-direction: column; gap: 3px; }
 .menu-rotulo {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  border: 0; background: transparent; text-align: left; cursor: pointer;
   color: rgba(246, 243, 237, .32); font-size: 9px; font-weight: 500; letter-spacing: .24em;
-  padding: 6px 10px 8px; line-height: 1;
+  padding: 6px 10px 8px; line-height: 1; border-radius: var(--r-card);
+  transition: color .15s;
 }
+.menu-rotulo:hover, .menu-rotulo:focus-visible { color: rgba(246, 243, 237, .7); }
+.menu-rotulo .bi { font-size: 10px; transition: transform .2s; }
+.menu-grupo.contraido .menu-rotulo .bi { transform: rotate(-90deg); }
+/* Contraído: solo queda visible la sección abierta (si es de ese grupo) */
+.menu-grupo.contraido .menu-item:not(.active) { display: none; }
 .menu .menu-item {
   display: flex; align-items: center; gap: 11px; width: 100%;
   padding: 10px 11px; border: 0; border-radius: var(--r-card);
@@ -410,3 +418,21 @@ details > summary { color: var(--gold-dark); cursor: pointer; font-size: 12px; }
 #clientModalId { font-family: var(--display); font-size: 22px; font-weight: 500; line-height: 1; }
 /* Usuarios: controles de la tabla con ancho suficiente */
 #usuariosTableBody .usr-tienda { min-width: 170px; }
+
+/* ---------------------------------------------------------------- maestros (lista editable) */
+.maestro-lista .list-group-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
+.maestro-lista .maestro-nombre { flex: 1; min-width: 0; font-weight: 500; }
+.maestro-lista .maestro-nombre small { display: block; font-weight: 400; color: var(--ink-42); margin-top: 2px; }
+.maestro-lista .inactivo .maestro-nombre { color: var(--ink-42); text-decoration: line-through; text-decoration-color: rgba(11, 11, 12, .2); }
+.maestro-lista .maestro-editar-form { flex: 1; display: flex; gap: 6px; }
+.maestro-lista .maestro-acciones { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.maestro-lista .maestro-clase { width: auto; }
+@media (max-width: 575.98px) {
+  .maestro-lista .list-group-item { flex-wrap: wrap; }
+  .maestro-lista .maestro-acciones { width: 100%; justify-content: flex-end; }
+}
+/* carga masiva: filas con errores */
+#masivaBody tr.con-error td { background: rgba(142, 69, 52, .07); }
+#masivaBody .revision-error { color: var(--clay); font-size: 12px; }
+#masivaBody .revision-ok { color: var(--sage); font-size: 12px; }
+.card-header-custom .btn { font-family: var(--sans); }

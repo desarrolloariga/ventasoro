@@ -120,6 +120,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `08_limpiar_datos.sql` | **Borra** ventas, pagos, devoluciones, clientes, cargas de inventario y traslados para empezar de cero; conserva usuarios, bodegas, vendedores, referencias y demás maestros. Tiene un seguro: solo actúa si se cambia `'NO'` por `'BORRAR'`. No se puede deshacer. |
 | `09_reasignar_cliente_al_rango.sql` | Al asignar un cliente a un vendedor con rango, el cliente pasa a un código del rango de ese vendedor (sus ventas y pagos lo siguen). Repara los clientes ya reasignados que quedaron fuera del rango, numerándolos en el orden en que se crearon. |
 | `10_cartera_vendedor.sql` | La cartera (por cliente y por envío) incluye el vendedor dueño del cliente y el código del cliente. |
+| `11_renombrar_maestros.sql` | Permite al administrador cambiar el nombre de tiendas/bodegas, vendedores, métodos de pago, tipos y departamentos desde Maestros; el nombre nuevo se aplica a todo el histórico (ventas, pagos, inventario, traslados, clientes y usuarios). |
 
 ## Despliegue en Vercel
 
