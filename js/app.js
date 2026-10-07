@@ -28,6 +28,11 @@ async function cargarConsecutivos() {
     consecutivos = Object.fromEntries(filas.filter(c => c.consecutivo != null).map(c => [c.id, c.consecutivo]));
 }
 const recordarConsecutivo = c => { if (c?.consecutivo != null) consecutivos[c.id] = c.consecutivo; };
+// Ordena por el código de cliente que ve el usuario, de menor a mayor (sin código al final).
+// Es estable: dentro del mismo cliente se conserva el orden previo (p. ej. fecha).
+const sinCodigo = v => v === null || v === undefined || v === '';
+const ordenarPorCodigo = (filas, campo) => filas.sort((a, b) =>
+    (sinCodigo(a[campo]) - sinCodigo(b[campo])) || (Number(cod(a[campo])) - Number(cod(b[campo]))) || 0);
 // Se entra con un usuario ("maria"); Supabase Auth lo guarda como maria@ariga.local
 const DOMINIO_USUARIOS = 'ariga.local';
 const aEmail = u => { u = u.trim().toLowerCase(); return u.includes('@') ? u : `${u}@${DOMINIO_USUARIOS}`; };
@@ -462,6 +467,7 @@ function crearBuscadorCliente(id, alElegir, { alNoEncontrar } = {}) {
         run(async () => {
             resultados = ok(await sb.rpc('buscar_clientes', { p_termino: q }));
             resultados.forEach(recordarConsecutivo);
+            ordenarPorCodigo(resultados, 'id');
             if (resultados.length === 1) { cerrar(); alElegir(resultados[0]); return; }
             if (!resultados.length) {
                 cerrar();
@@ -688,7 +694,7 @@ function buscarPedidos() {
     const q = $('searchEnvioInput').value.trim();
     if (!q) return;
     run(async () => {
-        const d = ok(await sb.rpc('buscar_pedidos', { p_termino: q, p_campo: $('searchPedidoCampo').value }));
+        const d = ordenarPorCodigo(ok(await sb.rpc('buscar_pedidos', { p_termino: q, p_campo: $('searchPedidoCampo').value })), 'cliente_id');
         $('pedidosTabla').classList.toggle('d-none', !d.length);
         $('pedidosTableBody').innerHTML = d.map(p => `<tr>
             <td class="fw-semibold">${fmtFecha(p.fecha_venta)}</td><td>${esc(p.pedido_id)}</td><td>${esc(p.envio)}</td>
@@ -857,6 +863,7 @@ function loadRecibidos() {
             if (sinCliente) q = q.is('cliente_id', null);
             return q.order('fecha_pago', { ascending: false }).order('id', { ascending: false });
         });
+        ordenarPorCodigo(recibidosFilas, 'cliente_id');
         const repoblarUnicos = (id, valores, placeholder) => {
             const v = $(id).value;
             populateDropdown(id, [...new Set(valores.filter(Boolean))].sort(), placeholder);
@@ -928,7 +935,7 @@ function loadHistoryData() {
             .select('id,pedido_id,fecha_venta,tienda,vendedor,cliente_id,cliente,tipo,producto,cantidad,valor_unitario,valor_total')
             .order('fecha_venta', { ascending: false })
             .order('id', { ascending: false }));
-        fullHistoryData = d.filter(r => (r.cliente || r.producto) && r.producto !== 'SALDO INICIAL');
+        fullHistoryData = ordenarPorCodigo(d.filter(r => (r.cliente || r.producto) && r.producto !== 'SALDO INICIAL'), 'cliente_id');
         filterHistory();
     });
 }
@@ -957,7 +964,9 @@ function exportHistorico() {
 // ---------------------------------------------------------------- cartera: saldos por cliente
 function loadSaldos() {
     run(async () => {
-        fullSaldosData = await fetchAll(() => sb.from('cartera_clientes').select('*').order('nombre').order('codigo'));
+        fullSaldosData = await fetchAll(() => sb.from('cartera_clientes').select('*').order('codigo'));
+        fullSaldosData.forEach(r => recordarConsecutivo({ id: r.codigo, consecutivo: r.consecutivo }));
+        ordenarPorCodigo(fullSaldosData, 'codigo');
         filterSaldos();
     });
 }
@@ -965,13 +974,13 @@ function loadSaldos() {
 function saldosFiltrados() {
     const q = norm($('filterSaldos').value), deudores = $('saldosSoloDeudores').checked;
     return fullSaldosData.filter(r => (!deudores || num(r.saldo) > 0.005) &&
-        (!q || coincideCodigo(r.codigo, q) || [r.nombre, r.dpi, r.nit].some(v => norm(v).includes(q))));
+        (!q || coincideCodigo(r.codigo, q) || [r.nombre, r.dpi, r.nit, esAdmin() ? r.vendedor : ''].some(v => norm(v).includes(q))));
 }
 
 function filterSaldos() {
     const d = saldosFiltrados();
     $('saldosTableBody').innerHTML = d.map(r => `<tr data-codigo="${r.codigo}" style="cursor:pointer">
-        <td class="num fw-semibold">${cod(r.codigo)}</td><td>${esc(r.nombre)}</td><td>${esc(r.dpi || r.nit)}</td><td>${esc(r.telefono)}</td>
+        <td class="num fw-semibold">${cod(r.codigo)}</td><td>${esc(r.nombre)}</td>${esAdmin() ? `<td>${esc(r.vendedor || '—')}</td>` : ''}<td>${esc(r.dpi || r.nit)}</td><td>${esc(r.telefono)}</td>
         <td class="num">${fmtQ(r.total_ventas)}</td><td class="num">${fmtQ(r.total_pagos)}</td>
         <td class="num fw-semibold ${num(r.saldo) < 0 ? 'saldo-negativo' : ''}">${fmtQ(r.saldo)}</td>
         <td>${fmtFecha(r.ultima_venta)}</td><td>${fmtFecha(r.ultimo_pago)}</td></tr>`).join('');
@@ -984,7 +993,7 @@ function filterSaldos() {
 
 function exportSaldos() {
     exportarExcel('Saldos_clientes', 'Saldos por cliente', saldosFiltrados().map(r => ({
-        'Código cliente': cod(r.codigo), 'Cliente': r.nombre, 'DPI': r.dpi, 'NIT': r.nit, 'Teléfono': r.telefono,
+        'Código cliente': cod(r.codigo), 'Cliente': r.nombre, ...(esAdmin() ? { 'Vendedor': r.vendedor } : {}), 'DPI': r.dpi, 'NIT': r.nit, 'Teléfono': r.telefono,
         'Compras': num(r.total_ventas), 'Pagos': num(r.total_pagos), 'Saldo': num(r.saldo),
         'Última venta': aFecha(r.ultima_venta), 'Último pago': aFecha(r.ultimo_pago),
     })));
@@ -1037,12 +1046,14 @@ function loadCarteraDetalleData() {
     run(async () => {
         fullCarteraDetalleData = await fetchAll(() => sb.from('cartera_detalle').select('*')
             .order('fecha_venta', { ascending: false }).order('envio'));
+        fullCarteraDetalleData.forEach(r => recordarConsecutivo({ id: r.cliente_id, consecutivo: r.consecutivo }));
+        ordenarPorCodigo(fullCarteraDetalleData, 'cliente_id');
         filterCarteraDetalle();
     });
 }
 
 function renderCarteraDetalleTable(d) {
-    $('carteraDetalleTableBody').innerHTML = d.map(r => `<tr><td>${fmtFecha(r.fecha_venta)}</td><td>${esc(r.tienda)}</td><td>${esc(r.cliente)}</td><td>${esc(r.envio)}</td><td class="num">${fmtQ(r.valor_venta)}</td><td class="num">${fmtQ(r.valor_pago)}</td><td class="num ${num(r.cartera) < 0 ? 'saldo-negativo' : ''}">${fmtQ(r.cartera)}</td></tr>`).join('');
+    $('carteraDetalleTableBody').innerHTML = d.map(r => `<tr><td>${fmtFecha(r.fecha_venta)}</td><td>${esc(r.tienda)}</td><td class="num fw-semibold">${esc(cod(r.cliente_id))}</td><td>${esc(r.cliente)}</td>${esAdmin() ? `<td>${esc(r.vendedor || '—')}</td>` : ''}<td>${esc(r.envio)}</td><td class="num">${fmtQ(r.valor_venta)}</td><td class="num">${fmtQ(r.valor_pago)}</td><td class="num ${num(r.cartera) < 0 ? 'saldo-negativo' : ''}">${fmtQ(r.cartera)}</td></tr>`).join('');
     const sum = k => d.reduce((s, r) => s + num(r[k]), 0);
     $('carteraDetalleVenta').textContent = fmtQ(sum('valor_venta'));
     $('carteraDetallePago').textContent = fmtQ(sum('valor_pago'));
@@ -1052,13 +1063,14 @@ function renderCarteraDetalleTable(d) {
 function carteraDetalleFiltrada() {
     const t = $('filterCarteraDetalleTienda').value, c = norm($('filterCarteraDetalleCliente').value), e = norm($('filterCarteraDetalleEnvio').value);
     return fullCarteraDetalleData.filter(r =>
-        (!t || r.tienda === t) && norm(r.cliente).includes(c) && norm(r.envio).includes(e));
+        (!t || r.tienda === t) && (!c || coincideCodigo(r.cliente_id, c) || norm(r.cliente).includes(c)) && norm(r.envio).includes(e));
 }
 const filterCarteraDetalle = () => renderCarteraDetalleTable(carteraDetalleFiltrada());
 
 function exportCarteraDetalle() {
     exportarExcel('Cartera_por_envio', 'Cartera por envío', carteraDetalleFiltrada().map(r => ({
-        'Fecha venta': aFecha(r.fecha_venta), 'Tienda': r.tienda, 'Cliente': r.cliente, 'Envío': r.envio,
+        'Fecha venta': aFecha(r.fecha_venta), 'Tienda': r.tienda, 'Código cliente': cod(r.cliente_id), 'Cliente': r.cliente,
+        ...(esAdmin() ? { 'Vendedor': r.vendedor } : {}), 'Envío': r.envio,
         'Valor venta': r.valor_venta, 'Valor pago': r.valor_pago, 'Cartera': r.cartera,
     })));
 }
@@ -1310,11 +1322,11 @@ function exportMovimientos() {
 function loadClientesData() {
     run(async () => {
         const [d] = await Promise.all([
-            fetchAll(() => sb.from('clientes').select('*').order('nombre').order('id')),
+            fetchAll(() => sb.from('clientes').select('*').order('id')),
             esAdmin() ? cargarPerfiles() : null,
         ]);
-        fullClientesData = d;
         d.forEach(recordarConsecutivo);
+        fullClientesData = ordenarPorCodigo(d, 'id');
         filterClientes();
     });
 }
@@ -1442,13 +1454,13 @@ function agregarUsuario(e) {
 
 // ---------------------------------------------------------------- datos en bruto (administradores)
 const TABLAS_DATOS = [
-    { tabla: 'ventas', titulo: 'Ventas', orden: 'id' },
-    { tabla: 'pagos', titulo: 'Pagos', orden: 'id' },
+    { tabla: 'ventas', titulo: 'Ventas', orden: 'cliente_id,id' },
+    { tabla: 'pagos', titulo: 'Pagos', orden: 'cliente_id,id' },
     { tabla: 'clientes', titulo: 'Clientes', orden: 'id' },
     { tabla: 'cartera_clientes', titulo: 'Cartera por cliente', orden: 'codigo' },
-    { tabla: 'estado_cuenta', titulo: 'Estado de cuenta (todos)', orden: 'cliente_id' },
-    { tabla: 'pagos_detalle', titulo: 'Pagos recibidos (detalle)', orden: 'fecha_pago' },
-    { tabla: 'cartera_detalle', titulo: 'Cartera por envío', orden: 'envio' },
+    { tabla: 'estado_cuenta', titulo: 'Estado de cuenta (todos)', orden: 'cliente_id,fecha,ref_id' },
+    { tabla: 'pagos_detalle', titulo: 'Pagos recibidos (detalle)', orden: 'cliente_id,fecha_pago,id' },
+    { tabla: 'cartera_detalle', titulo: 'Cartera por envío', orden: 'cliente_id,envio' },
     { tabla: 'devoluciones', titulo: 'Devoluciones', orden: 'id' },
     { tabla: 'ingresos_inventario', titulo: 'Ingresos de inventario', orden: 'id' },
     { tabla: 'devoluciones_oficina', titulo: 'Devolución a oficina', orden: 'id' },
@@ -1470,7 +1482,7 @@ const tablaDatosActual = () => TABLAS_DATOS[Number($('datosTabla').value) || 0];
 function loadDatos() {
     const t = tablaDatosActual();
     run(async () => {
-        datosFilas = await fetchAll(() => sb.from(t.tabla).select('*').order(t.orden));
+        datosFilas = await fetchAll(() => t.orden.split(',').reduce((q, c) => q.order(c), sb.from(t.tabla).select('*')));
         filterDatos();
     });
 }

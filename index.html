@@ -621,9 +621,9 @@
                       </div>
                     </div>
                     <div class="card"><div class="card-body"><div class="table-responsive" style="max-height: 500px; overflow-y: auto;"><table class="table table-sm table-bordered table-hover">
-                      <thead class="table-light sticky-top"><tr><th class="num">Código</th><th>Cliente</th><th>DPI / NIT</th><th>Teléfono</th><th class="num">Compras</th><th class="num">Pagos</th><th class="num">Saldo</th><th>Última venta</th><th>Último pago</th></tr></thead>
+                      <thead class="table-light sticky-top"><tr><th class="num">Código</th><th>Cliente</th><th class="solo-admin d-none">Vendedor</th><th>DPI / NIT</th><th>Teléfono</th><th class="num">Compras</th><th class="num">Pagos</th><th class="num">Saldo</th><th>Última venta</th><th>Último pago</th></tr></thead>
                       <tbody id="saldosTableBody"></tbody>
-                      <tfoot><tr><td colspan="4">Total</td><td class="num" id="saldosVentas"></td><td class="num" id="saldosPagos"></td><td class="num" id="saldosSaldo"></td><td colspan="2"></td></tr></tfoot>
+                      <tfoot><tr><td colspan="4">Total</td><td class="solo-admin d-none"></td><td class="num" id="saldosVentas"></td><td class="num" id="saldosPagos"></td><td class="num" id="saldosSaldo"></td><td colspan="2"></td></tr></tfoot>
                     </table></div>
                     <div class="mt-2 text-muted small">Clientes: <span id="saldosRowCount">0</span> · Clic en un cliente para ver su estado de cuenta</div>
                     </div></div>
@@ -670,9 +670,9 @@
                       </div>
                     </div>
                     <div class="card"><div class="card-body"><div class="table-responsive" style="max-height: 500px; overflow-y: auto;"><table class="table table-sm table-bordered">
-                      <thead class="table-light sticky-top"><tr><th>Fecha</th><th>Tienda</th><th>Cliente</th><th>Envío</th><th class="num">Venta</th><th class="num">Pago</th><th class="num">Cartera</th></tr></thead>
+                      <thead class="table-light sticky-top"><tr><th>Fecha</th><th>Tienda</th><th class="num">Código</th><th>Cliente</th><th class="solo-admin d-none">Vendedor</th><th>Envío</th><th class="num">Venta</th><th class="num">Pago</th><th class="num">Cartera</th></tr></thead>
                       <tbody id="carteraDetalleTableBody"></tbody>
-                      <tfoot><tr><td colspan="4">Total</td><td class="num" id="carteraDetalleVenta"></td><td class="num" id="carteraDetallePago"></td><td class="num" id="carteraDetalleSaldo"></td></tr></tfoot>
+                      <tfoot><tr><td colspan="5">Total</td><td class="solo-admin d-none"></td><td class="num" id="carteraDetalleVenta"></td><td class="num" id="carteraDetallePago"></td><td class="num" id="carteraDetalleSaldo"></td></tr></tfoot>
                     </table></div>
                     <div class="mt-2 text-end"><button type="button" class="btn btn-outline-secondary btn-sm" id="exportCarteraDetalleButton"><i class="bi bi-file-earmark-excel"></i> Exportar a Excel</button></div>
                     </div></div>
