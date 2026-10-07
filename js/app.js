@@ -354,6 +354,7 @@ function registrarEventos() {
 
     // Histórico
     $('historico-tab').addEventListener('shown.bs.tab', loadHistoryData);
+    construirReportes();
     ['filterCliente', 'filterTienda', 'filterTipo', 'filterProducto'].forEach(id => $(id).addEventListener('input', filterHistory));
 
     // Cartera
@@ -1693,6 +1694,306 @@ function exportDatos() {
         Object.fromEntries(Object.entries(r).map(([k, v]) => [k, /^\d{4}-\d{2}-\d{2}$/.test(v ?? '') ? aFecha(v) : v]))));
 }
 
+// ---------------------------------------------------------------- reportes (columnas a elección)
+// Cada reporte: de dónde salen los datos, qué campo es la fecha y la tienda (para filtrar)
+// y sus columnas. tipo: texto | fecha | fechahora | num | dinero | codigo. def: va marcada por defecto.
+const REPORTES = [
+    {
+        id: 'ventas', grupo: 'Ventas', titulo: 'Ventas (detalle por línea)', fuente: 'ventas', fecha: 'fecha_venta', tienda: 'tienda',
+        descripcion: 'Cada línea vendida, con su pedido, cliente, referencia y valores.',
+        orden: [['fecha_venta', false], ['id', false]], porCodigo: 'cliente_id',
+        opciones: [{ id: 'saldosIniciales', texto: 'Incluir saldos iniciales de clientes', excluir: r => r.producto === 'SALDO INICIAL' }],
+        columnas: [
+            ['fecha_venta', 'Fecha', 'fecha', 1], ['pedido_id', 'Pedido', 'texto', 1], ['envio', 'Envío', 'texto', 1], ['factura', 'Factura'],
+            ['tienda', 'Tienda / Bodega', 'texto', 1], ['vendedor', 'Vendedor', 'texto', 1], ['cliente_id', 'Código cliente', 'codigo', 1],
+            ['cliente', 'Cliente', 'texto', 1], ['_tipo_cliente', 'Tipo de cliente'], ['_departamento', 'Departamento'],
+            ['_dueno', 'Dueño del cliente', 'texto', 0, 'admin'], ['tipo', 'Tipo (material)', 'texto', 1], ['producto', 'Referencia', 'texto', 1],
+            ['_unidad', 'Unidad'], ['cantidad', 'Cantidad', 'num', 1], ['valor_unitario', 'Valor unitario', 'dinero', 1],
+            ['valor_total', 'Valor total', 'dinero', 1], ['fecha_vencimiento', 'Vencimiento', 'fecha'], ['created_at', 'Registrado el', 'fechahora'],
+        ],
+    },
+    {
+        id: 'pagos', grupo: 'Ventas', titulo: 'Pagos recibidos', fuente: 'pagos_detalle', fecha: 'fecha_pago',
+        descripcion: 'Pagos y abonos de clientes: cuándo, cómo y quién los registró.',
+        orden: [['fecha_pago', false], ['id', false]], porCodigo: 'cliente_id',
+        columnas: [
+            ['fecha_pago', 'Fecha de pago', 'fecha', 1], ['cliente_id', 'Código cliente', 'codigo', 1], ['cliente', 'Cliente', 'texto', 1],
+            ['_dueno', 'Dueño del cliente', 'texto', 0, 'admin'], ['metodo_pago', 'Método de pago', 'texto', 1], ['valor_pagado', 'Valor', 'dinero', 1],
+            ['boleta', 'Boleta', 'texto', 1], ['envio', 'Envío'], ['vendedor', 'Vendedor'], ['registrado_por', 'Registrado por', 'texto', 1],
+            ['observaciones', 'Observaciones'], ['created_at', 'Registrado el', 'fechahora'],
+        ],
+    },
+    {
+        id: 'compras', grupo: 'Inventario', titulo: 'Compras y cargas de inventario', fuente: 'ingresos_inventario', fecha: 'fecha', tienda: 'tienda',
+        descripcion: 'Entradas (compras, inventario inicial, traslados recibidos) y salidas manuales registradas en Cargar Inventario.',
+        orden: [['fecha', false], ['id', false]],
+        opciones: [{ id: 'soloEntradas', texto: 'Solo entradas (compras)', incluir: r => num(r.entrada) > 0 }],
+        columnas: [
+            ['fecha', 'Fecha', 'fecha', 1], ['tienda', 'Tienda / Bodega', 'texto', 1], ['producto', 'Referencia', 'texto', 1], ['_tipo', 'Tipo (material)'],
+            ['_unidad', 'Unidad', 'texto', 1], ['concepto', 'Concepto', 'texto', 1], ['entrada', 'Entrada', 'num', 1], ['salida', 'Salida', 'num', 1],
+            ['_origen', 'Origen'], ['traslado_id', 'N° traslado'], ['observaciones', 'Observaciones', 'texto', 1], ['created_at', 'Registrado el', 'fechahora'],
+        ],
+    },
+    {
+        id: 'inventario', grupo: 'Inventario', titulo: 'Saldos de inventario', fuente: 'inventario', tienda: 'tienda',
+        descripcion: 'Saldo actual por tienda/bodega y referencia (entradas menos ventas y salidas).',
+        orden: [['tienda'], ['producto']],
+        opciones: [{ id: 'conSaldo', texto: 'Solo con saldo distinto de cero', incluir: r => Math.abs(num(r.saldo)) > 0.005 }],
+        columnas: [
+            ['tienda', 'Tienda / Bodega', 'texto', 1], ['producto', 'Referencia', 'texto', 1], ['tipo', 'Tipo (material)', 'texto', 1],
+            ['unidad', 'Unidad', 'texto', 1], ['fecha_inicio', 'Control desde', 'fecha'], ['entradas', 'Entradas', 'num', 1],
+            ['salidas', 'Salidas', 'num', 1], ['saldo', 'Saldo', 'num', 1],
+        ],
+    },
+    {
+        id: 'movimientos', grupo: 'Inventario', titulo: 'Movimientos de inventario (kardex)', fuente: 'inventario_movimientos', fecha: 'fecha', tienda: 'tienda',
+        descripcion: 'Todas las entradas y salidas: cargas, traslados, ventas y devoluciones a oficina.',
+        orden: [['fecha', false], ['origen_id', false]],
+        columnas: [
+            ['fecha', 'Fecha', 'fecha', 1], ['tienda', 'Tienda / Bodega', 'texto', 1], ['producto', 'Referencia', 'texto', 1], ['_unidad', 'Unidad'],
+            ['origen', 'Origen', 'texto', 1], ['detalle', 'Detalle', 'texto', 1], ['entrada', 'Entrada', 'num', 1], ['salida', 'Salida', 'num', 1],
+        ],
+    },
+    {
+        id: 'traslados', grupo: 'Inventario', titulo: 'Traslados entre bodegas', fuente: 'traslados', fecha: 'fecha_envio', tienda: ['origen', 'destino'],
+        descripcion: 'Envíos entre bodegas con su estado (enviado, recibido o anulado).',
+        orden: [['id', false]],
+        columnas: [
+            ['id', 'N° traslado', 'texto', 1], ['fecha_envio', 'Fecha de envío', 'fecha', 1], ['origen', 'Origen', 'texto', 1], ['destino', 'Destino', 'texto', 1],
+            ['producto', 'Referencia', 'texto', 1], ['cantidad', 'Cantidad', 'num', 1], ['estado', 'Estado', 'texto', 1], ['observaciones', 'Observaciones'],
+            ['fecha_recepcion', 'Recibido el', 'fechahora', 1], ['obs_recepcion', 'Observaciones de recepción'],
+        ],
+    },
+    {
+        id: 'cartera', grupo: 'Cartera', titulo: 'Cartera por cliente', fuente: 'cartera_clientes',
+        descripcion: 'Compras, pagos y saldo pendiente de cada cliente.',
+        orden: [['codigo']], porCodigo: 'codigo',
+        opciones: [{ id: 'conSaldo', texto: 'Solo clientes con saldo pendiente', incluir: r => num(r.saldo) > 0.005, def: true }],
+        columnas: [
+            ['codigo', 'Código cliente', 'codigo', 1], ['nombre', 'Cliente', 'texto', 1], ['vendedor', 'Vendedor', 'texto', 1, 'admin'],
+            ['dpi', 'DPI'], ['nit', 'NIT'], ['telefono', 'Teléfono', 'texto', 1], ['total_ventas', 'Compras', 'dinero', 1],
+            ['total_pagos', 'Pagos', 'dinero', 1], ['saldo', 'Saldo', 'dinero', 1], ['ultima_venta', 'Última venta', 'fecha', 1], ['ultimo_pago', 'Último pago', 'fecha', 1],
+        ],
+    },
+    {
+        id: 'cartera_envio', grupo: 'Cartera', titulo: 'Cartera por envío', fuente: 'cartera_detalle', fecha: 'fecha_venta', tienda: 'tienda',
+        descripcion: 'Saldo de cada envío: valor vendido menos pagos y devoluciones aplicados a ese envío.',
+        orden: [['fecha_venta', false], ['envio']], porCodigo: 'cliente_id',
+        opciones: [{ id: 'conSaldo', texto: 'Solo envíos con saldo pendiente', incluir: r => num(r.cartera) > 0.005, def: true }],
+        columnas: [
+            ['fecha_venta', 'Fecha', 'fecha', 1], ['tienda', 'Tienda / Bodega', 'texto', 1], ['cliente_id', 'Código cliente', 'codigo', 1],
+            ['cliente', 'Cliente', 'texto', 1], ['vendedor', 'Vendedor', 'texto', 1, 'admin'], ['envio', 'Envío', 'texto', 1],
+            ['valor_venta', 'Venta', 'dinero', 1], ['valor_pago', 'Pagos', 'dinero', 1], ['cartera', 'Saldo', 'dinero', 1],
+        ],
+    },
+    {
+        id: 'estado_cuenta', grupo: 'Cartera', titulo: 'Estado de cuenta (todos los clientes)', fuente: 'estado_cuenta', fecha: 'fecha',
+        descripcion: 'Cargos (ventas) y abonos (pagos y devoluciones) de todos los clientes, en orden.',
+        orden: [['cliente_id'], ['fecha'], ['ref_id']], porCodigo: 'cliente_id',
+        columnas: [
+            ['cliente_id', 'Código cliente', 'codigo', 1], ['_cliente', 'Cliente', 'texto', 1], ['fecha', 'Fecha', 'fecha', 1],
+            ['movimiento', 'Movimiento', 'texto', 1], ['detalle', 'Detalle', 'texto', 1], ['metodo_pago', 'Método de pago'],
+            ['cargo', 'Cargo', 'dinero', 1], ['abono', 'Abono', 'dinero', 1],
+        ],
+    },
+    {
+        id: 'clientes', grupo: 'Clientes', titulo: 'Listado de clientes', fuente: 'clientes', fecha: 'created_at',
+        descripcion: 'Datos de los clientes. El filtro de fechas se aplica a la fecha de creación.',
+        orden: [['id']], porCodigo: 'id',
+        columnas: [
+            ['id', 'Código cliente', 'codigo', 1], ['nombre', 'Nombre', 'texto', 1], ['tipo_cliente', 'Tipo de cliente', 'texto', 1],
+            ['dpi', 'DPI', 'texto', 1], ['nit', 'NIT', 'texto', 1], ['telefono', 'Teléfono', 'texto', 1], ['telefono2', 'Otro teléfono'],
+            ['correo', 'Correo'], ['direccion', 'Dirección'], ['departamento', 'Departamento', 'texto', 1], ['fecha_nacimiento', 'Fecha de nacimiento', 'fecha'],
+            ['_dueno', 'Vendedor dueño', 'texto', 1, 'admin'], ['created_at', 'Creado el', 'fechahora'],
+        ],
+    },
+].map(r => ({ ...r, columnas: r.columnas.map(([campo, titulo, tipo = 'texto', def = 0, solo]) => ({ campo, titulo, tipo, def: !!def, solo })) }));
+
+let repFilas = [], repColumnas = [];   // filas del último reporte generado y columnas en su orden
+let repGenerado = false;
+const reporteActual = () => REPORTES.find(r => r.id === $('repTipo').value) || REPORTES[0];
+const columnasDisponibles = rep => rep.columnas.filter(c => c.solo !== 'admin' || esAdmin());
+const claveColumnas = rep => `ariga.reporte.${rep.id}`;
+
+function construirReportes() {
+    const grupos = [...new Set(REPORTES.map(r => r.grupo))];
+    $('repTipo').innerHTML = grupos.map(g => `<optgroup label="${g}">${REPORTES.filter(r => r.grupo === g)
+        .map(r => `<option value="${r.id}">${r.titulo}</option>`).join('')}</optgroup>`).join('');
+    $('repTipo').addEventListener('change', () => elegirReporte(true));
+    $('repGenerar').addEventListener('click', generarReporte);
+    $('repExportar').addEventListener('click', exportarReporte);
+    $('repBuscar').addEventListener('input', renderReporte);
+    $('repOpciones').addEventListener('change', renderReporte);
+    $('repColumnas').addEventListener('change', e => { if (e.target.matches('input[type=checkbox]')) columnasCambiaron(); });
+    $('repColumnas').addEventListener('click', e => {
+        const b = e.target.closest('[data-mover]');
+        if (!b) return;
+        const li = b.closest('li'), otro = b.dataset.mover === 'arriba' ? li.previousElementSibling : li.nextElementSibling;
+        if (!otro) return;
+        if (b.dataset.mover === 'arriba') li.parentNode.insertBefore(li, otro); else li.parentNode.insertBefore(otro, li);
+        b.focus();
+        columnasCambiaron();
+    });
+    const marcar = fn => e => { e.preventDefault(); $('repColumnas').querySelectorAll('li').forEach(li => li.querySelector('input').checked = fn(li.dataset.campo)); columnasCambiaron(); };
+    $('repColTodas').addEventListener('click', marcar(() => true));
+    $('repColNinguna').addEventListener('click', marcar(() => false));
+    $('repColDefecto').addEventListener('click', e => {
+        e.preventDefault();
+        try { localStorage.removeItem(claveColumnas(reporteActual())); } catch { /* sin almacenamiento */ }
+        pintarColumnas(reporteActual());
+        columnasCambiaron();
+    });
+    $('reportes-tab').addEventListener('shown.bs.tab', () => { if (!$('repColumnas').children.length) elegirReporte(false); });
+}
+
+// Al cambiar de reporte: filtros que aplican, opciones y columnas (las guardadas o las de defecto)
+function elegirReporte(limpiar) {
+    const rep = reporteActual();
+    $('repDescripcion').textContent = rep.descripcion;
+    document.querySelectorAll('#reportes .rep-fecha').forEach(e => e.classList.toggle('d-none', !rep.fecha));
+    document.querySelectorAll('#reportes .rep-tienda').forEach(e => e.classList.toggle('d-none', !rep.tienda));
+    $('repOpciones').innerHTML = (rep.opciones || []).map(o => `<div class="form-check"><input class="form-check-input" type="checkbox" id="repOp-${o.id}" ${o.def ? 'checked' : ''}>
+        <label class="form-check-label" for="repOp-${o.id}">${o.texto}</label></div>`).join('');
+    pintarColumnas(rep);
+    if (limpiar) {
+        repFilas = [];
+        repGenerado = false;
+        $('repTabla').classList.add('d-none');
+        $('repExportar').disabled = true;
+        $('repTitulo').textContent = rep.titulo;
+        $('repInfo').innerHTML = 'Pulse <strong>Generar reporte</strong>.';
+    }
+    columnasCambiaron(false);
+}
+
+function pintarColumnas(rep) {
+    const disp = columnasDisponibles(rep);
+    let guardadas = null;
+    try { guardadas = JSON.parse(localStorage.getItem(claveColumnas(rep))); } catch { guardadas = null; }
+    // Orden guardado primero; las columnas nuevas (que no estaban guardadas) al final con su valor por defecto
+    const lista = Array.isArray(guardadas)
+        ? [...guardadas.map(g => ({ ...disp.find(c => c.campo === g.campo), activa: g.activa })).filter(c => c.campo),
+           ...disp.filter(c => !guardadas.some(g => g.campo === c.campo)).map(c => ({ ...c, activa: c.def }))]
+        : disp.map(c => ({ ...c, activa: c.def }));
+    $('repColumnas').innerHTML = lista.map(c => `<li class="list-group-item" data-campo="${c.campo}">
+        <input class="form-check-input" type="checkbox" id="repCol-${c.campo}" ${c.activa ? 'checked' : ''}>
+        <label class="form-check-label" for="repCol-${c.campo}">${esc(c.titulo)}</label>
+        <span class="rep-mover"><button type="button" class="btn-icono-claro" data-mover="arriba" title="Subir" aria-label="Subir ${esc(c.titulo)}"><i class="bi bi-chevron-up"></i></button>
+        <button type="button" class="btn-icono-claro" data-mover="abajo" title="Bajar" aria-label="Bajar ${esc(c.titulo)}"><i class="bi bi-chevron-down"></i></button></span></li>`).join('');
+}
+
+function columnasCambiaron(guardar = true) {
+    const rep = reporteActual();
+    const items = [...$('repColumnas').querySelectorAll('li')].map(li => ({ campo: li.dataset.campo, activa: li.querySelector('input').checked }));
+    if (guardar) try { localStorage.setItem(claveColumnas(rep), JSON.stringify(items)); } catch { /* sin almacenamiento */ }
+    repColumnas = items.filter(i => i.activa).map(i => rep.columnas.find(c => c.campo === i.campo));
+    $('repColumnasCuenta').textContent = `${repColumnas.length} de ${items.length}`;
+    renderReporte();
+}
+
+function generarReporte() {
+    const rep = reporteActual();
+    const desde = $('repDesde').value, hasta = $('repHasta').value, tienda = $('repTienda').value;
+    if (rep.fecha && desde && hasta && desde > hasta) { showAlert('La fecha "Desde" es posterior a "Hasta".', 'warning'); return; }
+    run(async () => {
+        const consulta = () => {
+            let q = sb.from(rep.fuente).select('*');
+            if (rep.fecha && desde) q = q.gte(rep.fecha, desde);
+            // created_at es fecha y hora: "hasta" incluye todo ese día
+            if (rep.fecha && hasta) q = rep.fecha === 'created_at' ? q.lt(rep.fecha, sumarDia(hasta)) : q.lte(rep.fecha, hasta);
+            if (rep.tienda && tienda && !Array.isArray(rep.tienda)) q = q.eq(rep.tienda, tienda);
+            return rep.orden.reduce((q2, [c, asc = true]) => q2.order(c, { ascending: asc }), q);
+        };
+        const [filas] = await Promise.all([
+            fetchAll(consulta),
+            rep.columnas.some(c => ['_dueno', '_tipo_cliente', '_departamento', '_cliente'].includes(c.campo)) ? cargarClientesReporte() : null,
+            esAdmin() && !perfiles.length ? cargarPerfiles() : null,
+        ]);
+        // Traslados: la bodega puede ser el origen o el destino
+        repFilas = filas.filter(r => !tienda || !Array.isArray(rep.tienda) || rep.tienda.some(c => r[c] === tienda))
+            .map(r => enriquecerFila(rep, r));
+        repGenerado = true;
+        if (rep.porCodigo) { repFilas.forEach(r => recordarConsecutivo({ id: r[rep.porCodigo], consecutivo: r.consecutivo })); ordenarPorCodigo(repFilas, rep.porCodigo); }
+        $('repTitulo').textContent = rep.titulo;
+        renderReporte();
+    });
+}
+
+const sumarDia = iso => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
+
+// Datos de clientes para las columnas calculadas (tipo de cliente, departamento, dueño)
+let clientesReporte = {};
+async function cargarClientesReporte() {
+    const l = await fetchAll(() => sb.from('clientes').select('id,nombre,tipo_cliente,departamento,creado_por,consecutivo').order('id'));
+    clientesReporte = Object.fromEntries(l.map(c => [c.id, c]));
+    l.forEach(recordarConsecutivo);
+}
+
+function enriquecerFila(rep, r) {
+    const c = (rep.porCodigo && clientesReporte[r[rep.porCodigo]]) || {};
+    const ref = referencias.find(x => norm(x.nombre) === norm(r.producto)) || {};
+    return {
+        ...r,
+        _tipo_cliente: c.tipo_cliente, _departamento: c.departamento, _cliente: c.nombre,
+        _dueno: rep.fuente === 'clientes' ? nombreUsuario(r.creado_por) : (c.creado_por ? nombreUsuario(c.creado_por) : ''),
+        _tipo: ref.tipo, _unidad: (ref.unidad || '').toLowerCase(),
+        _origen: rep.fuente === 'ingresos_inventario' ? (r.traslado_id ? 'TRASLADO' : 'CARGA') : undefined,
+    };
+}
+
+function repFiltradas() {
+    const rep = reporteActual(), q = norm($('repBuscar').value);
+    const ops = (rep.opciones || []).map(o => ({ ...o, on: $(`repOp-${o.id}`)?.checked }));
+    return repFilas.filter(r => ops.every(o => o.incluir ? (!o.on || o.incluir(r)) : (o.on || !o.excluir(r)))
+        && (!q || repColumnas.some(c => norm(valorPantalla(c, r[c.campo])).includes(q)) || coincideCodigo(r[rep.porCodigo], q)));
+}
+
+function valorPantalla(c, v) {
+    if (v === null || v === undefined || v === '') return '';
+    switch (c.tipo) {
+        case 'fecha': return fmtFecha(v);
+        case 'fechahora': return new Date(v).toLocaleString('es-GT', { timeZone: CFG.ZONA_HORARIA, dateStyle: 'short', timeStyle: 'short' });
+        case 'num': return fmt(v);
+        case 'dinero': return fmtQ(v);
+        case 'codigo': return String(cod(v));
+        default: return String(v);
+    }
+}
+
+function valorExcel(c, v) {
+    if (v === null || v === undefined || v === '') return null;
+    switch (c.tipo) {
+        case 'fecha': return aFecha(v);
+        case 'fechahora': return valorPantalla(c, v);
+        case 'num': case 'dinero': return num(v);
+        case 'codigo': return Number(cod(v)) || cod(v);
+        default: return v;
+    }
+}
+
+const MAX_FILAS_REPORTE = 500;
+function renderReporte() {
+    if (!repGenerado) return;
+    const d = repFiltradas(), cols = repColumnas;
+    const derecha = c => ['num', 'dinero', 'codigo'].includes(c.tipo) ? ' class="num"' : '';
+    $('repHead').innerHTML = `<tr>${cols.map(c => `<th${derecha(c)}>${esc(c.titulo)}</th>`).join('')}</tr>`;
+    $('repBody').innerHTML = d.slice(0, MAX_FILAS_REPORTE).map(r => `<tr>${cols.map(c => `<td${derecha(c)}>${esc(valorPantalla(c, r[c.campo]))}</td>`).join('')}</tr>`).join('');
+    const sumables = cols.filter(c => c.tipo === 'num' || c.tipo === 'dinero');
+    $('repFoot').innerHTML = sumables.length && d.length ? `<tr>${cols.map((c, i) => sumables.includes(c)
+        ? `<td class="num fw-semibold">${valorPantalla(c, d.reduce((s, r) => s + num(r[c.campo]), 0))}</td>` : `<td>${i === 0 ? 'Total' : ''}</td>`).join('')}</tr>` : '';
+    $('repTabla').classList.toggle('d-none', !cols.length);
+    $('repExportar').disabled = !d.length || !cols.length;
+    $('repInfo').textContent = !cols.length ? 'Marque al menos una columna.'
+        : `${d.length} fila(s)` + (d.length > MAX_FILAS_REPORTE ? ` · en pantalla se muestran ${MAX_FILAS_REPORTE}; el Excel incluye todas` : '') + (d.length ? '' : ' · no hay datos con estos filtros');
+}
+
+function exportarReporte() {
+    const rep = reporteActual(), cols = repColumnas;
+    const filas = repFiltradas().map(r => Object.fromEntries(cols.map(c => [c.titulo, valorExcel(c, r[c.campo])])));
+    const rango = rep.fecha && ($('repDesde').value || $('repHasta').value) ? `_${$('repDesde').value || 'inicio'}_a_${$('repHasta').value || 'hoy'}` : '';
+    exportarExcel(`Reporte_${rep.id}${rango}`, rep.titulo, filas);
+}
+
 // ---------------------------------------------------------------- Excel
 // 'yyyy-mm-dd' -> Date local (Excel la muestra como fecha, sin corrimiento de zona)
 function aFecha(f) {
@@ -1828,7 +2129,7 @@ async function cargarMaestros() {
     const activos = l => l.filter(x => x.activo !== false).map(x => x.nombre);
 
     // Filtros de consulta: todos. Formularios: solo activos.
-    ['filterTienda', 'filterCarteraDetalleTienda'].forEach(id => repoblar(id, todos(tiendas), 'Todas'));
+    ['filterTienda', 'filterCarteraDetalleTienda', 'repTienda'].forEach(id => repoblar(id, todos(tiendas), 'Todas'));
     repoblar('tiendaSelect', activos(tiendas), 'Seleccione Tienda...');
     repoblar('cargaTienda', activos(tiendas), 'Seleccione Tienda...');
     repoblar('saldoInicialTienda', activos(tiendas), '(opcional)');

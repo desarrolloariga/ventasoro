@@ -229,7 +229,7 @@
               </div>
               <div class="menu-grupo">
                 <button type="button" class="menu-rotulo" aria-expanded="true" data-grupo="CONSULTAS"><span>CONSULTAS</span><i class="bi bi-chevron-down"></i></button>
-                <button class="nav-link menu-item" id="inteligencia-tab" data-bs-toggle="tab" data-bs-target="#inteligencia" type="button" role="tab" data-titulo="Inteligencia comercial" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-graph-up"></i><span class="menu-texto">Inteligencia</span></button><button class="nav-link menu-item" id="historico-tab" data-bs-toggle="tab" data-bs-target="#historico" type="button" role="tab" data-titulo="Histórico de ventas" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-clock-history"></i><span class="menu-texto">Histórico</span></button><button class="nav-link menu-item" id="cartera-tab" data-bs-toggle="tab" data-bs-target="#cartera" type="button" role="tab" data-titulo="Cartera" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-wallet2"></i><span class="menu-texto">Cartera</span></button>
+                <button class="nav-link menu-item" id="inteligencia-tab" data-bs-toggle="tab" data-bs-target="#inteligencia" type="button" role="tab" data-titulo="Inteligencia comercial" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-graph-up"></i><span class="menu-texto">Inteligencia</span></button><button class="nav-link menu-item" id="historico-tab" data-bs-toggle="tab" data-bs-target="#historico" type="button" role="tab" data-titulo="Histórico de ventas" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-clock-history"></i><span class="menu-texto">Histórico</span></button><button class="nav-link menu-item" id="cartera-tab" data-bs-toggle="tab" data-bs-target="#cartera" type="button" role="tab" data-titulo="Cartera" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-wallet2"></i><span class="menu-texto">Cartera</span></button><button class="nav-link menu-item" id="reportes-tab" data-bs-toggle="tab" data-bs-target="#reportes" type="button" role="tab" data-titulo="Reportes" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-file-earmark-bar-graph"></i><span class="menu-texto">Reportes</span></button>
               </div>
               <div class="menu-grupo">
                 <button type="button" class="menu-rotulo" aria-expanded="true" data-grupo="INVENTARIO"><span>INVENTARIO</span><i class="bi bi-chevron-down"></i></button>
@@ -889,6 +889,61 @@
                           </table>
                         </div>
                         <div class="mt-2 text-muted small" id="movimientosInfo">Seleccione tienda y referencia.</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pestaña: Reportes (columnas a elección, se arma en js/app.js) -->
+            <div class="tab-pane fade" id="reportes" role="tabpanel">
+              <div class="row g-3 mt-1">
+                <div class="col-lg-4">
+                  <div class="card mb-3">
+                    <div class="card-header card-header-custom"><i class="bi bi-file-earmark-bar-graph me-2"></i> Reporte</div>
+                    <div class="card-body">
+                      <label class="form-label" for="repTipo">Tipo de reporte</label>
+                      <select class="form-select" id="repTipo"></select>
+                      <p class="small text-muted mt-2 mb-3" id="repDescripcion"></p>
+                      <div class="row g-2">
+                        <div class="col-6 rep-fecha"><label class="form-label" for="repDesde">Desde</label><input type="date" class="form-control" id="repDesde"></div>
+                        <div class="col-6 rep-fecha"><label class="form-label" for="repHasta">Hasta</label><input type="date" class="form-control" id="repHasta"></div>
+                        <div class="col-12 rep-tienda"><label class="form-label" for="repTienda">Tienda / Bodega</label><select class="form-select" id="repTienda"><option value="">Todas</option></select></div>
+                        <div class="col-12"><label class="form-label" for="repBuscar">Contiene el texto</label><input type="search" class="form-control" id="repBuscar" placeholder="Cliente, código, referencia, envío…"></div>
+                        <div class="col-12" id="repOpciones"></div>
+                      </div>
+                      <button type="button" class="btn btn-gold w-100 mt-3" id="repGenerar"><i class="bi bi-play-fill me-1"></i> Generar reporte</button>
+                    </div>
+                  </div>
+                  <div class="card">
+                    <div class="card-header card-header-custom d-flex justify-content-between align-items-center">
+                      <span><i class="bi bi-layout-three-columns me-2"></i> Columnas</span>
+                      <span class="small" id="repColumnasCuenta"></span>
+                    </div>
+                    <div class="card-body">
+                      <div class="d-flex gap-3 small mb-2">
+                        <a href="#" id="repColTodas">Todas</a><a href="#" id="repColNinguna">Ninguna</a><a href="#" id="repColDefecto">Predeterminadas</a>
+                      </div>
+                      <ul class="list-group rep-columnas" id="repColumnas"></ul>
+                      <p class="small text-muted mt-2 mb-0">Marque las columnas que quiere en el informe y use las flechas para cambiar su orden. Se recuerda para la próxima vez.</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-lg-8">
+                  <div class="card">
+                    <div class="card-header card-header-custom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                      <span id="repTitulo">Vista previa</span>
+                      <button type="button" class="btn btn-gold btn-sm" id="repExportar" disabled><i class="bi bi-file-earmark-excel me-1"></i> Exportar a Excel</button>
+                    </div>
+                    <div class="card-body">
+                      <p class="small text-muted" id="repInfo">Elija el reporte, los filtros y las columnas, y pulse <strong>Generar reporte</strong>.</p>
+                      <div class="table-responsive" style="max-height: 640px; overflow-y: auto;">
+                        <table class="table table-sm table-hover align-middle d-none" id="repTabla">
+                          <thead class="table-light sticky-top" id="repHead"></thead>
+                          <tbody id="repBody"></tbody>
+                          <tfoot id="repFoot"></tfoot>
+                        </table>
                       </div>
                     </div>
                   </div>

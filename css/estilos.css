@@ -436,3 +436,14 @@ details > summary { color: var(--gold-dark); cursor: pointer; font-size: 12px; }
 #masivaBody .revision-error { color: var(--clay); font-size: 12px; }
 #masivaBody .revision-ok { color: var(--sage); font-size: 12px; }
 .card-header-custom .btn { font-family: var(--sans); }
+
+/* ---------------------------------------------------------------- reportes */
+.rep-columnas { max-height: 420px; overflow-y: auto; }
+.rep-columnas .list-group-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; }
+.rep-columnas .form-check-label { flex: 1; cursor: pointer; }
+.rep-columnas .form-check-input { margin: 0; flex-shrink: 0; }
+.rep-mover { display: flex; gap: 2px; }
+.btn-icono-claro { border: 0; background: transparent; color: var(--ink-42); padding: 2px 5px; border-radius: 2px; line-height: 1; }
+.btn-icono-claro:hover, .btn-icono-claro:focus-visible { color: var(--ink); background: rgba(198, 161, 91, .14); }
+.rep-columnas li:first-child [data-mover="arriba"], .rep-columnas li:last-child [data-mover="abajo"] { visibility: hidden; }
+#repTabla td, #repTabla th { white-space: nowrap; }
