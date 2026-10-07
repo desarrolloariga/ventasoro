@@ -154,6 +154,8 @@
                 <div class="modal-body">
                     <div class="mb-3 d-none" id="crearClaseGrupo"><label for="crearClase" class="form-label">Tipo</label>
                         <select class="form-select" id="crearClase"><option value="TIENDA">Tienda</option><option value="BODEGA">Bodega</option></select></div>
+                    <div class="mb-3 d-none" id="crearUnidadGrupo"><label for="crearUnidad" class="form-label">Unidad</label>
+                        <select class="form-select" id="crearUnidad"><option value="GRAMOS">Gramos (lleva inventario)</option><option value="UNIDADES">Unidades (lleva inventario)</option><option value="SIN">Unidades, sin inventario (p. ej. servicios)</option></select></div>
                     <label for="crearNombre" class="form-label">Nombre</label>
                     <input type="text" class="form-control" id="crearNombre" required autocomplete="off">
                 </div>
@@ -307,7 +309,7 @@
                         <div class="card-body">
                             <div class="table-responsive">
                                 <table class="table table-sm">
-                                    <thead><tr><th>Tipo</th><th>Producto</th><th>Cant.</th><th>Unit.</th><th>Total</th><th></th></tr></thead>
+                                    <thead><tr><th>Tipo (material)</th><th>Cant.</th><th>Unit.</th><th>Total</th><th></th></tr></thead>
                                     <tbody id="productLines"></tbody>
                                 </table>
                             </div>
@@ -385,7 +387,7 @@
                           <tfoot id="intGramosFoot"></tfoot>
                         </table>
                       </div>
-                      <div class="form-text">Saldo actual de las referencias que se manejan en gramos. Negativo = se ha vendido más de lo cargado.</div>
+                      <div class="form-text">Saldo actual de los tipos que se manejan en gramos. Negativo = se ha vendido más de lo cargado.</div>
                     </div>
                   </div>
                 </div>
@@ -577,7 +579,7 @@
                       <div class="col-md-3"><label class="form-label" for="filterCliente">Cliente o código</label><input type="text" class="form-control" id="filterCliente" placeholder="Nombre o código del cliente..."></div>
                       <div class="col-md-3"><label class="form-label" for="filterTienda">Tienda / Bodega</label><select class="form-select" id="filterTienda"><option value="">Todas</option></select></div>
                       <div class="col-md-3"><label class="form-label" for="filterTipo">Tipo</label><select class="form-select" id="filterTipo"><option value="">Todos</option></select></div>
-                      <div class="col-md-3"><label class="form-label" for="filterProducto">Referencia</label><select class="form-select" id="filterProducto"><option value="">Todos</option></select></div>
+                      <div class="col-md-3 d-none"><label class="form-label" for="filterProducto">Referencia</label><select class="form-select" id="filterProducto"><option value="">Todos</option></select></div>
                     </div>
                   </div>
                 </div>
@@ -586,7 +588,7 @@
                     <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
                       <table class="table table-hover table-bordered table-sm">
                         <thead class="table-light sticky-top">
-                          <tr><th>Fecha</th><th>Pedido</th><th>Tienda</th><th>Vendedor</th><th class="num">Código</th><th>Cliente</th><th>Tipo</th><th>Producto</th><th class="num">Cant.</th><th class="num">Unit.</th><th class="num">Total</th></tr>
+                          <tr><th>Fecha</th><th>Pedido</th><th>Tienda</th><th>Vendedor</th><th class="num">Código</th><th>Cliente</th><th>Tipo (material)</th><th class="num">Cant.</th><th class="num">Unit.</th><th class="num">Total</th></tr>
                         </thead>
                         <tbody id="historicoTableBody"></tbody>
                       </table>
@@ -687,7 +689,7 @@
                 <ul class="nav nav-pills mb-3">
                   <li class="nav-item"><button class="nav-link active" id="pills-saldos-tab" data-bs-toggle="pill" data-bs-target="#pills-saldos" type="button">Saldos</button></li>
                   <li class="nav-item"><button class="nav-link" id="pills-carga-tab" data-bs-toggle="pill" data-bs-target="#pills-carga" type="button">Cargar Inventario</button></li>
-                  <li class="nav-item"><button class="nav-link" id="pills-referencias-tab" data-bs-toggle="pill" data-bs-target="#pills-referencias" type="button">Referencias</button></li>
+                  <li class="nav-item d-none"><button class="nav-link" id="pills-referencias-tab" data-bs-toggle="pill" data-bs-target="#pills-referencias" type="button">Referencias</button></li>
                   <li class="nav-item"><button class="nav-link" id="pills-movimientos-tab" data-bs-toggle="pill" data-bs-target="#pills-movimientos" type="button">Movimientos</button></li>
                   <li class="nav-item"><button class="nav-link" id="pills-traslados-tab" data-bs-toggle="pill" data-bs-target="#pills-traslados" type="button">Traslados <span class="badge text-bg-danger d-none" id="badgeTraslados"></span></button></li>
                 </ul>
@@ -699,7 +701,7 @@
                         <div class="row g-3">
                           <div class="col-md-4"><label class="form-label" for="inventarioVista">Ver</label><select class="form-select" id="inventarioVista"><option value="tienda">Por tienda y referencia</option><option value="producto">Total por referencia</option></select></div>
                           <div class="col-md-4"><label class="form-label" for="filterInventarioTienda">Tienda</label><select class="form-select" id="filterInventarioTienda"><option value="">Todas</option></select></div>
-                          <div class="col-md-4"><label class="form-label" for="filterInventarioProducto">Referencia</label><select class="form-select" id="filterInventarioProducto"><option value="">Todas</option></select></div>
+                          <div class="col-md-4"><label class="form-label" for="filterInventarioProducto">Tipo (material)</label><select class="form-select" id="filterInventarioProducto"><option value="">Todas</option></select></div>
                         </div>
                       </div>
                     </div>
@@ -707,7 +709,7 @@
                       <div class="card-body">
                         <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
                           <table class="table table-sm table-bordered table-hover">
-                            <thead class="table-light sticky-top"><tr><th>Tienda</th><th>Referencia</th><th>Unidad</th><th class="num">Entradas</th><th class="num">Salidas</th><th class="num">Saldo</th></tr></thead>
+                            <thead class="table-light sticky-top"><tr><th>Tienda</th><th>Tipo (material)</th><th>Unidad</th><th class="num">Entradas</th><th class="num">Salidas</th><th class="num">Saldo</th></tr></thead>
                             <tbody id="inventarioTableBody"></tbody>
                             <tfoot><tr><td colspan="3">Total</td><td class="num" id="inventarioEntradas"></td><td class="num" id="inventarioSalidas"></td><td class="num" id="inventarioSaldo"></td></tr></tfoot>
                           </table>
@@ -726,16 +728,9 @@
                       <div class="card-header card-header-custom"><i class="bi bi-box-seam me-2"></i> Cargar Inventario</div>
                       <div class="card-body">
                         <div class="row g-3">
-                          <div class="col-md-2"><label class="form-label" for="cargaFecha">Fecha</label><input type="date" class="form-control" id="cargaFecha" required></div>
-                          <div class="col-md-3"><label class="form-label" for="cargaTienda">Tienda / Bodega</label><select class="form-select" id="cargaTienda" data-crear="tiendas" required></select></div>
-                          <div class="col-md-3"><label class="form-label" for="cargaTipo">Tipo (material)</label><select class="form-select" id="cargaTipo"></select></div>
-                          <div class="col-md-4">
-                            <label class="form-label" for="cargaProducto">Referencia</label>
-                            <div class="input-group">
-                              <select class="form-select" id="cargaProducto" data-crear="productos" required></select>
-                              <button type="button" class="btn btn-outline-secondary" id="cargaNuevaRefButton" title="Crear referencia"><i class="bi bi-plus-lg"></i> Nueva</button>
-                            </div>
-                          </div>
+                          <div class="col-md-3"><label class="form-label" for="cargaFecha">Fecha</label><input type="date" class="form-control" id="cargaFecha" required></div>
+                          <div class="col-md-4"><label class="form-label" for="cargaTienda">Tienda / Bodega</label><select class="form-select" id="cargaTienda" data-crear="tiendas" required></select></div>
+                          <div class="col-md-5"><label class="form-label" for="cargaProducto">Tipo (material)</label><select class="form-select" id="cargaProducto" data-crear="tipos" required></select></div>
                           <div class="col-md-3"><label class="form-label" for="cargaMovimiento">Movimiento</label><select class="form-select" id="cargaMovimiento"><option value="entrada">Entrada (+)</option><option value="salida">Salida / ajuste (−)</option></select></div>
                           <div class="col-md-3"><label class="form-label" for="cargaCantidad">Cantidad <span class="text-muted small" id="cargaUnidad"></span></label><input type="number" class="form-control" id="cargaCantidad" step="0.01" min="0.01" required></div>
                           <div class="col-md-3"><label class="form-label" for="cargaConcepto">Concepto</label><input type="text" class="form-control" id="cargaConcepto" list="conceptosList" required><datalist id="conceptosList"><option value="INV INICIAL"><option value="COMPRA"><option value="TRASLADO"><option value="AJUSTE"><option value="DEVOLUCION"></datalist></div>
@@ -753,7 +748,7 @@
                         <button type="button" class="btn btn-outline-secondary btn-sm" id="plantillaCargaButton"><i class="bi bi-download me-1"></i> Descargar plantilla</button>
                       </div>
                       <div class="card-body">
-                        <p class="small text-muted mb-2">1. Descargue la plantilla y llénela: una fila por movimiento (la hoja <em>Listas</em> trae las bodegas y referencias válidas). 2. Súbala aquí, revise la vista previa y confirme.</p>
+                        <p class="small text-muted mb-2">1. Descargue la plantilla y llénela: una fila por movimiento (la hoja <em>Listas</em> trae las bodegas y tipos válidos). 2. Súbala aquí, revise la vista previa y confirme.</p>
                         <div class="row g-2 align-items-center">
                           <div class="col-md-8"><input type="file" class="form-control" id="archivoCarga" accept=".xlsx,.xls,.csv" aria-label="Archivo de Excel"></div>
                           <div class="col-md-4 small text-muted" id="masivaTiendaNota"></div>
@@ -768,7 +763,7 @@
                           </div>
                           <div class="table-responsive" style="max-height: 360px; overflow-y: auto;">
                             <table class="table table-sm align-middle">
-                              <thead class="table-light sticky-top"><tr><th class="num">Fila</th><th>Fecha</th><th>Tienda / Bodega</th><th>Referencia</th><th>Movimiento</th><th class="num">Cantidad</th><th>Concepto</th><th>Observaciones</th><th>Revisión</th></tr></thead>
+                              <thead class="table-light sticky-top"><tr><th class="num">Fila</th><th>Fecha</th><th>Tienda / Bodega</th><th>Tipo (material)</th><th>Movimiento</th><th class="num">Cantidad</th><th>Concepto</th><th>Observaciones</th><th>Revisión</th></tr></thead>
                               <tbody id="masivaBody"></tbody>
                             </table>
                           </div>
@@ -780,12 +775,12 @@
                       <div class="card-body">
                         <div class="row g-2 mb-2">
                           <div class="col-md-4"><select class="form-select form-select-sm" id="filterCargasTienda" aria-label="Tienda"><option value="">Todas las tiendas</option></select></div>
-                          <div class="col-md-4"><select class="form-select form-select-sm" id="filterCargasProducto" aria-label="Referencia"><option value="">Todas las referencias</option></select></div>
+                          <div class="col-md-4"><select class="form-select form-select-sm" id="filterCargasProducto" aria-label="Tipo"><option value="">Todos los tipos</option></select></div>
                           <div class="col-md-4 small text-muted d-flex align-items-center">Para corregir una carga, elimínela y regístrela de nuevo.</div>
                         </div>
                         <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
                           <table class="table table-sm table-bordered">
-                            <thead class="table-light sticky-top"><tr><th>Fecha</th><th>Tienda</th><th>Referencia</th><th>Concepto</th><th class="num">Entrada</th><th class="num">Salida</th><th>Observaciones</th><th></th></tr></thead>
+                            <thead class="table-light sticky-top"><tr><th>Fecha</th><th>Tienda</th><th>Tipo (material)</th><th>Concepto</th><th class="num">Entrada</th><th class="num">Salida</th><th>Observaciones</th><th></th></tr></thead>
                             <tbody id="cargasTableBody"></tbody>
                           </table>
                         </div>
@@ -829,8 +824,7 @@
                             <div class="alert alert-warning py-2 small d-none" id="trasladoSinTienda">Su usuario no tiene tienda o bodega asignada. Pida al administrador que lo vincule para poder enviar traslados.</div>
                             <div class="mb-2"><label class="form-label" for="trasladoOrigen">Envía (origen)</label><select class="form-select" id="trasladoOrigen" required></select></div>
                             <div class="mb-2"><label class="form-label" for="trasladoDestino">Recibe (destino)</label><select class="form-select" id="trasladoDestino" required></select></div>
-                            <div class="mb-2"><label class="form-label" for="trasladoTipo">Tipo (material)</label><select class="form-select" id="trasladoTipo"></select></div>
-                            <div class="mb-2"><label class="form-label" for="trasladoProducto">Referencia</label><select class="form-select" id="trasladoProducto" required></select></div>
+                            <div class="mb-2"><label class="form-label" for="trasladoProducto">Tipo (material)</label><select class="form-select" id="trasladoProducto" required></select></div>
                             <div class="row g-2 mb-2">
                               <div class="col-6"><label class="form-label" for="trasladoCantidad">Cantidad <span class="small text-muted" id="trasladoUnidad"></span></label><input type="number" class="form-control" id="trasladoCantidad" step="0.01" min="0.01" required></div>
                               <div class="col-6"><label class="form-label" for="trasladoFecha">Fecha</label><input type="date" class="form-control" id="trasladoFecha" required></div>
@@ -847,7 +841,7 @@
                           <div class="card-header card-header-custom"><i class="bi bi-inbox me-2"></i> Por recibir</div>
                           <div class="card-body">
                             <div class="table-responsive"><table class="table table-sm table-bordered align-middle mb-0">
-                              <thead class="table-light"><tr><th>#</th><th>Enviado</th><th>Origen</th><th>Destino</th><th>Referencia</th><th class="num">Cantidad</th><th>Envió</th><th>Obs.</th><th></th></tr></thead>
+                              <thead class="table-light"><tr><th>#</th><th>Enviado</th><th>Origen</th><th>Destino</th><th>Tipo (material)</th><th class="num">Cantidad</th><th>Envió</th><th>Obs.</th><th></th></tr></thead>
                               <tbody id="porRecibirBody"></tbody></table></div>
                           </div>
                         </div>
@@ -863,7 +857,7 @@
                           </div>
                           <div class="card-body">
                             <div class="table-responsive" style="max-height: 420px; overflow-y: auto;"><table class="table table-sm table-bordered align-middle mb-0">
-                              <thead class="table-light sticky-top"><tr><th>#</th><th>Enviado</th><th>Origen → Destino</th><th>Referencia</th><th class="num">Cantidad</th><th>Estado</th><th>Recepción</th><th>Obs.</th><th></th></tr></thead>
+                              <thead class="table-light sticky-top"><tr><th>#</th><th>Enviado</th><th>Origen → Destino</th><th>Tipo (material)</th><th class="num">Cantidad</th><th>Estado</th><th>Recepción</th><th>Obs.</th><th></th></tr></thead>
                               <tbody id="trasladosBody"></tbody></table></div>
                           </div>
                         </div>
@@ -877,7 +871,7 @@
                       <div class="card-body">
                         <div class="row g-3 align-items-end">
                           <div class="col-md-4"><label class="form-label" for="movTienda">Tienda</label><select class="form-select" id="movTienda"></select></div>
-                          <div class="col-md-5"><label class="form-label" for="movProducto">Referencia</label><select class="form-select" id="movProducto"></select></div>
+                          <div class="col-md-5"><label class="form-label" for="movProducto">Tipo (material)</label><select class="form-select" id="movProducto"></select></div>
                           <div class="col-md-3 text-md-end"><button type="button" class="btn btn-outline-secondary" id="exportMovimientosButton"><i class="bi bi-file-earmark-excel"></i> Excel</button></div>
                         </div>
                       </div>
@@ -912,7 +906,7 @@
                         <div class="col-6 rep-fecha"><label class="form-label" for="repDesde">Desde</label><input type="date" class="form-control" id="repDesde"></div>
                         <div class="col-6 rep-fecha"><label class="form-label" for="repHasta">Hasta</label><input type="date" class="form-control" id="repHasta"></div>
                         <div class="col-12 rep-tienda"><label class="form-label" for="repTienda">Tienda / Bodega</label><select class="form-select" id="repTienda"><option value="">Todas</option></select></div>
-                        <div class="col-12"><label class="form-label" for="repBuscar">Contiene el texto</label><input type="search" class="form-control" id="repBuscar" placeholder="Cliente, código, referencia, envío…"></div>
+                        <div class="col-12"><label class="form-label" for="repBuscar">Contiene el texto</label><input type="search" class="form-control" id="repBuscar" placeholder="Cliente, código, tipo, envío…"></div>
                         <div class="col-12" id="repOpciones"></div>
                       </div>
                       <button type="button" class="btn btn-gold w-100 mt-3" id="repGenerar"><i class="bi bi-play-fill me-1"></i> Generar reporte</button>

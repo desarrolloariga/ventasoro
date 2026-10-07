@@ -214,7 +214,7 @@ async function salir() {
 
 function cargarDatosIniciales() {
     run(async () => {
-        await Promise.all([cargarMaestros(), cargarReferencias(), esAdmin() ? cargarPerfiles() : null, cargarConsecutivos()]);
+        await Promise.all([cargarMaestros(), esAdmin() ? cargarPerfiles() : null, cargarConsecutivos()]);
         $('cargaFecha').value = hoyISO();
         $('fechaPago').value = hoyISO();
         $('recDesde').value = inicioMesISO();
@@ -307,26 +307,7 @@ function registrarEventos() {
     $('addProductButton').addEventListener('click', () => addProductLine());
     $('saleForm').addEventListener('submit', handleFormSubmit);
     $('productLines').addEventListener('input', updateLineTotal);
-    // El tipo filtra las referencias de la línea y la referencia fija su tipo
-    $('productLines').addEventListener('change', e => {
-        const tr = e.target.closest('tr');
-        if (e.target.value === OPCION_CREAR) return;
-        if (e.target.classList.contains('product-tipo')) filtrarReferenciasLinea(tr);
-        if (e.target.classList.contains('product-producto')) {
-            const tipo = tipoDeReferencia(e.target.value);
-            if (tipo) { setSelectValue(tr.querySelector('.product-tipo'), tipo); filtrarReferenciasLinea(tr); }
-        }
-    });
-    // Tipo y referencia en Cargar inventario, Traslados y filtros del Histórico
-    VINCULOS_TIPO.forEach(v => {
-        $(v.tipo).addEventListener('change', () => {
-            if ($(v.tipo).value !== OPCION_CREAR) filtrarReferenciasVinculo(v, true);
-        });
-        $(v.ref).addEventListener('change', () => {
-            const tipo = tipoDeReferencia($(v.ref).value);
-            if (tipo && $(v.tipo).value !== tipo) { setSelectValue(v.tipo, tipo); filtrarReferenciasVinculo(v); }
-        });
-    });
+
     $('productLines').addEventListener('click', e => {
         if (e.target.classList.contains('delete-row')) { e.target.closest('tr').remove(); updateSubtotal(); }
     });
@@ -400,7 +381,6 @@ function registrarEventos() {
 
     $('cargaForm').addEventListener('submit', handleCargaSubmit);
     ['cargaTienda', 'cargaProducto'].forEach(id => $(id).addEventListener('change', mostrarSaldoCarga));
-    $('cargaNuevaRefButton').addEventListener('click', () => abrirModalReferencia(null, $('cargaProducto')));
     $('plantillaCargaButton').addEventListener('click', descargarPlantillaCarga);
     $('archivoCarga').addEventListener('change', e => { if (e.target.files[0]) leerArchivoCarga(e.target.files[0]); });
     $('masivaCancelar').addEventListener('click', limpiarCargaMasiva);
@@ -459,7 +439,8 @@ function registrarEventos() {
     });
     $('maestros').addEventListener('change', e => {
         if (e.target.classList.contains('maestro-activo')) cambiarActivoMaestro(e.target);
-        if (e.target.classList.contains('maestro-clase')) cambiarClaseTienda(e.target);
+        if (e.target.classList.contains('maestro-unidad')) cambiarUnidadTipo(e.target);
+        else if (e.target.classList.contains('maestro-clase')) cambiarClaseTienda(e.target);
     });
     $('maestros').addEventListener('click', e => {
         const b = e.target.closest('.maestro-delete');
@@ -651,42 +632,16 @@ const getOptionsHTML = (opts, sel, crear) => {
         lista.map(x => `<option value="${esc(x)}" ${x === sel ? 'selected' : ''}>${esc(x)}</option>`).join('') + opcionCrear(crear);
 };
 
-// ---------------------------------------------------------------- tipo (material) ↔ referencia
-// Cada referencia pertenece a un tipo: el tipo filtra la lista de referencias
-// y al elegir una referencia se fija su tipo.
-const tipoDeReferencia = nombre => referencias.find(r => r.nombre === nombre)?.tipo || '';
-const referenciasDelTipo = (refs, tipo) => refs.filter(r => !tipo || tipo === OPCION_CREAR || r.tipo === tipo).map(r => r.nombre);
-const refsInventario = () => referencias.filter(r => r.activo && r.controla_inventario);
-const VINCULOS_TIPO = [
-    { tipo: 'cargaTipo', ref: 'cargaProducto', vacio: 'Seleccione Referencia...', refs: refsInventario },
-    { tipo: 'trasladoTipo', ref: 'trasladoProducto', vacio: 'Seleccione...',
-      refs: () => refsInventario().sort((a, b) => (a.unidad === 'GRAMOS' ? 0 : 1) - (b.unidad === 'GRAMOS' ? 0 : 1)) },
-    { tipo: 'filterTipo', ref: 'filterProducto', vacio: 'Todas', refs: () => referencias, evento: 'input' },
-];
-
-// Vuelve a llenar la lista de referencias según el tipo; si la elegida no es de ese tipo se quita
-function filtrarReferenciasVinculo(v, avisar = false) {
-    const sel = $(v.ref), previa = sel.value;
-    const lista = referenciasDelTipo(v.refs(), $(v.tipo).value);
-    populateDropdown(v.ref, lista, v.vacio);
-    sel.value = lista.includes(previa) ? previa : '';
-    sel.dataset.previo = sel.value;
-    if (avisar && sel.value !== previa) sel.dispatchEvent(new Event(v.evento || 'change', { bubbles: true }));
-}
-
-function filtrarReferenciasLinea(tr) {
-    const sel = tr.querySelector('.product-producto'), previa = sel.value;
-    const lista = referenciasDelTipo(referencias.filter(r => r.activo), tr.querySelector('.product-tipo').value);
-    sel.innerHTML = getOptionsHTML(lista, lista.includes(previa) ? previa : '', 'productos');
-    sel.dataset.previo = sel.value;
-}
+// Lo que se vende y se controla en inventario es el Tipo (material) de Maestros.
+// La tabla "productos" (referencias) es una copia automática de los tipos.
+const tiposConInventario = () => referencias.filter(r => r.activo && r.controla_inventario)
+    .sort((a, b) => (a.unidad === 'GRAMOS' ? 0 : 1) - (b.unidad === 'GRAMOS' ? 0 : 1) || (a.orden || 0) - (b.orden || 0))
+    .map(r => r.nombre);
 
 function addProductLine(d = {}) {
     const r = document.createElement('tr');
-    const refs = referenciasDelTipo(referencias.filter(x => x.activo), d.tipo);
     r.innerHTML = `
-        <td><select class="form-select form-select-sm product-tipo" data-crear="tipos" required>${getOptionsHTML(dropdownData.tipos, d.tipo, 'tipos')}</select></td>
-        <td><select class="form-select form-select-sm product-producto" data-crear="productos" required>${getOptionsHTML(refs, d.producto, 'productos')}</select></td>
+        <td><select class="form-select form-select-sm product-tipo" data-crear="tipos" required>${getOptionsHTML(dropdownData.tipos, d.tipo || d.producto, 'tipos')}</select></td>
         <td><input type="number" class="form-control form-control-sm product-cantidad" value="${esc(d.cantidad ?? 1)}" step="any" required></td>
         <td><input type="number" class="form-control form-control-sm product-valor-unitario" value="${esc(d.valor_unitario ?? 0)}" step="0.01" required></td>
         <td><input type="text" class="form-control form-control-sm product-valor-total" value="${esc(num(d.valor_total).toFixed(2))}" readonly></td>
@@ -722,7 +677,7 @@ function handleFormSubmit(e) {
     };
     const productLines = [...document.querySelectorAll('#productLines tr')].map(r => ({
         tipo: r.querySelector('.product-tipo').value,
-        producto: r.querySelector('.product-producto').value,
+        producto: r.querySelector('.product-tipo').value,
         cantidad: r.querySelector('.product-cantidad').value,
         valorUnitario: r.querySelector('.product-valor-unitario').value,
         valorTotal: r.querySelector('.product-valor-total').value,
@@ -1020,7 +975,7 @@ function loadHistoryData() {
 }
 
 function renderHistoryTable(d) {
-    $('historicoTableBody').innerHTML = d.slice(0, 2000).map(r => `<tr><td>${fmtFecha(r.fecha_venta)}</td><td>${esc(r.pedido_id)}</td><td>${esc(r.tienda)}</td><td>${esc(r.vendedor)}</td><td class="num">${esc(cod(r.cliente_id))}</td><td>${esc(r.cliente)}</td><td>${esc(r.tipo)}</td><td>${esc(r.producto)}</td><td class="num">${esc(r.cantidad)}</td><td class="num">${fmtQ(r.valor_unitario)}</td><td class="num">${fmtQ(r.valor_total)}</td></tr>`).join('');
+    $('historicoTableBody').innerHTML = d.slice(0, 2000).map(r => `<tr><td>${fmtFecha(r.fecha_venta)}</td><td>${esc(r.pedido_id)}</td><td>${esc(r.tienda)}</td><td>${esc(r.vendedor)}</td><td class="num">${esc(cod(r.cliente_id))}</td><td>${esc(r.cliente)}</td><td>${esc(r.tipo || r.producto)}</td><td class="num">${esc(r.cantidad)}</td><td class="num">${fmtQ(r.valor_unitario)}</td><td class="num">${fmtQ(r.valor_total)}</td></tr>`).join('');
     $('rowCount').textContent = d.length + (d.length > 2000 ? ' (se muestran 2000; el Excel incluye todos)' : '');
 }
 
@@ -1035,7 +990,7 @@ const filterHistory = () => renderHistoryTable(historicoFiltrado());
 function exportHistorico() {
     exportarExcel('Historico_ventas', 'Histórico', historicoFiltrado().map(r => ({
         'Fecha': aFecha(r.fecha_venta), 'Pedido': r.pedido_id, 'Tienda': r.tienda, 'Vendedor': r.vendedor,
-        'Código cliente': cod(r.cliente_id), 'Cliente': r.cliente, 'Tipo': r.tipo, 'Producto': r.producto,
+        'Código cliente': cod(r.cliente_id), 'Cliente': r.cliente, 'Tipo': r.tipo || r.producto,
         'Cantidad': r.cantidad, 'Valor unitario': r.valor_unitario, 'Valor total': r.valor_total,
     })));
 }
@@ -1159,7 +1114,8 @@ function exportCarteraDetalle() {
 async function cargarReferencias() {
     referencias = ok(await sb.from('productos').select('*').order('orden').order('nombre'));
     dropdownData.productos = referencias.filter(r => r.activo).map(r => r.nombre);
-    VINCULOS_TIPO.forEach(v => filtrarReferenciasVinculo(v));
+    repoblar('cargaProducto', tiposConInventario(), 'Seleccione Tipo...');
+    repoblar('trasladoProducto', tiposConInventario(), 'Seleccione...');
 }
 
 function loadReferencias() {
@@ -1192,10 +1148,7 @@ function abrirModalReferencia(r = null, destino = null) {
     $('refNombre').value = r?.nombre ?? '';
     $('refNombre').readOnly = !!r;  // las ventas guardan el nombre: no se renombra
     $('refCodigo').value = r?.codigo ?? '';
-    // Nueva referencia desde una venta o una carga: se propone el tipo ya elegido allí
-    const tipoOrigen = destino?.closest('tr')?.querySelector('.product-tipo')?.value
-        || $(VINCULOS_TIPO.find(v => v.ref === destino?.id)?.tipo)?.value;
-    setSelectValue('refTipo', r?.tipo ?? (tipoOrigen && tipoOrigen !== OPCION_CREAR ? tipoOrigen : ''));
+    setSelectValue('refTipo', r?.tipo ?? '');
     $('refUnidad').value = r?.unidad ?? 'GRAMOS';
     $('refControla').checked = r ? r.controla_inventario : true;
     $('refActivo').checked = r ? r.activo : true;
@@ -1247,7 +1200,7 @@ function loadCargas() {
             $(id).value = v;
         };
         repoblarUnicos('filterCargasTienda', cargasFilas.map(r => r.tienda), 'Todas las tiendas');
-        repoblarUnicos('filterCargasProducto', cargasFilas.map(r => r.producto), 'Todas las referencias');
+        repoblarUnicos('filterCargasProducto', cargasFilas.map(r => r.producto), 'Todos los tipos');
         renderCargas();
         mostrarSaldoCarga();
     });
@@ -1306,7 +1259,7 @@ function eliminarCarga(id) {
 }
 
 // ---------------------------------------------------------------- inventario: carga masiva desde Excel
-const COLS_CARGA = ['Fecha', 'Tienda / Bodega', 'Referencia', 'Movimiento', 'Cantidad', 'Concepto', 'Observaciones'];
+const COLS_CARGA = ['Fecha', 'Tienda / Bodega', 'Tipo (material)', 'Movimiento', 'Cantidad', 'Concepto', 'Observaciones'];
 const MAX_FILAS_CARGA = 5000;
 let filasMasivas = [];
 
@@ -1320,7 +1273,7 @@ function descargarPlantillaCarga() {
     XLSX.utils.book_append_sheet(wb, carga, 'Carga');
     const filas = Math.max(tiendas.length, refs.length, 5);
     const conceptos = ['INV INICIAL', 'COMPRA', 'AJUSTE', 'DEVOLUCION'];
-    const listas = XLSX.utils.aoa_to_sheet([['Tiendas / Bodegas', 'Referencias', 'Unidad', 'Movimiento', 'Conceptos sugeridos'],
+    const listas = XLSX.utils.aoa_to_sheet([['Tiendas / Bodegas', 'Tipos (material)', 'Unidad', 'Movimiento', 'Conceptos sugeridos'],
         ...Array.from({ length: filas }, (_, i) => [tiendas[i] ?? '', refs[i]?.nombre ?? '', refs[i] ? (refs[i].unidad || '').toLowerCase() : '',
             ['ENTRADA', 'SALIDA'][i] ?? '', conceptos[i] ?? ''])]);
     listas['!cols'] = [24, 30, 10, 12, 20].map(wch => ({ wch }));
@@ -1329,9 +1282,9 @@ function descargarPlantillaCarga() {
         ['Cómo llenar la hoja "Carga" (una fila por movimiento)'], [],
         ['Fecha', 'Fecha del movimiento (dd/mm/aaaa). Si se deja vacía se usa la fecha de hoy.'],
         ['Tienda / Bodega', fija ? `Se carga siempre en su bodega (${fija}); puede dejarla vacía.` : 'Igual que en la hoja "Listas".'],
-        ['Referencia', 'Igual que en la hoja "Listas". Si no existe, créela antes en Inventario > Referencias.'],
+        ['Tipo (material)', 'Igual que en la hoja "Listas". Si no existe, créelo antes en Maestros > Tipos.'],
         ['Movimiento', 'ENTRADA (suma) o SALIDA (resta). Si se deja vacío se toma ENTRADA.'],
-        ['Cantidad', 'Mayor que cero, en la unidad de la referencia (gramos o unidades).'],
+        ['Cantidad', 'Mayor que cero, en la unidad del tipo (gramos o unidades).'],
         ['Concepto', 'Ej. INV INICIAL, COMPRA, AJUSTE. Si se deja vacío se usa CARGA MASIVA.'],
         ['Observaciones', 'Opcional.'], [],
         ['Si alguna fila tiene un error no se carga nada: corrija el archivo y súbalo de nuevo.'],
@@ -1391,10 +1344,10 @@ function leerArchivoCarga(archivo) {
                 tienda = fija;
             } else if (!tTexto) errores.push('Falta la tienda / bodega');
             else if (!tienda) errores.push(`Tienda "${tTexto}" no existe o está inactiva`);
-            const pTexto = String(col(r, 'referencia', 'producto')).trim();
+            const pTexto = String(col(r, 'tipo', 'referencia', 'producto', 'material')).trim();
             const ref = refs.find(x => norm(x.nombre) === norm(pTexto));
-            if (!pTexto) errores.push('Falta la referencia');
-            else if (!ref) errores.push(`Referencia "${pTexto}" no existe, está inactiva o no controla inventario`);
+            if (!pTexto) errores.push('Falta el tipo (material)');
+            else if (!ref) errores.push(`Tipo "${pTexto}" no existe, está inactivo o no lleva inventario`);
             const mov = norm(col(r, 'movimiento', 'tipo de movimiento'));
             const esEntrada = !mov || ['entrada', 'e', '+', 'ingreso'].includes(mov);
             if (!esEntrada && !['salida', 's', '-', 'ajuste', 'salida / ajuste'].includes(mov)) errores.push('Movimiento debe ser ENTRADA o SALIDA');
@@ -1501,7 +1454,7 @@ function filterInventory() {
 
 function exportInventario() {
     exportarExcel('Inventario', 'Inventario', inventarioFiltrado().map(r => ({
-        'Tienda': r.tienda, 'Referencia': r.producto, 'Unidad': r.unidad,
+        'Tienda': r.tienda, 'Tipo': r.producto, 'Unidad': r.unidad,
         'Entradas': num(r.entradas), 'Salidas': num(r.salidas), 'Saldo': num(r.saldo),
     })));
 }
@@ -1517,7 +1470,7 @@ function verMovimientos(tienda, producto) {
 function llenarFiltrosMovimientos(tienda, producto) {
     const t = tienda ?? $('movTienda').value, p = producto ?? $('movProducto').value;
     populateDropdown('movTienda', [...new Set(fullInventoryData.map(r => r.tienda))], 'Seleccione Tienda...');
-    populateDropdown('movProducto', [...new Set(fullInventoryData.filter(r => !t || r.tienda === t).map(r => r.producto))].sort(), 'Seleccione Referencia...');
+    populateDropdown('movProducto', [...new Set(fullInventoryData.filter(r => !t || r.tienda === t).map(r => r.producto))].sort(), 'Seleccione Tipo...');
     $('movTienda').value = t;
     $('movProducto').value = p;
 }
@@ -1530,7 +1483,7 @@ function loadMovimientos() {
         if (!t || !p) {
             movimientosFilas = [];
             $('movimientosTableBody').innerHTML = '';
-            $('movimientosInfo').textContent = 'Seleccione tienda y referencia.';
+            $('movimientosInfo').textContent = 'Seleccione tienda y tipo.';
             return;
         }
         const d = await fetchAll(() => sb.from('inventario_movimientos').select('*')
@@ -1545,7 +1498,7 @@ function loadMovimientos() {
 
 function exportMovimientos() {
     exportarExcel(`Movimientos_${$('movProducto').value}`, 'Movimientos', movimientosFilas.map(r => ({
-        'Tienda': r.tienda, 'Referencia': r.producto, 'Fecha': aFecha(r.fecha), 'Origen': r.origen, 'Detalle': r.detalle,
+        'Tienda': r.tienda, 'Tipo': r.producto, 'Fecha': aFecha(r.fecha), 'Origen': r.origen, 'Detalle': r.detalle,
         'Entrada': num(r.entrada), 'Salida': num(r.salida), 'Saldo': r.saldo,
     })));
 }
@@ -1747,14 +1700,14 @@ function exportDatos() {
 const REPORTES = [
     {
         id: 'ventas', grupo: 'Ventas', titulo: 'Ventas (detalle por línea)', fuente: 'ventas', fecha: 'fecha_venta', tienda: 'tienda',
-        descripcion: 'Cada línea vendida, con su pedido, cliente, referencia y valores.',
+        descripcion: 'Cada línea vendida, con su pedido, cliente, tipo y valores.',
         orden: [['fecha_venta', false], ['id', false]], porCodigo: 'cliente_id',
         opciones: [{ id: 'saldosIniciales', texto: 'Incluir saldos iniciales de clientes', excluir: r => r.producto === 'SALDO INICIAL' }],
         columnas: [
             ['fecha_venta', 'Fecha', 'fecha', 1], ['pedido_id', 'Pedido', 'texto', 1], ['envio', 'Envío', 'texto', 1], ['factura', 'Factura'],
             ['tienda', 'Tienda / Bodega', 'texto', 1], ['vendedor', 'Vendedor', 'texto', 1], ['cliente_id', 'Código cliente', 'codigo', 1],
             ['cliente', 'Cliente', 'texto', 1], ['_tipo_cliente', 'Tipo de cliente'], ['_departamento', 'Departamento'],
-            ['_dueno', 'Dueño del cliente', 'texto', 0, 'admin'], ['tipo', 'Tipo (material)', 'texto', 1], ['producto', 'Referencia', 'texto', 1],
+            ['_dueno', 'Dueño del cliente', 'texto', 0, 'admin'], ['tipo', 'Tipo (material)', 'texto', 1],
             ['_unidad', 'Unidad'], ['cantidad', 'Cantidad', 'num', 1], ['valor_unitario', 'Valor unitario', 'dinero', 1],
             ['valor_total', 'Valor total', 'dinero', 1], ['fecha_vencimiento', 'Vencimiento', 'fecha'], ['created_at', 'Registrado el', 'fechahora'],
         ],
@@ -1776,18 +1729,18 @@ const REPORTES = [
         orden: [['fecha', false], ['id', false]],
         opciones: [{ id: 'soloEntradas', texto: 'Solo entradas (compras)', incluir: r => num(r.entrada) > 0 }],
         columnas: [
-            ['fecha', 'Fecha', 'fecha', 1], ['tienda', 'Tienda / Bodega', 'texto', 1], ['producto', 'Referencia', 'texto', 1], ['_tipo', 'Tipo (material)'],
+            ['fecha', 'Fecha', 'fecha', 1], ['tienda', 'Tienda / Bodega', 'texto', 1], ['producto', 'Tipo (material)', 'texto', 1],
             ['_unidad', 'Unidad', 'texto', 1], ['concepto', 'Concepto', 'texto', 1], ['entrada', 'Entrada', 'num', 1], ['salida', 'Salida', 'num', 1],
             ['_origen', 'Origen'], ['traslado_id', 'N° traslado'], ['observaciones', 'Observaciones', 'texto', 1], ['created_at', 'Registrado el', 'fechahora'],
         ],
     },
     {
         id: 'inventario', grupo: 'Inventario', titulo: 'Saldos de inventario', fuente: 'inventario', tienda: 'tienda',
-        descripcion: 'Saldo actual por tienda/bodega y referencia (entradas menos ventas y salidas).',
+        descripcion: 'Saldo actual por tienda/bodega y tipo (entradas menos ventas y salidas).',
         orden: [['tienda'], ['producto']],
         opciones: [{ id: 'conSaldo', texto: 'Solo con saldo distinto de cero', incluir: r => Math.abs(num(r.saldo)) > 0.005 }],
         columnas: [
-            ['tienda', 'Tienda / Bodega', 'texto', 1], ['producto', 'Referencia', 'texto', 1], ['tipo', 'Tipo (material)', 'texto', 1],
+            ['tienda', 'Tienda / Bodega', 'texto', 1], ['producto', 'Tipo (material)', 'texto', 1],
             ['unidad', 'Unidad', 'texto', 1], ['fecha_inicio', 'Control desde', 'fecha'], ['entradas', 'Entradas', 'num', 1],
             ['salidas', 'Salidas', 'num', 1], ['saldo', 'Saldo', 'num', 1],
         ],
@@ -1797,7 +1750,7 @@ const REPORTES = [
         descripcion: 'Todas las entradas y salidas: cargas, traslados, ventas y devoluciones a oficina.',
         orden: [['fecha', false], ['origen_id', false]],
         columnas: [
-            ['fecha', 'Fecha', 'fecha', 1], ['tienda', 'Tienda / Bodega', 'texto', 1], ['producto', 'Referencia', 'texto', 1], ['_unidad', 'Unidad'],
+            ['fecha', 'Fecha', 'fecha', 1], ['tienda', 'Tienda / Bodega', 'texto', 1], ['producto', 'Tipo (material)', 'texto', 1], ['_unidad', 'Unidad'],
             ['origen', 'Origen', 'texto', 1], ['detalle', 'Detalle', 'texto', 1], ['entrada', 'Entrada', 'num', 1], ['salida', 'Salida', 'num', 1],
         ],
     },
@@ -1807,7 +1760,7 @@ const REPORTES = [
         orden: [['id', false]],
         columnas: [
             ['id', 'N° traslado', 'texto', 1], ['fecha_envio', 'Fecha de envío', 'fecha', 1], ['origen', 'Origen', 'texto', 1], ['destino', 'Destino', 'texto', 1],
-            ['producto', 'Referencia', 'texto', 1], ['cantidad', 'Cantidad', 'num', 1], ['estado', 'Estado', 'texto', 1], ['observaciones', 'Observaciones'],
+            ['producto', 'Tipo (material)', 'texto', 1], ['cantidad', 'Cantidad', 'num', 1], ['estado', 'Estado', 'texto', 1], ['observaciones', 'Observaciones'],
             ['fecha_recepcion', 'Recibido el', 'fechahora', 1], ['obs_recepcion', 'Observaciones de recepción'],
         ],
     },
@@ -2076,10 +2029,14 @@ const MAESTROS = {
     tiendas: { grupo: 'tiendas', nuevo: 'Nueva tienda o bodega', titulo: 'Tiendas y bodegas', icono: 'shop', ayuda: 'Nombre de la nueva tienda o bodega' },
     vendedores: { grupo: 'vendedores', nuevo: 'Nuevo vendedor', titulo: 'Vendedores', icono: 'person-vcard', ayuda: 'Nombre del nuevo vendedor' },
     metodos_pago: { grupo: 'métodos de pago', nuevo: 'Nuevo método de pago', titulo: 'Métodos de pago', icono: 'credit-card', ayuda: 'Nombre del nuevo método de pago' },
-    tipos: { grupo: 'tipos', nuevo: 'Nuevo tipo', titulo: 'Tipos (materiales)', icono: 'gem', ayuda: 'Nuevo tipo (ej. ORO, PLATA)' },
+    tipos: { grupo: 'tipos', nuevo: 'Nuevo tipo (material)', titulo: 'Tipos (materiales)', icono: 'gem', ayuda: 'Nuevo tipo (ej. ORO 18K, PLATA 925)' },
     departamentos: { grupo: 'departamentos', nuevo: 'Nuevo departamento', titulo: 'Departamentos', icono: 'geo-alt', ayuda: 'Nuevo departamento' },
 };
 let maestroEditando = null;   // { m, nombre } del que se está renombrando
+// Unidad de un tipo: gramos o unidades, con o sin inventario
+const OPCIONES_UNIDAD = [['GRAMOS', 'Gramos'], ['UNIDADES', 'Unidades'], ['SIN', 'Sin inventario']];
+const unidadDeTipo = x => x.controla_inventario === false ? 'SIN' : (x.unidad || 'GRAMOS');
+const datosUnidad = v => v === 'SIN' ? { unidad: 'UNIDADES', controla_inventario: false } : { unidad: v || 'GRAMOS', controla_inventario: true };
 
 // Una pestaña por maestro, cada una con su formulario para agregar, buscador y lista
 function construirMaestros() {
@@ -2092,6 +2049,7 @@ function construirMaestros() {
           <div class="row g-2 mb-3">
             <div class="col-lg-7"><form class="input-group maestro-form" data-maestro="${m}">
               ${m === 'tiendas' ? `<select class="form-select flex-grow-0 w-auto maestro-clase-nueva" aria-label="Tipo"><option value="TIENDA">Tienda</option><option value="BODEGA">Bodega</option></select>` : ''}
+              ${m === 'tipos' ? `<select class="form-select flex-grow-0 w-auto maestro-clase-nueva" aria-label="Unidad">${OPCIONES_UNIDAD.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>` : ''}
               <input type="text" class="form-control" placeholder="${MAESTROS[m].ayuda}" aria-label="${MAESTROS[m].nuevo}" required>
               <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button></form></div>
             <div class="col-lg-5"><input type="search" class="form-control maestro-buscar" data-maestro="${m}" placeholder="Buscar en ${MAESTROS[m].grupo}…" aria-label="Buscar"></div>
@@ -2113,12 +2071,15 @@ function renderMaestro(m) {
                 <input type="text" class="form-control form-control-sm" value="${nombre}" aria-label="Nuevo nombre" required>
                 <button type="submit" class="btn btn-gold btn-sm">Guardar</button>
                 <button type="button" class="btn btn-outline-secondary btn-sm maestro-cancelar">Cancelar</button></form></li>`;
-        const detalle = m === 'tiendas' ? `<small>Usuarios: ${esc(usuariosPorTienda[x.nombre]?.join(', ') || '—')}</small>` : '';
+        const detalle = m === 'tiendas' ? `<small>Usuarios: ${esc(usuariosPorTienda[x.nombre]?.join(', ') || '—')}</small>`
+            : m === 'tipos' ? `<small>${x.controla_inventario === false ? 'Sin inventario' : `Inventario en ${(x.unidad || 'GRAMOS').toLowerCase()}`}</small>` : '';
         return `<li class="list-group-item ${x.activo === false ? 'inactivo' : ''}">
             <div class="maestro-nombre">${admin ? `<span role="button" class="maestro-editar" ${datos} title="Cambiar nombre">${nombre}</span>` : nombre}${detalle}</div>
             <div class="maestro-acciones">
               ${m === 'tiendas' ? `<select class="form-select form-select-sm maestro-clase" data-nombre="${nombre}" aria-label="Tipo">
                 ${['TIENDA', 'BODEGA'].map(c => `<option value="${c}" ${x.clase === c ? 'selected' : ''}>${c === 'TIENDA' ? 'Tienda' : 'Bodega'}</option>`).join('')}</select>` : ''}
+              ${m === 'tipos' ? `<select class="form-select form-select-sm maestro-clase maestro-unidad" data-nombre="${nombre}" aria-label="Unidad">
+                ${OPCIONES_UNIDAD.map(([v, t]) => `<option value="${v}" ${unidadDeTipo(x) === v ? 'selected' : ''}>${t}</option>`).join('')}</select>` : ''}
               <div class="form-check form-switch m-0" title="${x.activo === false ? 'Inactivo' : 'Activo'}"><input class="form-check-input maestro-activo" type="checkbox" role="switch" ${datos} ${x.activo === false ? '' : 'checked'} aria-label="Activo"></div>
               ${admin ? `<button type="button" class="btn btn-outline-secondary btn-sm maestro-editar" ${datos} title="Cambiar nombre"><i class="bi bi-pencil"></i></button>` : ''}
               <button type="button" class="btn btn-outline-danger btn-sm maestro-delete" ${datos} title="Eliminar"><i class="bi bi-trash"></i></button>
@@ -2144,7 +2105,7 @@ function renombrarMaestro(form) {
     run(async () => {
         const guardado = ok(await sb.rpc('renombrar_maestro', { p_maestro: m, p_viejo: nombre, p_nuevo: nuevo }));
         maestroEditando = null;
-        await Promise.all([cargarMaestros(), m === 'tipos' ? cargarReferencias() : null, m === 'tiendas' && esAdmin() ? cargarPerfiles() : null]);
+        await Promise.all([cargarMaestros(), m === 'tiendas' && esAdmin() ? cargarPerfiles() : null]);
         showAlert(`"${nombre}" ahora se llama "${guardado || nuevo}"`, 'success');
     });
 }
@@ -2166,6 +2127,7 @@ async function cargarMaestros() {
             if (error) { console.warn(t, error.message); faltantes.push(t); return []; }
             return data;
         })));
+    await cargarReferencias();   // copia de los tipos: unidad e inventario
     // Usuarios vinculados a cada bodega (una bodega puede tener varios)
     const { data: usuarios } = await sb.from('perfiles').select('nombre,usuario,tienda,activo');
     usuariosPorTienda = {};
@@ -2185,8 +2147,7 @@ async function cargarMaestros() {
     repoblar('metodoPago', activos(metodos_pago), 'Seleccione...');
     dropdownData.tipos = activos(tipos);
     repoblar('filterTipo', todos(tipos), 'Todos');
-    repoblar('cargaTipo', activos(tipos), 'Todos los tipos');
-    repoblar('trasladoTipo', activos(tipos), 'Todos los tipos');
+
     repoblar('refTipo', activos(tipos), '(sin tipo)');
     repoblar('newClientDepto', activos(departamentos), 'Seleccione...');
     repoblar('usrTienda', activos(tiendas), '(sin tienda)');
@@ -2204,7 +2165,7 @@ async function insertarMaestro(m, nombre, clase, permitirExistente = false) {
     if (existente && existente.activo !== false && permitirExistente) return existente.nombre;
     if (existente) throw new Error(`"${existente.nombre}" ya existe${existente.activo === false ? ' (está inactivo: actívelo en Maestros)' : ''}.`);
     const orden = Math.max(0, ...maestros[m].map(x => x.orden || 0)) + 1;
-    ok(await sb.from(m).insert({ nombre, orden, activo: true, ...(m === 'tiendas' ? { clase } : {}) }));
+    ok(await sb.from(m).insert({ nombre, orden, activo: true, ...(m === 'tiendas' ? { clase } : m === 'tipos' ? datosUnidad(clase) : {}) }));
     await cargarMaestros();
     return nombre;
 }
@@ -2216,6 +2177,7 @@ function agregarMaestro(m, input, clase) {
         await insertarMaestro(m, nombre, clase);
         input.value = '';
         showAlert(`"${nombre}" agregado${m === 'tiendas' ? ` como ${clase === 'BODEGA' ? 'bodega' : 'tienda'}` : ` a ${MAESTROS[m].grupo}`}`, 'success');
+        if (m === 'tipos') input.focus();
     });
 }
 
@@ -2228,6 +2190,7 @@ function abrirCrear(m, destino) {
     $('crearForm').reset();
     $('crearTitulo').textContent = MAESTROS[m].nuevo;
     $('crearClaseGrupo').classList.toggle('d-none', m !== 'tiendas');
+    $('crearUnidadGrupo').classList.toggle('d-none', m !== 'tipos');
     crearModal.show();
 }
 
@@ -2236,7 +2199,7 @@ function guardarCrear(e) {
     const { m, destino } = crearDestino;
     const nombre = normalizarNombre($('crearNombre').value);
     if (!nombre) return;
-    const clase = $('crearClase').value;
+    const clase = m === 'tipos' ? $('crearUnidad').value : $('crearClase').value;
     run(async () => {
         const yaExistia = maestros[m].some(x => norm(x.nombre) === norm(nombre) && x.activo !== false);
         const guardado = await insertarMaestro(m, nombre, clase, true);
@@ -2278,6 +2241,20 @@ function eliminarMaestro(m, nombre) {
         ok(await sb.from(m).delete().eq('nombre', nombre));
         await cargarMaestros();
         showAlert(`"${nombre}" eliminado`, 'success');
+    });
+}
+
+function cambiarUnidadTipo(sel) {
+    run(async () => {
+        const antes = unidadDeTipo(maestros.tipos.find(x => x.nombre === sel.dataset.nombre) || {});
+        try {
+            ok(await sb.from('tipos').update(datosUnidad(sel.value)).eq('nombre', sel.dataset.nombre));
+        } catch (err) {
+            sel.value = antes;
+            throw err;
+        }
+        await cargarMaestros();
+        showAlert(`"${sel.dataset.nombre}": ${OPCIONES_UNIDAD.find(o => o[0] === sel.value)[1].toLowerCase()}`, 'success');
     });
 }
 
@@ -2481,7 +2458,7 @@ function loadTraslados() {
         $('trasladoForm').querySelectorAll('input, select, button').forEach(el => el.disabled = sinTienda);
         if (esAdmin()) repoblar('trasladoOrigen', activas, 'Seleccione...');
         else { populateDropdown('trasladoOrigen', perfil?.tienda ? [perfil.tienda] : [], '—'); $('trasladoOrigen').value = perfil?.tienda || ''; $('trasladoOrigen').disabled = true; }
-        filtrarReferenciasVinculo(VINCULOS_TIPO.find(v => v.ref === 'trasladoProducto'));
+        repoblar('trasladoProducto', tiposConInventario(), 'Seleccione...');
         if (!$('trasladoFecha').value) $('trasladoFecha').value = hoyISO();
         prepararDestinos();
         mostrarSaldoTraslado();
@@ -2574,7 +2551,7 @@ function exportTraslados() {
     const e = $('filterTrasladoEstado').value;
     exportarExcel('Traslados', 'Traslados', trasladosFilas.filter(t => !e || t.estado === e).map(t => ({
         'Traslado': t.id, 'Fecha envío': aFecha(t.fecha_envio), 'Origen': t.origen, 'Destino': t.destino,
-        'Referencia': t.producto, 'Cantidad': num(t.cantidad), 'Estado': t.estado, 'Enviado por': nombreUsuario(t.enviado_por),
+        'Tipo': t.producto, 'Cantidad': num(t.cantidad), 'Estado': t.estado, 'Enviado por': nombreUsuario(t.enviado_por),
         'Recibido / anulado por': nombreUsuario(t.recibido_por), 'Observaciones': t.observaciones, 'Obs. recepción': t.obs_recepcion,
     })));
 }

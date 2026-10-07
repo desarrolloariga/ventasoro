@@ -121,7 +121,8 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `09_reasignar_cliente_al_rango.sql` | Al asignar un cliente a un vendedor con rango, el cliente pasa a un código del rango de ese vendedor (sus ventas y pagos lo siguen). Repara los clientes ya reasignados que quedaron fuera del rango, numerándolos en el orden en que se crearon. |
 | `10_cartera_vendedor.sql` | La cartera (por cliente y por envío) incluye el vendedor dueño del cliente y el código del cliente. |
 | `11_renombrar_maestros.sql` | Permite al administrador cambiar el nombre de tiendas/bodegas, vendedores, métodos de pago, tipos y departamentos desde Maestros; el nombre nuevo se aplica a todo el histórico (ventas, pagos, inventario, traslados, clientes y usuarios). |
-| `12_tipo_de_referencia.sql` | Cada referencia pertenece a un tipo (material): las ventas toman el tipo de su referencia (también al cambiar el tipo de la referencia) y se alinean las ventas existentes. Al final lista las referencias que aún no tienen tipo. |
+| `12_tipo_de_referencia.sql` | *(Reemplazado por el 13; no es necesario ejecutarlo.)* Cada referencia pertenece a un tipo (material): las ventas toman el tipo de su referencia (también al cambiar el tipo de la referencia) y se alinean las ventas existentes. Al final lista las referencias que aún no tienen tipo. |
+| `13_tipo_reemplaza_referencia.sql` | **El tipo (material) reemplaza a la referencia**: ventas, cargas, traslados y saldos se manejan por tipo; cada tipo tiene unidad (gramos/unidades) y si lleva inventario. Convierte los datos existentes al tipo de su referencia (las referencias sin tipo pasan a ser un tipo) y deja anotado el nombre anterior. Ejecutarlo **antes** de publicar esta versión de la app. |
 
 ## Despliegue en Vercel
 
