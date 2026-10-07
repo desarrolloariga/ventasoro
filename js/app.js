@@ -570,11 +570,12 @@ function saveNewClient() {
         if (origenModalCliente === 'venta') {
             ponerClienteEnVenta(c);
         } else {
-            const i = fullClientesData.findIndex(x => x.id === c.id);
+            // Al reasignarlo a un vendedor con rango, el cliente puede cambiar de código
+            const i = fullClientesData.findIndex(x => x.id === (id ? Number(id) : c.id));
             if (i >= 0) fullClientesData[i] = c; else fullClientesData.unshift(c);
             filterClientes();
         }
-        showAlert(id ? `Cliente ${cod(c.id)} actualizado con éxito`
+        showAlert(id ? (Number(id) !== c.id ? `Cliente actualizado. Nuevo código: ${textoCodigo(c)}` : `Cliente ${cod(c.id)} actualizado con éxito`)
             : `Cliente creado. Código cliente: ${textoCodigo(c)}` + (saldo > 0 ? ` · Saldo inicial ${fmtQ(saldo)} registrado` : ''), 'success');
     });
 }

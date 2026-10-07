@@ -118,6 +118,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `06_rangos_codigo_cliente.sql` | Rango de códigos de cliente por usuario (ej. Pablo 1-5000, Carlos 5001-10000): cada uno numera a sus clientes en orden dentro de su rango; sin rango se usa la numeración general, que salta los rangos asignados. |
 | `07_consecutivo_tipo_cliente_bodega.sql` | Consecutivo interno de clientes por vendedor (1, 2, 3…; con rango 1001-2000 el código general es 1001, 1002…), el admin crea clientes para un vendedor con el consecutivo de ese vendedor, tipo de cliente minorista/mayorista (solo el admin crea mayoristas) e Inteligencia Comercial filtrable por bodega. |
 | `08_limpiar_datos.sql` | **Borra** ventas, pagos, devoluciones, clientes, cargas de inventario y traslados para empezar de cero; conserva usuarios, bodegas, vendedores, referencias y demás maestros. Tiene un seguro: solo actúa si se cambia `'NO'` por `'BORRAR'`. No se puede deshacer. |
+| `09_reasignar_cliente_al_rango.sql` | Al asignar un cliente a un vendedor con rango, el cliente pasa a un código del rango de ese vendedor (sus ventas y pagos lo siguen). Repara los clientes ya reasignados que quedaron fuera del rango, numerándolos en el orden en que se crearon. |
 
 ## Despliegue en Vercel
 
