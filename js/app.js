@@ -307,11 +307,25 @@ function registrarEventos() {
     $('addProductButton').addEventListener('click', () => addProductLine());
     $('saleForm').addEventListener('submit', handleFormSubmit);
     $('productLines').addEventListener('input', updateLineTotal);
-    // Al elegir una referencia se completa su tipo
+    // El tipo filtra las referencias de la línea y la referencia fija su tipo
     $('productLines').addEventListener('change', e => {
-        if (!e.target.classList.contains('product-producto')) return;
-        const ref = referencias.find(r => r.nombre === e.target.value);
-        if (ref?.tipo) setSelectValue(e.target.closest('tr').querySelector('.product-tipo'), ref.tipo);
+        const tr = e.target.closest('tr');
+        if (e.target.value === OPCION_CREAR) return;
+        if (e.target.classList.contains('product-tipo')) filtrarReferenciasLinea(tr);
+        if (e.target.classList.contains('product-producto')) {
+            const tipo = tipoDeReferencia(e.target.value);
+            if (tipo) { setSelectValue(tr.querySelector('.product-tipo'), tipo); filtrarReferenciasLinea(tr); }
+        }
+    });
+    // Tipo y referencia en Cargar inventario, Traslados y filtros del Histórico
+    VINCULOS_TIPO.forEach(v => {
+        $(v.tipo).addEventListener('change', () => {
+            if ($(v.tipo).value !== OPCION_CREAR) filtrarReferenciasVinculo(v, true);
+        });
+        $(v.ref).addEventListener('change', () => {
+            const tipo = tipoDeReferencia($(v.ref).value);
+            if (tipo && $(v.tipo).value !== tipo) { setSelectValue(v.tipo, tipo); filtrarReferenciasVinculo(v); }
+        });
     });
     $('productLines').addEventListener('click', e => {
         if (e.target.classList.contains('delete-row')) { e.target.closest('tr').remove(); updateSubtotal(); }
@@ -637,11 +651,42 @@ const getOptionsHTML = (opts, sel, crear) => {
         lista.map(x => `<option value="${esc(x)}" ${x === sel ? 'selected' : ''}>${esc(x)}</option>`).join('') + opcionCrear(crear);
 };
 
+// ---------------------------------------------------------------- tipo (material) ↔ referencia
+// Cada referencia pertenece a un tipo: el tipo filtra la lista de referencias
+// y al elegir una referencia se fija su tipo.
+const tipoDeReferencia = nombre => referencias.find(r => r.nombre === nombre)?.tipo || '';
+const referenciasDelTipo = (refs, tipo) => refs.filter(r => !tipo || tipo === OPCION_CREAR || r.tipo === tipo).map(r => r.nombre);
+const refsInventario = () => referencias.filter(r => r.activo && r.controla_inventario);
+const VINCULOS_TIPO = [
+    { tipo: 'cargaTipo', ref: 'cargaProducto', vacio: 'Seleccione Referencia...', refs: refsInventario },
+    { tipo: 'trasladoTipo', ref: 'trasladoProducto', vacio: 'Seleccione...',
+      refs: () => refsInventario().sort((a, b) => (a.unidad === 'GRAMOS' ? 0 : 1) - (b.unidad === 'GRAMOS' ? 0 : 1)) },
+    { tipo: 'filterTipo', ref: 'filterProducto', vacio: 'Todas', refs: () => referencias, evento: 'input' },
+];
+
+// Vuelve a llenar la lista de referencias según el tipo; si la elegida no es de ese tipo se quita
+function filtrarReferenciasVinculo(v, avisar = false) {
+    const sel = $(v.ref), previa = sel.value;
+    const lista = referenciasDelTipo(v.refs(), $(v.tipo).value);
+    populateDropdown(v.ref, lista, v.vacio);
+    sel.value = lista.includes(previa) ? previa : '';
+    sel.dataset.previo = sel.value;
+    if (avisar && sel.value !== previa) sel.dispatchEvent(new Event(v.evento || 'change', { bubbles: true }));
+}
+
+function filtrarReferenciasLinea(tr) {
+    const sel = tr.querySelector('.product-producto'), previa = sel.value;
+    const lista = referenciasDelTipo(referencias.filter(r => r.activo), tr.querySelector('.product-tipo').value);
+    sel.innerHTML = getOptionsHTML(lista, lista.includes(previa) ? previa : '', 'productos');
+    sel.dataset.previo = sel.value;
+}
+
 function addProductLine(d = {}) {
     const r = document.createElement('tr');
+    const refs = referenciasDelTipo(referencias.filter(x => x.activo), d.tipo);
     r.innerHTML = `
         <td><select class="form-select form-select-sm product-tipo" data-crear="tipos" required>${getOptionsHTML(dropdownData.tipos, d.tipo, 'tipos')}</select></td>
-        <td><select class="form-select form-select-sm product-producto" data-crear="productos" required>${getOptionsHTML(dropdownData.productos, d.producto, 'productos')}</select></td>
+        <td><select class="form-select form-select-sm product-producto" data-crear="productos" required>${getOptionsHTML(refs, d.producto, 'productos')}</select></td>
         <td><input type="number" class="form-control form-control-sm product-cantidad" value="${esc(d.cantidad ?? 1)}" step="any" required></td>
         <td><input type="number" class="form-control form-control-sm product-valor-unitario" value="${esc(d.valor_unitario ?? 0)}" step="0.01" required></td>
         <td><input type="text" class="form-control form-control-sm product-valor-total" value="${esc(num(d.valor_total).toFixed(2))}" readonly></td>
@@ -1114,9 +1159,7 @@ function exportCarteraDetalle() {
 async function cargarReferencias() {
     referencias = ok(await sb.from('productos').select('*').order('orden').order('nombre'));
     dropdownData.productos = referencias.filter(r => r.activo).map(r => r.nombre);
-    const conInventario = referencias.filter(r => r.activo && r.controla_inventario).map(r => r.nombre);
-    repoblar('cargaProducto', conInventario, 'Seleccione Referencia...');
-    repoblar('filterProducto', referencias.map(r => r.nombre), 'Todos');
+    VINCULOS_TIPO.forEach(v => filtrarReferenciasVinculo(v));
 }
 
 function loadReferencias() {
@@ -1136,7 +1179,7 @@ function referenciasFiltradas() {
 
 function renderReferencias() {
     const si = v => v ? '<i class="bi bi-check-lg"></i>' : '<span class="text-muted">No</span>';
-    $('referenciasTableBody').innerHTML = referenciasFiltradas().map(r => `<tr class="${r.activo ? '' : 'text-muted'}"><td>${esc(r.codigo)}</td><td>${esc(r.nombre)}</td><td>${esc(r.tipo)}</td><td>${esc(r.unidad)}</td><td>${si(r.controla_inventario)}</td><td>${si(r.activo)}</td><td class="num ${num(r.saldo_total) < 0 ? 'saldo-negativo' : ''}">${r.saldo_total == null ? '' : fmt(r.saldo_total)}</td><td><button type="button" class="btn btn-outline-secondary btn-sm edit-ref" data-nombre="${esc(r.nombre)}" title="Editar"><i class="bi bi-pencil"></i></button></td></tr>`).join('');
+    $('referenciasTableBody').innerHTML = referenciasFiltradas().map(r => `<tr class="${r.activo ? '' : 'text-muted'}"><td>${esc(r.codigo)}</td><td>${esc(r.nombre)}</td><td>${r.tipo ? esc(r.tipo) : '<span class="badge text-bg-danger">Sin tipo</span>'}</td><td>${esc(r.unidad)}</td><td>${si(r.controla_inventario)}</td><td>${si(r.activo)}</td><td class="num ${num(r.saldo_total) < 0 ? 'saldo-negativo' : ''}">${r.saldo_total == null ? '' : fmt(r.saldo_total)}</td><td><button type="button" class="btn btn-outline-secondary btn-sm edit-ref" data-nombre="${esc(r.nombre)}" title="Editar"><i class="bi bi-pencil"></i></button></td></tr>`).join('');
 }
 
 // destino = lista que debe quedar con la referencia nueva seleccionada
@@ -1149,7 +1192,10 @@ function abrirModalReferencia(r = null, destino = null) {
     $('refNombre').value = r?.nombre ?? '';
     $('refNombre').readOnly = !!r;  // las ventas guardan el nombre: no se renombra
     $('refCodigo').value = r?.codigo ?? '';
-    setSelectValue('refTipo', r?.tipo ?? '');
+    // Nueva referencia desde una venta o una carga: se propone el tipo ya elegido allí
+    const tipoOrigen = destino?.closest('tr')?.querySelector('.product-tipo')?.value
+        || $(VINCULOS_TIPO.find(v => v.ref === destino?.id)?.tipo)?.value;
+    setSelectValue('refTipo', r?.tipo ?? (tipoOrigen && tipoOrigen !== OPCION_CREAR ? tipoOrigen : ''));
     $('refUnidad').value = r?.unidad ?? 'GRAMOS';
     $('refControla').checked = r ? r.controla_inventario : true;
     $('refActivo').checked = r ? r.activo : true;
@@ -1167,6 +1213,7 @@ function guardarReferencia() {
     };
     const nombre = $('refNombre').value.trim().toUpperCase().replace(/\s+/g, ' ');
     if (!nombre) { $('refNombre').reportValidity(); return; }
+    if (!d.tipo) { $('refTipo').reportValidity(); return; }
     run(async () => {
         if (editando) {
             ok(await sb.from('productos').update(d).eq('nombre', editando));
@@ -2138,6 +2185,8 @@ async function cargarMaestros() {
     repoblar('metodoPago', activos(metodos_pago), 'Seleccione...');
     dropdownData.tipos = activos(tipos);
     repoblar('filterTipo', todos(tipos), 'Todos');
+    repoblar('cargaTipo', activos(tipos), 'Todos los tipos');
+    repoblar('trasladoTipo', activos(tipos), 'Todos los tipos');
     repoblar('refTipo', activos(tipos), '(sin tipo)');
     repoblar('newClientDepto', activos(departamentos), 'Seleccione...');
     repoblar('usrTienda', activos(tiendas), '(sin tienda)');
@@ -2432,9 +2481,7 @@ function loadTraslados() {
         $('trasladoForm').querySelectorAll('input, select, button').forEach(el => el.disabled = sinTienda);
         if (esAdmin()) repoblar('trasladoOrigen', activas, 'Seleccione...');
         else { populateDropdown('trasladoOrigen', perfil?.tienda ? [perfil.tienda] : [], '—'); $('trasladoOrigen').value = perfil?.tienda || ''; $('trasladoOrigen').disabled = true; }
-        const refs = referencias.filter(r => r.activo && r.controla_inventario)
-            .sort((a, b) => (a.unidad === 'GRAMOS' ? 0 : 1) - (b.unidad === 'GRAMOS' ? 0 : 1));
-        repoblar('trasladoProducto', refs.map(r => r.nombre), 'Seleccione...');
+        filtrarReferenciasVinculo(VINCULOS_TIPO.find(v => v.ref === 'trasladoProducto'));
         if (!$('trasladoFecha').value) $('trasladoFecha').value = hoyISO();
         prepararDestinos();
         mostrarSaldoTraslado();

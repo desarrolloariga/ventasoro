@@ -128,7 +128,7 @@
                             <div class="form-text" id="refNombreAyuda">Es el nombre que se elige al vender. No se puede cambiar después.</div></div>
                         <div class="row g-2 mb-3">
                             <div class="col-6"><label for="refCodigo" class="form-label">Código</label><input type="text" class="form-control" id="refCodigo"></div>
-                            <div class="col-6"><label for="refTipo" class="form-label">Tipo</label><select class="form-select" id="refTipo" data-crear="tipos"></select></div>
+                            <div class="col-6"><label for="refTipo" class="form-label">Tipo (material)*</label><select class="form-select" id="refTipo" data-crear="tipos" required></select></div>
                         </div>
                         <div class="mb-3"><label for="refUnidad" class="form-label">Unidad</label><select class="form-select" id="refUnidad"><option value="GRAMOS">Gramos</option><option value="UNIDADES">Unidades</option></select></div>
                         <div class="form-check"><input class="form-check-input" type="checkbox" id="refControla" checked><label class="form-check-label" for="refControla">Controla inventario</label></div>
@@ -577,7 +577,7 @@
                       <div class="col-md-3"><label class="form-label" for="filterCliente">Cliente o código</label><input type="text" class="form-control" id="filterCliente" placeholder="Nombre o código del cliente..."></div>
                       <div class="col-md-3"><label class="form-label" for="filterTienda">Tienda / Bodega</label><select class="form-select" id="filterTienda"><option value="">Todas</option></select></div>
                       <div class="col-md-3"><label class="form-label" for="filterTipo">Tipo</label><select class="form-select" id="filterTipo"><option value="">Todos</option></select></div>
-                      <div class="col-md-3"><label class="form-label" for="filterProducto">Producto</label><select class="form-select" id="filterProducto"><option value="">Todos</option></select></div>
+                      <div class="col-md-3"><label class="form-label" for="filterProducto">Referencia</label><select class="form-select" id="filterProducto"><option value="">Todos</option></select></div>
                     </div>
                   </div>
                 </div>
@@ -726,9 +726,10 @@
                       <div class="card-header card-header-custom"><i class="bi bi-box-seam me-2"></i> Cargar Inventario</div>
                       <div class="card-body">
                         <div class="row g-3">
-                          <div class="col-md-3"><label class="form-label" for="cargaFecha">Fecha</label><input type="date" class="form-control" id="cargaFecha" required></div>
-                          <div class="col-md-4"><label class="form-label" for="cargaTienda">Tienda / Bodega</label><select class="form-select" id="cargaTienda" data-crear="tiendas" required></select></div>
-                          <div class="col-md-5">
+                          <div class="col-md-2"><label class="form-label" for="cargaFecha">Fecha</label><input type="date" class="form-control" id="cargaFecha" required></div>
+                          <div class="col-md-3"><label class="form-label" for="cargaTienda">Tienda / Bodega</label><select class="form-select" id="cargaTienda" data-crear="tiendas" required></select></div>
+                          <div class="col-md-3"><label class="form-label" for="cargaTipo">Tipo (material)</label><select class="form-select" id="cargaTipo"></select></div>
+                          <div class="col-md-4">
                             <label class="form-label" for="cargaProducto">Referencia</label>
                             <div class="input-group">
                               <select class="form-select" id="cargaProducto" data-crear="productos" required></select>
@@ -828,6 +829,7 @@
                             <div class="alert alert-warning py-2 small d-none" id="trasladoSinTienda">Su usuario no tiene tienda o bodega asignada. Pida al administrador que lo vincule para poder enviar traslados.</div>
                             <div class="mb-2"><label class="form-label" for="trasladoOrigen">Envía (origen)</label><select class="form-select" id="trasladoOrigen" required></select></div>
                             <div class="mb-2"><label class="form-label" for="trasladoDestino">Recibe (destino)</label><select class="form-select" id="trasladoDestino" required></select></div>
+                            <div class="mb-2"><label class="form-label" for="trasladoTipo">Tipo (material)</label><select class="form-select" id="trasladoTipo"></select></div>
                             <div class="mb-2"><label class="form-label" for="trasladoProducto">Referencia</label><select class="form-select" id="trasladoProducto" required></select></div>
                             <div class="row g-2 mb-2">
                               <div class="col-6"><label class="form-label" for="trasladoCantidad">Cantidad <span class="small text-muted" id="trasladoUnidad"></span></label><input type="number" class="form-control" id="trasladoCantidad" step="0.01" min="0.01" required></div>
