@@ -123,6 +123,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `11_renombrar_maestros.sql` | Permite al administrador cambiar el nombre de tiendas/bodegas, vendedores, métodos de pago, tipos y departamentos desde Maestros; el nombre nuevo se aplica a todo el histórico (ventas, pagos, inventario, traslados, clientes y usuarios). |
 | `12_tipo_de_referencia.sql` | *(Reemplazado por el 13; no es necesario ejecutarlo.)* Cada referencia pertenece a un tipo (material): las ventas toman el tipo de su referencia (también al cambiar el tipo de la referencia) y se alinean las ventas existentes. Al final lista las referencias que aún no tienen tipo. |
 | `13_tipo_reemplaza_referencia.sql` | **El tipo (material) reemplaza a la referencia**: ventas, cargas, traslados y saldos se manejan por tipo; cada tipo tiene unidad (gramos/unidades) y si lleva inventario. Convierte los datos existentes al tipo de su referencia (las referencias sin tipo pasan a ser un tipo) y deja anotado el nombre anterior. Ejecutarlo **antes** de publicar esta versión de la app. |
+| `14_admin_editar_historial.sql` | Historial del administrador: funciones para editar o eliminar cualquier registro (ventas, pagos, devoluciones, cargas, traslados, clientes) sin las restricciones normales. Solo el admin puede usarlas. |
 
 ## Despliegue en Vercel
 

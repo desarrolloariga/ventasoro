@@ -155,6 +155,7 @@ async function mostrarVista(session) {
     }
     ver('sinAccesoView', false); ver('appView', true);
     document.querySelectorAll('.solo-admin').forEach(e => e.classList.toggle('d-none', !esAdmin()));
+    document.querySelectorAll('.solo-vendedor').forEach(e => e.classList.toggle('d-none', esAdmin()));
     if (!datosIniciados) { datosIniciados = true; cargarDatosIniciales(); }
 }
 
@@ -348,7 +349,8 @@ function registrarEventos() {
     });
 
     // Histórico
-    $('historico-tab').addEventListener('shown.bs.tab', loadHistoryData);
+    $('historico-tab').addEventListener('shown.bs.tab', () => esAdmin() ? cargarHistorialAdmin() : loadHistoryData());
+    construirHistorialAdmin();
     construirReportes();
     ['filterCliente', 'filterTienda', 'filterTipo', 'filterProducto'].forEach(id => $(id).addEventListener('input', filterHistory));
 
@@ -1692,6 +1694,226 @@ function exportDatos() {
     // Las fechas yyyy-mm-dd se exportan como fechas de Excel
     exportarExcel(t.titulo.replace(/[^\wÁÉÍÓÚáéíóúñÑ]+/g, '_'), t.titulo, datosFiltrados().map(r =>
         Object.fromEntries(Object.entries(r).map(([k, v]) => [k, /^\d{4}-\d{2}-\d{2}$/.test(v ?? '') ? aFecha(v) : v]))));
+}
+
+// ---------------------------------------------------------------- historial del administrador
+// Ver, editar y eliminar cualquier registro. Tipos de campo: texto, larga, fecha, fechahora, num,
+// dinero, codigo, tienda, vendedor, tipo, metodo, departamento, usuario, solo (no editable) o una lista.
+const HISTORIALES = [
+    { id: 'ventas', titulo: 'Ventas', tabla: 'ventas', fecha: 'fecha_venta', porCodigo: 'cliente_id', orden: [['fecha_venta', false], ['id', false]],
+      campos: [['id', 'N°', 'solo'], ['fecha_venta', 'Fecha', 'fecha'], ['pedido_id', 'Pedido'], ['envio', 'Envío'], ['factura', 'Factura'],
+               ['tienda', 'Tienda / Bodega', 'tienda'], ['vendedor', 'Vendedor', 'vendedor'], ['cliente_id', 'Código cliente', 'codigo'],
+               ['cliente', 'Cliente'], ['documento_cliente', 'DPI / NIT'], ['tipo', 'Tipo (material)', 'tipo'], ['cantidad', 'Cantidad', 'num'],
+               ['valor_unitario', 'Valor unitario', 'dinero'], ['valor_total', 'Valor total', 'dinero'], ['fecha_vencimiento', 'Vencimiento', 'fecha'],
+               ['nota_importacion', 'Nota', 'larga'], ['creado_por', 'Registrado por', 'usuario'], ['created_at', 'Creado el', 'solo-fechahora']] },
+    { id: 'pagos', titulo: 'Pagos recibidos', tabla: 'pagos', fecha: 'fecha_pago', porCodigo: 'cliente_id', orden: [['fecha_pago', false], ['id', false]],
+      campos: [['id', 'N°', 'solo'], ['fecha_pago', 'Fecha de pago', 'fecha'], ['cliente_id', 'Código cliente', 'codigo'], ['envio', 'Envío'],
+               ['metodo_pago', 'Método de pago', 'metodo'], ['valor_pagado', 'Valor', 'dinero'], ['boleta', 'Boleta'], ['factura', 'Factura'],
+               ['vendedor', 'Vendedor', 'vendedor'], ['nit', 'NIT'], ['confirmacion', 'Confirmación'], ['contabilidad', 'Contabilidad'],
+               ['observaciones', 'Observaciones', 'larga'], ['creado_por', 'Registrado por', 'usuario'], ['created_at', 'Creado el', 'solo-fechahora']] },
+    { id: 'compras', titulo: 'Compras y cargas de inventario', tabla: 'ingresos_inventario', fecha: 'fecha', orden: [['fecha', false], ['id', false]],
+      campos: [['id', 'N°', 'solo'], ['fecha', 'Fecha', 'fecha'], ['tienda', 'Tienda / Bodega', 'tienda'], ['producto', 'Tipo (material)', 'tipo'],
+               ['concepto', 'Concepto'], ['entrada', 'Entrada', 'num'], ['salida', 'Salida', 'num'], ['observaciones', 'Observaciones', 'larga'],
+               ['traslado_id', 'N° traslado', 'solo'], ['creado_por', 'Registrado por', 'usuario'], ['created_at', 'Creado el', 'solo-fechahora']] },
+    { id: 'traslados', titulo: 'Traslados entre bodegas', tabla: 'traslados', fecha: 'fecha_envio', orden: [['id', false]],
+      nota: 'Al eliminar un traslado también se eliminan sus movimientos de inventario. Editarlo no cambia esos movimientos: revíselos en "Compras y cargas".',
+      campos: [['id', 'N°', 'solo'], ['fecha_envio', 'Fecha de envío', 'fecha'], ['origen', 'Origen', 'tienda'], ['destino', 'Destino', 'tienda'],
+               ['producto', 'Tipo (material)', 'tipo'], ['cantidad', 'Cantidad', 'num'], ['estado', 'Estado', ['ENVIADO', 'RECIBIDO', 'ANULADO']],
+               ['observaciones', 'Observaciones', 'larga'], ['enviado_por', 'Envió', 'usuario'], ['fecha_recepcion', 'Recibido el', 'fechahora'],
+               ['recibido_por', 'Recibió', 'usuario'], ['obs_recepcion', 'Observaciones de recepción', 'larga']] },
+    { id: 'devoluciones', titulo: 'Devoluciones de clientes', tabla: 'devoluciones', fecha: 'fecha_devolucion', orden: [['fecha_devolucion', false], ['id', false]],
+      campos: [['id', 'N°', 'solo'], ['fecha_devolucion', 'Fecha', 'fecha'], ['tienda', 'Tienda / Bodega', 'tienda'], ['pedido_id', 'Pedido'],
+               ['envio', 'Envío'], ['factura', 'Factura'], ['producto', 'Tipo (material)', 'tipo'], ['valor', 'Valor', 'dinero'],
+               ['gramos', 'Gramos', 'num'], ['motivo', 'Motivo', 'larga'], ['creado_por', 'Registrado por', 'usuario']] },
+    { id: 'devoluciones_oficina', titulo: 'Devoluciones a oficina', tabla: 'devoluciones_oficina', fecha: 'fecha_devolucion', orden: [['fecha_devolucion', false], ['id', false]],
+      campos: [['id', 'N°', 'solo'], ['fecha_devolucion', 'Fecha', 'fecha'], ['tienda', 'Tienda / Bodega', 'tienda'],
+               ['producto', 'Tipo (material)', 'tipo'], ['cantidad', 'Cantidad', 'num']] },
+    { id: 'clientes', titulo: 'Clientes', tabla: 'clientes', fecha: 'created_at', porCodigo: 'id', orden: [['id']],
+      nota: 'Si cambia el dueño a un vendedor con rango, el cliente pasa a un código de ese rango. Al eliminar un cliente, sus ventas y pagos se conservan con el código anterior.',
+      campos: [['id', 'Código', 'solo'], ['consecutivo', 'Consecutivo', 'num'], ['nombre', 'Nombre'], ['tipo_cliente', 'Tipo de cliente', ['MINORISTA', 'MAYORISTA']],
+               ['dpi', 'DPI'], ['nit', 'NIT'], ['nit2', 'NIT 2'], ['telefono', 'Teléfono'], ['telefono2', 'Otro teléfono'], ['correo', 'Correo'],
+               ['direccion', 'Dirección', 'larga'], ['departamento', 'Departamento', 'departamento'], ['fecha_nacimiento', 'Fecha de nacimiento', 'fecha'],
+               ['codigo_cliente', 'Referencia anterior'], ['creado_por', 'Vendedor dueño', 'usuario'], ['nota_importacion', 'Nota', 'larga'],
+               ['created_at', 'Creado el', 'solo-fechahora']] },
+    { id: 'saldos_inventario', titulo: 'Saldos de inventario (solo lectura)', tabla: 'inventario', soloLectura: true, orden: [['tienda'], ['producto']],
+      nota: 'Los saldos se calculan con las cargas, traslados y ventas: para corregirlos edite esos registros.',
+      campos: [['tienda', 'Tienda / Bodega'], ['producto', 'Tipo (material)'], ['unidad', 'Unidad'], ['fecha_inicio', 'Control desde', 'fecha'],
+               ['entradas', 'Entradas', 'num'], ['salidas', 'Salidas', 'num'], ['saldo', 'Saldo', 'num']] },
+    { id: 'saldos_cartera', titulo: 'Saldos de cartera por cliente (solo lectura)', tabla: 'cartera_clientes', soloLectura: true, porCodigo: 'codigo', orden: [['codigo']],
+      nota: 'La cartera se calcula con las ventas, pagos y devoluciones: para corregirla edite esos registros.',
+      campos: [['codigo', 'Código', 'codigo'], ['nombre', 'Cliente'], ['vendedor', 'Vendedor'], ['total_ventas', 'Compras', 'dinero'],
+               ['total_pagos', 'Pagos', 'dinero'], ['saldo', 'Saldo', 'dinero'], ['ultima_venta', 'Última venta', 'fecha'], ['ultimo_pago', 'Último pago', 'fecha']] },
+].map(h => ({ ...h, campos: h.campos.map(([campo, titulo, tipo = 'texto']) => ({ campo, titulo, tipo })) }));
+
+let hisFilas = [], hisEditando = null, historialModal;
+const historialActual = () => HISTORIALES.find(h => h.id === $('hisTabla').value) || HISTORIALES[0];
+
+function construirHistorialAdmin() {
+    historialModal = new bootstrap.Modal($('historialModal'));
+    $('hisTabla').innerHTML = HISTORIALES.map(h => `<option value="${h.id}">${h.titulo}</option>`).join('');
+    $('hisTabla').addEventListener('change', cargarHistorialAdmin);
+    ['hisDesde', 'hisHasta'].forEach(id => $(id).addEventListener('change', cargarHistorialAdmin));
+    $('hisBuscar').addEventListener('input', renderHistorialAdmin);
+    $('hisExportar').addEventListener('click', exportarHistorialAdmin);
+    $('hisBody').addEventListener('click', e => {
+        const b = e.target.closest('[data-accion]');
+        if (!b) return;
+        const fila = hisFilas.find(r => String(r.id) === b.dataset.id);
+        if (b.dataset.accion === 'editar') abrirEdicionHistorial(fila); else eliminarRegistroHistorial(fila);
+    });
+    $('hisGuardar').addEventListener('click', guardarEdicionHistorial);
+    $('hisEliminarModal').addEventListener('click', () => eliminarRegistroHistorial(hisEditando));
+    // Ventas: el total se recalcula al cambiar cantidad o valor unitario
+    $('hisCampos').addEventListener('input', e => {
+        if (historialActual().tabla !== 'ventas' || !['cantidad', 'valor_unitario'].includes(e.target.name)) return;
+        const v = n => num($('hisForm').elements[n].value);
+        $('hisForm').elements.valor_total.value = (v('cantidad') * v('valor_unitario')).toFixed(2);
+    });
+}
+
+function cargarHistorialAdmin() {
+    const h = historialActual();
+    document.querySelectorAll('#historialAdmin .his-fecha').forEach(e => e.classList.toggle('d-none', !h.fecha));
+    $('hisNota').textContent = h.nota || (h.soloLectura ? '' : 'Puede editar o eliminar cualquier registro con los botones de cada fila. No se puede deshacer.');
+    const desde = $('hisDesde').value, hasta = $('hisHasta').value;
+    run(async () => {
+        const filas = await fetchAll(() => {
+            let q = sb.from(h.tabla).select('*');
+            if (h.fecha && desde) q = q.gte(h.fecha, desde);
+            if (h.fecha && hasta) q = h.fecha === 'created_at' ? q.lt(h.fecha, sumarDia(hasta)) : q.lte(h.fecha, hasta);
+            return h.orden.reduce((q2, [c, asc = true]) => q2.order(c, { ascending: asc }), q);
+        });
+        if (!perfiles.length) await cargarPerfiles();
+        hisFilas = h.porCodigo ? ordenarPorCodigo(filas, h.porCodigo) : filas;
+        renderHistorialAdmin();
+    });
+}
+
+function valorHistorial(c, v) {
+    if (v === null || v === undefined || v === '') return '';
+    switch (c.tipo) {
+        case 'fecha': return fmtFecha(v);
+        case 'fechahora': case 'solo-fechahora': return new Date(v).toLocaleString('es-GT', { timeZone: CFG.ZONA_HORARIA, dateStyle: 'short', timeStyle: 'short' });
+        case 'num': return fmt(v);
+        case 'dinero': return fmtQ(v);
+        case 'usuario': return nombreUsuario(v) || String(v).slice(0, 8);
+        default: return String(v);
+    }
+}
+
+function historialFiltrado() {
+    const h = historialActual(), q = norm($('hisBuscar').value);
+    return q ? hisFilas.filter(r => h.campos.some(c => norm(valorHistorial(c, r[c.campo])).includes(q))) : hisFilas;
+}
+
+const MAX_FILAS_HISTORIAL = 500;
+function renderHistorialAdmin() {
+    const h = historialActual(), d = historialFiltrado();
+    const derecha = c => ['num', 'dinero', 'codigo'].includes(c.tipo) || c.campo === 'id' ? ' class="num"' : '';
+    $('hisHead').innerHTML = `<tr>${h.campos.map(c => `<th${derecha(c)}>${esc(c.titulo)}</th>`).join('')}${h.soloLectura ? '' : '<th></th>'}</tr>`;
+    $('hisBody').innerHTML = d.slice(0, MAX_FILAS_HISTORIAL).map(r => `<tr>${h.campos.map(c =>
+        `<td${derecha(c)}${c.tipo === 'larga' ? ' class="text-truncate" style="max-width: 220px"' : ''}>${esc(valorHistorial(c, r[c.campo]))}</td>`).join('')}
+        ${h.soloLectura ? '' : `<td class="text-nowrap text-end">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-accion="editar" data-id="${r.id}" title="Editar"><i class="bi bi-pencil"></i></button>
+          <button type="button" class="btn btn-outline-danger btn-sm" data-accion="eliminar" data-id="${r.id}" title="Eliminar"><i class="bi bi-trash"></i></button></td>`}</tr>`).join('')
+        || `<tr><td colspan="${h.campos.length + 1}" class="text-muted">Sin registros</td></tr>`;
+    $('hisInfo').textContent = `${d.length} registro(s)` + (d.length > MAX_FILAS_HISTORIAL ? ` · en pantalla se muestran ${MAX_FILAS_HISTORIAL}; use el buscador o las fechas (el Excel incluye todos)` : '');
+}
+
+function exportarHistorialAdmin() {
+    const h = historialActual();
+    exportarExcel(`Historial_${h.id}`, h.titulo, historialFiltrado().map(r => Object.fromEntries(h.campos.map(c => {
+        const v = r[c.campo];
+        if (v === null || v === undefined || v === '') return [c.titulo, null];
+        if (c.tipo === 'fecha') return [c.titulo, aFecha(v)];
+        if (['num', 'dinero'].includes(c.tipo)) return [c.titulo, num(v)];
+        return [c.titulo, valorHistorial(c, v)];
+    }))));
+}
+
+// datetime-local <-> ISO
+const aFechaHoraLocal = v => { if (!v) return ''; const d = new Date(v); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+
+function opcionesCampo(c, actual) {
+    const listas = { tienda: 'tiendas', vendedor: 'vendedores', tipo: 'tipos', metodo: 'metodos_pago', departamento: 'departamentos' };
+    let ops;
+    if (Array.isArray(c.tipo)) ops = c.tipo.map(v => [v, v]);
+    else if (c.tipo === 'usuario') ops = perfiles.map(p => [p.id, p.nombre || p.usuario]);
+    else ops = maestros[listas[c.tipo]].map(x => [x.nombre, x.nombre + (x.activo === false ? ' (inactivo)' : '')]);
+    if (actual && !ops.some(([v]) => v === actual)) ops.push([actual, actual]);
+    return `<option value="">(vacío)</option>` + ops.map(([v, t]) => `<option value="${esc(v)}" ${v === actual ? 'selected' : ''}>${esc(t)}</option>`).join('');
+}
+
+function abrirEdicionHistorial(r) {
+    const h = historialActual();
+    hisEditando = r;
+    $('hisModalTitulo').textContent = `Editar · ${h.titulo} · N° ${r.id}`;
+    $('hisCampos').innerHTML = h.campos.map(c => {
+        const v = r[c.campo], id = `his-${c.campo}`;
+        const etiqueta = `<label class="form-label" for="${id}">${esc(c.titulo)}</label>`;
+        let control;
+        if (c.tipo === 'solo' || c.tipo === 'solo-fechahora')
+            control = `<input type="text" class="form-control" id="${id}" value="${esc(valorHistorial(c, v))}" disabled>`;
+        else if (Array.isArray(c.tipo) || ['tienda', 'vendedor', 'tipo', 'metodo', 'departamento', 'usuario'].includes(c.tipo))
+            control = `<select class="form-select" id="${id}" name="${c.campo}">${opcionesCampo(c, v ?? '')}</select>`;
+        else if (c.tipo === 'larga')
+            control = `<textarea class="form-control" id="${id}" name="${c.campo}" rows="2">${esc(v ?? '')}</textarea>`;
+        else {
+            const tipoInput = { fecha: 'date', fechahora: 'datetime-local', num: 'number', dinero: 'number', codigo: 'number' }[c.tipo] || 'text';
+            const valor = c.tipo === 'fecha' ? String(v ?? '').slice(0, 10) : c.tipo === 'fechahora' ? aFechaHoraLocal(v) : (v ?? '');
+            control = `<input type="${tipoInput}" class="form-control" id="${id}" name="${c.campo}" value="${esc(valor)}"${tipoInput === 'number' ? ' step="any"' : ''}>`;
+        }
+        return `<div class="${c.tipo === 'larga' ? 'col-12' : 'col-md-6 col-lg-4'}">${etiqueta}${control}</div>`;
+    }).join('');
+    historialModal.show();
+}
+
+// Solo se envían los campos que cambiaron
+function cambiosHistorial() {
+    const h = historialActual(), r = hisEditando, datos = {};
+    for (const c of h.campos) {
+        const el = $('hisForm').elements[c.campo];
+        if (!el) continue;
+        let nuevo = el.value.trim();
+        let antes = r[c.campo] ?? '';
+        if (c.tipo === 'fecha') antes = String(antes).slice(0, 10);
+        if (c.tipo === 'fechahora') antes = aFechaHoraLocal(antes);
+        if (['num', 'dinero', 'codigo'].includes(c.tipo)) { if (nuevo !== '' && antes !== '' && Number(nuevo) === Number(antes)) continue; }
+        if (String(nuevo) === String(antes)) continue;
+        datos[c.campo] = nuevo === '' ? null
+            : ['num', 'dinero', 'codigo'].includes(c.tipo) ? Number(nuevo)
+            : c.tipo === 'fechahora' ? new Date(nuevo).toISOString() : nuevo;
+    }
+    return datos;
+}
+
+function guardarEdicionHistorial() {
+    const h = historialActual(), datos = cambiosHistorial();
+    if (!Object.keys(datos).length) { historialModal.hide(); showAlert('No hubo cambios', 'info'); return; }
+    run(async () => {
+        const fila = ok(await sb.rpc('admin_editar_registro', { p_tabla: h.tabla, p_id: hisEditando.id, p_datos: datos }));
+        const i = hisFilas.findIndex(x => x.id === hisEditando.id);
+        if (i >= 0) hisFilas[i] = { ...hisFilas[i], ...fila };
+        historialModal.hide();
+        renderHistorialAdmin();
+        showAlert(`Registro N° ${hisEditando.id} actualizado${fila?.id !== undefined && fila.id !== hisEditando.id ? ` (ahora N° ${fila.id})` : ''}`, 'success');
+    });
+}
+
+function eliminarRegistroHistorial(r) {
+    const h = historialActual();
+    if (!r) return;
+    const resumen = h.campos.filter(c => c.campo !== 'id').slice(0, 4).map(c => valorHistorial(c, r[c.campo])).filter(Boolean).join(' · ');
+    const extra = h.tabla === 'traslados' ? '\n\nTambién se eliminarán sus movimientos de inventario.'
+        : h.tabla === 'clientes' ? '\n\nSus ventas y pagos se conservan, pero quedarán sin cliente.' : '';
+    if (!confirm(`¿Eliminar definitivamente el registro N° ${r.id} de ${h.titulo}?\n${resumen}${extra}\n\nNo se puede deshacer.`)) return;
+    run(async () => {
+        ok(await sb.rpc('admin_eliminar_registro', { p_tabla: h.tabla, p_id: r.id }));
+        hisFilas = hisFilas.filter(x => x.id !== r.id);
+        if (hisEditando?.id === r.id) historialModal.hide();
+        renderHistorialAdmin();
+        showAlert(`Registro N° ${r.id} eliminado`, 'success');
+    });
 }
 
 // ---------------------------------------------------------------- reportes (columnas a elección)
