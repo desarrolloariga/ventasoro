@@ -51,16 +51,16 @@
                             <div class="col-md-8 solo-admin d-none" id="clientResponsableGrupo"><label for="clientResponsable" class="form-label">Vendedor dueño del cliente</label><select class="form-select" id="clientResponsable"></select>
                                 <div class="form-text">El cliente toma el consecutivo de ese vendedor, y solo él (y los administradores) lo ve con sus ventas y pagos.</div></div>
                         </div>
-                        <!-- Solo al crear: saldo pendiente con el que llega el cliente -->
+                        <!-- Saldo pendiente con el que llega el cliente (se puede editar después) -->
                         <div id="saldoInicialGrupo" class="border rounded p-3 mt-3 bg-light">
-                            <div class="fw-semibold mb-2"><i class="bi bi-cash-coin me-1"></i> Saldo pendiente inicial (opcional)</div>
+                            <div class="fw-semibold mb-2"><i class="bi bi-cash-coin me-1"></i> Saldo pendiente inicial <span class="fw-normal text-muted" id="saldoInicialEstado">(opcional)</span></div>
                             <div class="row g-2">
                                 <div class="col-md-3"><label for="saldoInicialValor" class="form-label small">Valor Q</label><input type="number" class="form-control" id="saldoInicialValor" step="0.01" min="0" placeholder="0.00"></div>
                                 <div class="col-md-3"><label for="saldoInicialFecha" class="form-label small">Fecha</label><input type="date" class="form-control" id="saldoInicialFecha"></div>
                                 <div class="col-md-3"><label for="saldoInicialTienda" class="form-label small">Tienda / Bodega</label><select class="form-select" id="saldoInicialTienda" data-crear="tiendas"></select></div>
                                 <div class="col-md-3"><label for="saldoInicialVendedor" class="form-label small">Vendedor</label><select class="form-select" id="saldoInicialVendedor" data-crear="vendedores"></select></div>
                             </div>
-                            <div class="form-text">Queda registrado como una venta "SALDO INICIAL" y suma a lo que debe el cliente.</div>
+                            <div class="form-text" id="saldoInicialAyuda">Queda registrado como una venta "SALDO INICIAL" y suma a lo que debe el cliente.</div>
                         </div>
                     </form>
                 </div>

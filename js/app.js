@@ -563,9 +563,15 @@ function abrirModalCliente(c = {}, origen = 'clientes') {
     if (!c.tipo_cliente) $('newClientTipo').value = 'MINORISTA';
     $('newClientTipo').disabled = !esAdmin();
     $('newClientTipoAyuda').textContent = esAdmin() ? '' : 'Solo el administrador crea clientes mayoristas.';
-    // Saldo inicial: solo al crear
-    $('saldoInicialGrupo').classList.toggle('d-none', !!c.id);
+    // Saldo inicial: al crear se escribe; al editar se carga el que tiene para poder cambiarlo
+    saldoInicialOriginal = null;
     $('saldoInicialFecha').value = hoyISO();
+    $('saldoInicialEstado').textContent = '(opcional)';
+    $('saldoInicialAyuda').textContent = 'Queda registrado como una venta "SALDO INICIAL" y suma a lo que debe el cliente.';
+    // Solo el dueño o el admin lo cambian (un supervisor no edita clientes de su equipo)
+    const puedeSaldo = !c.id || esAdmin() || c.creado_por === perfil.id;
+    $('saldoInicialGrupo').classList.toggle('d-none', !puedeSaldo);
+    if (c.id && puedeSaldo) cargarSaldoInicial(c.id);
     aplicarTiendaUsuario();  // el reset del formulario borra la tienda fija
     // Vendedor dueño: el administrador lo elige al crear o al editar
     $('clientResponsableGrupo').classList.toggle('d-none', !esAdmin());
@@ -576,6 +582,40 @@ function abrirModalCliente(c = {}, origen = 'clientes') {
     }
     if (!c.id) mostrarProximoCodigo();
     createClientModal.show();
+}
+
+// Saldo inicial actual del cliente (venta "SALDO INICIAL") y lo que ya se le abonó
+let saldoInicialOriginal = null;
+const valoresSaldoInicial = () => ({
+    valor: String(num($('saldoInicialValor').value)), fecha: $('saldoInicialFecha').value,
+    tienda: $('saldoInicialTienda').value, vendedor: $('saldoInicialVendedor').value,
+});
+async function cargarSaldoInicial(clienteId) {
+    $('saldoInicialEstado').textContent = '(cargando…)';
+    const [ventas, envios] = await Promise.all([
+        sb.from('ventas').select('valor_total,fecha_venta,tienda,vendedor,envio,pedido_id').eq('cliente_id', clienteId).eq('producto', 'SALDO INICIAL').then(ok),
+        sb.rpc('envios_cliente', { p_cliente: clienteId }).then(ok),
+    ]);
+    if (String(clienteId) !== $('editClientId').value) return;   // se abrió otra ficha
+    const v = ventas[0];
+    if (v) {
+        $('saldoInicialValor').value = num(v.valor_total).toFixed(2);
+        $('saldoInicialFecha').value = String(v.fecha_venta || hoyISO()).slice(0, 10);
+        setSelectValue('saldoInicialTienda', v.tienda || '');
+        setSelectValue('saldoInicialVendedor', v.vendedor || '');
+        const e = envios.find(x => x.envio === ((v.envio || '').trim() || v.pedido_id));
+        const abonado = num(e?.pagado);
+        $('saldoInicialEstado').textContent = `(envío ${(v.envio || '').trim() || v.pedido_id})`;
+        $('saldoInicialAyuda').textContent = abonado > 0.005
+            ? `Ya se abonaron ${fmtQ(abonado)} a este saldo; queda pendiente ${fmtQ(e.saldo)}. El valor no puede ser menor que lo abonado.`
+            : 'Puede cambiar el valor, la fecha, la tienda o el vendedor. En 0 se elimina el saldo inicial.';
+        $('saldoInicialValor').min = abonado > 0.005 ? abonado.toFixed(2) : '0';
+    } else {
+        $('saldoInicialEstado').textContent = '(no tiene)';
+        $('saldoInicialAyuda').textContent = 'Si el cliente debía algo antes de registrarse, escriba el valor y se agrega como "SALDO INICIAL".';
+        $('saldoInicialValor').min = '0';
+    }
+    saldoInicialOriginal = valoresSaldoInicial();
 }
 
 // "1003 · consecutivo 3 de Pablo" (admin) o "3" (vendedor)
@@ -602,12 +642,21 @@ function saveNewClient() {
     if (d.correo && !$('newClientCorreo').checkValidity()) { $('newClientCorreo').reportValidity(); return; }
     const id = $('editClientId').value;
     const saldo = num($('saldoInicialValor').value);
+    // No se puede bajar el saldo inicial por debajo de lo ya abonado
+    if (!$('saldoInicialValor').checkValidity()) { $('saldoInicialValor').reportValidity(); return; }
     run(async () => {
         let c;
         if (esAdmin()) d.creado_por = $('clientResponsable').value || null;
         else delete d.tipo_cliente;   // la base no deja a un vendedor crear mayoristas
+        let saldoMsg = '';
         if (id) {
             c = ok(await sb.from('clientes').update(d).eq('id', id).select().single());
+            // Saldo inicial: solo si se cambió algo
+            const nuevo = valoresSaldoInicial();
+            if (saldoInicialOriginal && JSON.stringify(nuevo) !== JSON.stringify(saldoInicialOriginal)) {
+                const pendiente = ok(await sb.rpc('guardar_saldo_inicial', { p_cliente: c.id, p_saldo: nuevo }));
+                saldoMsg = num(nuevo.valor) > 0 ? ` · Saldo inicial ${fmtQ(nuevo.valor)} (pendiente ${fmtQ(pendiente)})` : ' · Saldo inicial eliminado';
+            }
         } else {
             c = unico(ok(await sb.rpc('crear_cliente', {
                 p_cliente: d,
@@ -627,7 +676,7 @@ function saveNewClient() {
             if (i >= 0) fullClientesData[i] = c; else fullClientesData.unshift(c);
             filterClientes();
         }
-        showAlert(id ? (Number(id) !== c.id ? `Cliente actualizado. Nuevo código: ${textoCodigo(c)}` : `Cliente ${cod(c.id)} actualizado con éxito`)
+        showAlert(id ? (Number(id) !== c.id ? `Cliente actualizado. Nuevo código: ${textoCodigo(c)}` : `Cliente ${cod(c.id)} actualizado con éxito`) + saldoMsg
             : `Cliente creado. Código cliente: ${textoCodigo(c)}` + (saldo > 0 ? ` · Saldo inicial ${fmtQ(saldo)} registrado` : ''), 'success');
     });
 }

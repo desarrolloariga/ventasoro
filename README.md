@@ -127,6 +127,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `15_pagos_por_envio.sql` | **Pagos aplicados a envíos**: cada pago se aplica a uno o varios envíos del cliente (puede quedar parcial); el saldo del cliente es la suma de sus envíos. Una venta sin envío se identifica por su pedido. Reparte los abonos antiguos sin envío a los envíos con saldo, del más antiguo al más reciente (lo que sobre queda como saldo a favor). Ejecutarlo **antes** de publicar esta versión. |
 | `16_corregir_pagos_envio.sql` | Corrige pagos registrados con un envío equivocado (número de pedido en vez de envío; pagos de CELESTE DE LEÓN al envío de otra clienta) y hace que la cartera por envío solo cuente los pagos del mismo cliente. |
 | `17_supervisores.sql` | **Supervisores y jerarquías**: rol supervisor, vendedores a cargo de un supervisor (`perfiles.supervisor_id`) y permisos de solo lectura para que el supervisor vea clientes, ventas, pagos, devoluciones y traslados de su equipo. Inteligencia comercial filtrable por vendedor. |
+| `18_editar_saldo_inicial.sql` | Permite editar el saldo pendiente inicial de un cliente (valor, fecha, tienda, vendedor) desde la ficha del cliente; no puede quedar por debajo de lo ya abonado. Lo hace el dueño del cliente o el admin. |
 
 ## Despliegue en Vercel
 
