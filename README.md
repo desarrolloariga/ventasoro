@@ -124,6 +124,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `12_tipo_de_referencia.sql` | *(Reemplazado por el 13; no es necesario ejecutarlo.)* Cada referencia pertenece a un tipo (material): las ventas toman el tipo de su referencia (también al cambiar el tipo de la referencia) y se alinean las ventas existentes. Al final lista las referencias que aún no tienen tipo. |
 | `13_tipo_reemplaza_referencia.sql` | **El tipo (material) reemplaza a la referencia**: ventas, cargas, traslados y saldos se manejan por tipo; cada tipo tiene unidad (gramos/unidades) y si lleva inventario. Convierte los datos existentes al tipo de su referencia (las referencias sin tipo pasan a ser un tipo) y deja anotado el nombre anterior. Ejecutarlo **antes** de publicar esta versión de la app. |
 | `14_admin_editar_historial.sql` | Historial del administrador: funciones para editar o eliminar cualquier registro (ventas, pagos, devoluciones, cargas, traslados, clientes) sin las restricciones normales. Solo el admin puede usarlas. |
+| `15_pagos_por_envio.sql` | **Pagos aplicados a envíos**: cada pago se aplica a uno o varios envíos del cliente (puede quedar parcial); el saldo del cliente es la suma de sus envíos. Una venta sin envío se identifica por su pedido. Reparte los abonos antiguos sin envío a los envíos con saldo, del más antiguo al más reciente (lo que sobre queda como saldo a favor). Ejecutarlo **antes** de publicar esta versión. |
 
 ## Despliegue en Vercel
 

@@ -337,7 +337,16 @@ function registrarEventos() {
 
     // Pagos
     $('paymentForm').addEventListener('submit', handlePaymentSubmit);
-    $('valorPagar').addEventListener('input', mostrarNuevoSaldo);
+    $('pagoEnviosBody').addEventListener('input', e => { if (e.target.classList.contains('abono-envio')) mostrarNuevoSaldo(); });
+    $('pagoEnviosBody').addEventListener('click', e => {
+        const b = e.target.closest('.abono-todo');
+        if (!b) return;
+        const inp = b.closest('tr').querySelector('.abono-envio');
+        inp.value = num(inp.dataset.saldo) > 0 ? num(inp.dataset.saldo).toFixed(2) : '';
+        mostrarNuevoSaldo();
+    });
+    $('pagoRepartirBoton').addEventListener('click', repartirPago);
+    $('pagoVerPagados').addEventListener('change', renderEnviosPago);
     $('pills-recibidos-tab').addEventListener('shown.bs.tab', loadRecibidos);
     ['recDesde', 'recHasta', 'recSinCliente'].forEach(id => $(id).addEventListener('change', loadRecibidos));
     $('recBuscarButton').addEventListener('click', loadRecibidos);
@@ -825,10 +834,10 @@ let clientePago = null, saldoClientePago = 0;
 
 function seleccionarClientePago(c) {
     run(async () => {
-        const [resumen, ventas, pagos] = await Promise.all([
+        const [resumen, envios, pagosSinEnvio] = await Promise.all([
             sb.from('cartera_clientes').select('*').eq('codigo', c.id).maybeSingle().then(ok),
-            fetchAll(() => sb.from('ventas').select('envio,pedido_id,fecha_venta,valor_total').eq('cliente_id', c.id)),
-            fetchAll(() => sb.from('pagos').select('envio,valor_pagado').eq('cliente_id', c.id)),
+            sb.rpc('envios_cliente', { p_cliente: c.id }).then(ok),
+            fetchAll(() => sb.from('pagos').select('valor_pagado,envio').eq('cliente_id', c.id).is('envio', null)),
         ]);
         clientePago = c;
         saldoClientePago = num(resumen?.saldo);
@@ -840,48 +849,80 @@ function seleccionarClientePago(c) {
         $('pagoInfoSaldo').textContent = fmt(saldoClientePago);
         $('pagoCliente').value = `${c.id} · ${c.nombre}`;
 
-        // Saldo por envío (informativo): ventas del envío menos pagos aplicados a él
-        const envios = {};
-        ventas.forEach(v => {
-            const k = (v.envio || '').trim() || v.pedido_id;
-            const x = envios[k] ??= { envio: k, fecha: v.fecha_venta, venta: 0, pagado: 0 };
-            x.venta += num(v.valor_total);
-            if (v.fecha_venta < x.fecha) x.fecha = v.fecha_venta;
-        });
-        pagos.forEach(p => { const k = (p.envio || '').trim(); if (envios[k]) envios[k].pagado += num(p.valor_pagado); });
-        const lista = Object.values(envios).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
-        $('pagoEnviosBody').innerHTML = lista.map(x => `<tr><td>${fmtFecha(x.fecha)}</td><td>${esc(x.envio)}</td><td class="num">${fmt(x.venta)}</td><td class="num">${fmt(x.pagado)}</td><td class="num">${fmt(x.venta - x.pagado)}</td></tr>`).join('')
-            || '<tr><td colspan="5" class="text-muted">Sin compras registradas</td></tr>';
-        $('pagoEnvio').innerHTML = '<option value="">Abono al total del cliente</option>' +
-            lista.filter(x => x.venta - x.pagado > 0.005)
-                .map(x => `<option value="${esc(x.envio)}">Envío ${esc(x.envio)} · saldo ${fmtQ(x.venta - x.pagado)}</option>`).join('');
+        enviosPago = envios;
+        // Pagos antiguos que no quedaron aplicados a ningún envío
+        const aFavor = pagosSinEnvio.reduce((s, p) => s + num(p.valor_pagado), 0);
+        $('pagoSaldoFavor').textContent = aFavor > 0.005 ? `Saldo a favor (pagos sin envío): ${fmtQ(aFavor)}` : '';
+        $('pagoSaldoFavor').classList.toggle('d-none', aFavor <= 0.005);
+        $('pagoRepartir').value = '';
+        $('pagoEnviosBody').innerHTML = '';   // abonos del cliente anterior no se conservan
+        renderEnviosPago();
         $('pagoClienteInfo').classList.remove('d-none');
         mostrarNuevoSaldo();
     });
 }
 
+// Envíos del cliente con un campo para abonar a cada uno (los pagados se ocultan salvo que se pidan)
+let enviosPago = [];
+function renderEnviosPago() {
+    const previos = Object.fromEntries([...document.querySelectorAll('#pagoEnviosBody .abono-envio')].map(i => [i.dataset.envio, i.value]));
+    const verPagados = $('pagoVerPagados').checked;
+    const lista = enviosPago.filter(x => verPagados || num(x.saldo) > 0.005);
+    $('pagoEnviosBody').innerHTML = lista.map(x => {
+        const debe = num(x.saldo) > 0.005;
+        return `<tr class="${debe ? '' : 'text-muted'}"><td>${fmtFecha(x.fecha)}</td><td class="fw-semibold">${esc(x.envio)}</td>
+            <td class="num">${fmt(x.venta)}</td><td class="num">${fmt(x.pagado)}</td><td class="num fw-semibold">${fmt(x.saldo)}</td>
+            <td class="num">${debe ? `<input type="number" class="form-control form-control-sm text-end abono-envio" data-envio="${esc(x.envio)}" data-saldo="${num(x.saldo)}"
+                step="0.01" min="0" max="${num(x.saldo).toFixed(2)}" value="${esc(previos[x.envio] ?? '')}" aria-label="Abono al envío ${esc(x.envio)}">` : '<span class="small">Pagado</span>'}</td>
+            <td>${debe ? `<button type="button" class="btn btn-outline-secondary btn-sm abono-todo" title="Pagar el saldo completo">Todo</button>` : ''}</td></tr>`;
+    }).join('') || `<tr><td colspan="7" class="text-muted">${enviosPago.length ? 'El cliente no tiene envíos con saldo pendiente.' : 'El cliente no tiene compras registradas.'}</td></tr>`;
+    mostrarNuevoSaldo();
+}
+
+const abonosPago = () => [...document.querySelectorAll('#pagoEnviosBody .abono-envio')]
+    .map(i => ({ envio: i.dataset.envio, saldo: num(i.dataset.saldo), valor: Math.round(num(i.value) * 100) / 100 }))
+    .filter(a => a.valor > 0);
+
+// Reparte el valor recibido desde el envío más antiguo
+function repartirPago() {
+    let resta = num($('pagoRepartir').value);
+    if (resta <= 0) { $('pagoRepartir').focus(); return; }
+    document.querySelectorAll('#pagoEnviosBody .abono-envio').forEach(i => {
+        const aplica = Math.min(resta, num(i.dataset.saldo));
+        i.value = aplica > 0.005 ? aplica.toFixed(2) : '';
+        resta = Math.round((resta - aplica) * 100) / 100;
+    });
+    mostrarNuevoSaldo();
+    if (resta > 0.005) showAlert(`El valor recibido supera lo que debe el cliente por ${fmtQ(resta)}. Solo se puede aplicar hasta el saldo de sus envíos.`, 'warning');
+}
+
 function mostrarNuevoSaldo() {
-    const v = num($('valorPagar').value);
-    $('pagoNuevoSaldo').textContent = v > 0 ? `Después de este pago el cliente debe: ${fmtQ(saldoClientePago - v)}` : '';
+    const total = abonosPago().reduce((s, a) => s + a.valor, 0);
+    $('pagoTotal').textContent = fmtQ(total);
+    $('pagoNuevoSaldo').textContent = total > 0 ? `Después de este pago el cliente debe: ${fmtQ(saldoClientePago - total)}` : '';
 }
 
 function handlePaymentSubmit(e) {
     e.preventDefault();
     if (!clientePago) { showAlert('Busque primero al cliente', 'warning'); return; }
-    const valor = num($('valorPagar').value);
-    if (valor > saldoClientePago + 0.005 && !confirm(`El pago (${fmtQ(valor)}) es mayor que lo que debe el cliente (${fmtQ(saldoClientePago)}). ¿Registrarlo de todas formas?`)) return;
-    const p = {
+    const abonos = abonosPago();
+    if (!abonos.length) { showAlert('Escriba cuánto se abona a cada envío (al menos uno).', 'warning'); return; }
+    const excedido = abonos.find(a => a.valor > a.saldo + 0.005);
+    if (excedido) { showAlert(`El abono al envío ${excedido.envio} (${fmtQ(excedido.valor)}) es mayor que su saldo (${fmtQ(excedido.saldo)}).`, 'warning'); return; }
+    const valor = abonos.reduce((s, a) => s + a.valor, 0);
+    const comun = {
         cliente_id: clientePago.id,
         fecha_pago: $('fechaPago').value,
-        valor_pagado: valor,
         metodo_pago: $('metodoPago').value,
         boleta: $('boleta').value.trim() || null,
-        envio: $('pagoEnvio').value || null,
         observaciones: $('pagoObservaciones').value.trim() || null,
     };
+    // Un registro por envío (todos se guardan juntos o ninguno)
+    const filas = abonos.map(a => ({ ...comun, envio: a.envio, valor_pagado: a.valor }));
     run(async () => {
-        ok(await sb.from('pagos').insert(p));
-        showAlert(`Pago de ${fmtQ(valor)} (${p.metodo_pago}, ${fmtFecha(p.fecha_pago)}) registrado a ${clientePago.nombre}. Nuevo saldo: ${fmtQ(saldoClientePago - valor)}`, 'success');
+        ok(await sb.from('pagos').insert(filas));
+        const detalle = abonos.map(a => `${a.envio}: ${fmtQ(a.valor)}`).join(' · ');
+        showAlert(`Pago de ${fmtQ(valor)} (${comun.metodo_pago}, ${fmtFecha(comun.fecha_pago)}) registrado a ${clientePago.nombre} → ${detalle}. Nuevo saldo: ${fmtQ(saldoClientePago - valor)}`, 'success');
         $('paymentForm').reset();
         $('fechaPago').value = hoyISO();
         seleccionarClientePago(clientePago);
