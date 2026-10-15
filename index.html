@@ -260,7 +260,7 @@
               </div>
               <div class="menu-grupo">
                 <button type="button" class="menu-rotulo" aria-expanded="true" data-grupo="ADMINISTRACIÓN"><span>ADMINISTRACIÓN</span><i class="bi bi-chevron-down"></i></button>
-                <button class="nav-link menu-item" id="maestros-tab" data-bs-toggle="tab" data-bs-target="#maestros" type="button" role="tab" data-titulo="Maestros" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-sliders"></i><span class="menu-texto">Maestros</span></button><button class="nav-link menu-item solo-admin d-none" id="usuarios-tab" data-bs-toggle="tab" data-bs-target="#usuarios" type="button" role="tab" data-titulo="Usuarios" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-person-gear"></i><span class="menu-texto">Usuarios</span></button><button class="nav-link menu-item solo-admin d-none" id="datos-tab" data-bs-toggle="tab" data-bs-target="#datos" type="button" role="tab" data-titulo="Datos en bruto" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-database"></i><span class="menu-texto">Datos</span></button>
+                <button class="nav-link menu-item" id="maestros-tab" data-bs-toggle="tab" data-bs-target="#maestros" type="button" role="tab" data-titulo="Maestros" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-sliders"></i><span class="menu-texto">Maestros</span></button><button class="nav-link menu-item solo-admin d-none" id="usuarios-tab" data-bs-toggle="tab" data-bs-target="#usuarios" type="button" role="tab" data-titulo="Usuarios" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-person-gear"></i><span class="menu-texto">Usuarios</span></button><button class="nav-link menu-item solo-admin d-none" id="jerarquias-tab" data-bs-toggle="tab" data-bs-target="#jerarquias" type="button" role="tab" data-titulo="Jerarquías" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-diagram-3"></i><span class="menu-texto">Jerarquías</span></button><button class="nav-link menu-item solo-admin d-none" id="datos-tab" data-bs-toggle="tab" data-bs-target="#datos" type="button" role="tab" data-titulo="Datos en bruto" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-database"></i><span class="menu-texto">Datos</span></button>
               </div>
           </nav>
           <div class="usuario" id="userBox">
@@ -360,6 +360,8 @@
               <div class="d-flex flex-wrap gap-2 align-items-end mt-3 mb-3">
                 <div><label class="form-label small mb-1" for="intBodega">Bodega</label>
                   <select class="form-select" id="intBodega"><option value="">Todas las bodegas</option></select></div>
+                <div class="solo-equipo d-none"><label class="form-label small mb-1" for="intVendedor">Vendedor</label>
+                  <select class="form-select" id="intVendedor"><option value="">Todos</option></select></div>
                 <div><label class="form-label small mb-1" for="intPeriodo">Periodo del precio promedio</label>
                   <select class="form-select" id="intPeriodo">
                     <option value="todo">Todo el historial</option>
@@ -595,7 +597,7 @@
                     <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
                       <table class="table table-hover table-bordered table-sm">
                         <thead class="table-light sticky-top">
-                          <tr><th class="num">Código</th><th>Nombre</th><th>Tipo</th><th>DPI</th><th>NIT</th><th>Teléfonos</th><th>Correo</th><th>Dirección</th><th>Departamento</th><th class="solo-admin d-none">Vendedor</th><th></th></tr>
+                          <tr><th class="num">Código</th><th>Nombre</th><th>Tipo</th><th>DPI</th><th>NIT</th><th>Teléfonos</th><th>Correo</th><th>Dirección</th><th>Departamento</th><th class="solo-equipo d-none">Vendedor</th><th></th></tr>
                         </thead>
                         <tbody id="clientesTableBody"></tbody>
                       </table>
@@ -687,9 +689,9 @@
                       </div>
                     </div>
                     <div class="card"><div class="card-body"><div class="table-responsive" style="max-height: 500px; overflow-y: auto;"><table class="table table-sm table-bordered table-hover">
-                      <thead class="table-light sticky-top"><tr><th class="num">Código</th><th>Cliente</th><th class="solo-admin d-none">Vendedor</th><th>DPI / NIT</th><th>Teléfono</th><th class="num">Compras</th><th class="num">Pagos</th><th class="num">Saldo</th><th>Última venta</th><th>Último pago</th></tr></thead>
+                      <thead class="table-light sticky-top"><tr><th class="num">Código</th><th>Cliente</th><th class="solo-equipo d-none">Vendedor</th><th>DPI / NIT</th><th>Teléfono</th><th class="num">Compras</th><th class="num">Pagos</th><th class="num">Saldo</th><th>Última venta</th><th>Último pago</th></tr></thead>
                       <tbody id="saldosTableBody"></tbody>
-                      <tfoot><tr><td colspan="4">Total</td><td class="solo-admin d-none"></td><td class="num" id="saldosVentas"></td><td class="num" id="saldosPagos"></td><td class="num" id="saldosSaldo"></td><td colspan="2"></td></tr></tfoot>
+                      <tfoot><tr><td colspan="4">Total</td><td class="solo-equipo d-none"></td><td class="num" id="saldosVentas"></td><td class="num" id="saldosPagos"></td><td class="num" id="saldosSaldo"></td><td colspan="2"></td></tr></tfoot>
                     </table></div>
                     <div class="mt-2 text-muted small">Clientes: <span id="saldosRowCount">0</span> · Clic en un cliente para ver su estado de cuenta</div>
                     </div></div>
@@ -736,9 +738,9 @@
                       </div>
                     </div>
                     <div class="card"><div class="card-body"><div class="table-responsive" style="max-height: 500px; overflow-y: auto;"><table class="table table-sm table-bordered">
-                      <thead class="table-light sticky-top"><tr><th>Fecha</th><th>Tienda</th><th class="num">Código</th><th>Cliente</th><th class="solo-admin d-none">Vendedor</th><th>Envío</th><th class="num">Venta</th><th class="num">Pago</th><th class="num">Cartera</th></tr></thead>
+                      <thead class="table-light sticky-top"><tr><th>Fecha</th><th>Tienda</th><th class="num">Código</th><th>Cliente</th><th class="solo-equipo d-none">Vendedor</th><th>Envío</th><th class="num">Venta</th><th class="num">Pago</th><th class="num">Cartera</th></tr></thead>
                       <tbody id="carteraDetalleTableBody"></tbody>
-                      <tfoot><tr><td colspan="5">Total</td><td class="solo-admin d-none"></td><td class="num" id="carteraDetalleVenta"></td><td class="num" id="carteraDetallePago"></td><td class="num" id="carteraDetalleSaldo"></td></tr></tfoot>
+                      <tfoot><tr><td colspan="5">Total</td><td class="solo-equipo d-none"></td><td class="num" id="carteraDetalleVenta"></td><td class="num" id="carteraDetallePago"></td><td class="num" id="carteraDetalleSaldo"></td></tr></tfoot>
                     </table></div>
                     <div class="mt-2 text-end"><button type="button" class="btn btn-outline-secondary btn-sm" id="exportCarteraDetalleButton"><i class="bi bi-file-earmark-excel"></i> Exportar a Excel</button></div>
                     </div></div>
@@ -1017,6 +1019,40 @@
                 <ul class="nav nav-pills mb-3" id="maestrosPestanas"></ul>
                 <div class="tab-content" id="maestrosPaneles"></div>
                 <p class="text-muted small mt-2 mb-0">Los inactivos no aparecen al registrar ventas, pagos ni cargas, pero se conservan en el histórico y en los filtros. Solo se pueden eliminar los que no están en uso (ventas, pagos o clientes). <span class="solo-admin d-none">Al cambiar un nombre, se actualiza también en todo el histórico.</span></p>
+              </div>
+            </div>
+
+            <!-- Pestaña: Jerarquías (solo administradores): supervisores y sus vendedores -->
+            <div class="tab-pane fade" id="jerarquias" role="tabpanel">
+              <div class="row g-3 mt-1">
+                <div class="col-lg-4">
+                  <form class="card mb-3" id="supervisorForm">
+                    <div class="card-header card-header-custom"><i class="bi bi-person-plus me-2"></i> Nuevo supervisor</div>
+                    <div class="card-body">
+                      <div class="mb-2"><label class="form-label" for="supNombre">Nombre</label><input type="text" class="form-control" id="supNombre" required></div>
+                      <div class="mb-2"><label class="form-label" for="supUsuario">Usuario</label><input type="text" class="form-control" id="supUsuario" required pattern="[A-Za-z0-9._\-]{3,30}" autocomplete="off"></div>
+                      <div class="mb-3"><label class="form-label" for="supPassword">Contraseña</label><input type="text" class="form-control" id="supPassword" required minlength="6" autocomplete="off"></div>
+                      <button type="submit" class="btn btn-gold w-100">Crear supervisor</button>
+                    </div>
+                  </form>
+                  <div class="card">
+                    <div class="card-header card-header-custom"><i class="bi bi-arrow-up-circle me-2"></i> Convertir en supervisor</div>
+                    <div class="card-body">
+                      <label class="form-label" for="jerConvertir">Usuario existente</label>
+                      <div class="input-group"><select class="form-select" id="jerConvertir"></select>
+                        <button type="button" class="btn btn-outline-secondary" id="jerConvertirBoton">Convertir</button></div>
+                      <p class="small text-muted mt-2 mb-0">Conserva sus clientes y sus ventas. Si tenía supervisor, deja de tenerlo.</p>
+                    </div>
+                  </div>
+                  <p class="small text-muted mt-3">El supervisor <strong>ve</strong> los clientes, ventas, pagos, cartera e indicadores de los vendedores a su cargo, pero no puede modificarlos. Lo suyo propio lo maneja como cualquier vendedor.</p>
+                </div>
+                <div class="col-lg-8">
+                  <div id="jerSupervisores"></div>
+                  <div class="card">
+                    <div class="card-header card-header-custom d-flex justify-content-between align-items-center"><span><i class="bi bi-people me-2"></i> Vendedores sin supervisor</span><span class="small" id="jerSinCuenta"></span></div>
+                    <div class="card-body" id="jerSinSupervisor"></div>
+                  </div>
+                </div>
               </div>
             </div>
 

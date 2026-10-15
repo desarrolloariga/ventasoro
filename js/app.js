@@ -18,12 +18,15 @@ let usuarioActual;          // id del usuario mostrado (evita recargas repetidas
 let datosIniciados = false;
 
 const esAdmin = () => perfil?.rol === 'admin';
+const esSupervisor = () => perfil?.rol === 'supervisor';
+// Ve información de otros vendedores: el admin (todos) y el supervisor (su equipo)
+const veEquipo = () => esAdmin() || esSupervisor();
 // Consecutivo interno de los clientes del vendedor (id -> 1, 2, 3...)
 let consecutivos = {};
-const cod = id => (id === null || id === undefined || id === '') ? '' : (esAdmin() ? id : (consecutivos[id] ?? id));
+const cod = id => (id === null || id === undefined || id === '') ? '' : (veEquipo() ? id : (consecutivos[id] ?? id));
 const coincideCodigo = (id, q) => !!q && (String(id) === q || String(cod(id)) === q);
 async function cargarConsecutivos() {
-    if (esAdmin()) return;
+    if (veEquipo()) return;
     const filas = await fetchAll(() => sb.from('clientes').select('id,consecutivo'));
     consecutivos = Object.fromEntries(filas.filter(c => c.consecutivo != null).map(c => [c.id, c.consecutivo]));
 }
@@ -143,7 +146,7 @@ async function mostrarVista(session) {
     $('userBox').classList.add('d-flex'); $('userBox').classList.remove('d-none');
     $('userNombre').textContent = perfil?.nombre || aUsuario(session.user.email);
     $('userIniciales').textContent = iniciales($('userNombre').textContent);
-    $('userRol').textContent = perfil ? (perfil.rol === 'admin' ? 'Administrador' : 'Vendedor') : '';
+    $('userRol').textContent = perfil ? (ROLES[perfil.rol] || 'Vendedor') : '';
     mostrarTiendaUsuario();
     ver('loginView', false);
 
@@ -156,6 +159,7 @@ async function mostrarVista(session) {
     ver('sinAccesoView', false); ver('appView', true);
     document.querySelectorAll('.solo-admin').forEach(e => e.classList.toggle('d-none', !esAdmin()));
     document.querySelectorAll('.solo-vendedor').forEach(e => e.classList.toggle('d-none', esAdmin()));
+    document.querySelectorAll('.solo-equipo').forEach(e => e.classList.toggle('d-none', !veEquipo()));
     if (!datosIniciados) { datosIniciados = true; cargarDatosIniciales(); }
 }
 
@@ -215,7 +219,7 @@ async function salir() {
 
 function cargarDatosIniciales() {
     run(async () => {
-        await Promise.all([cargarMaestros(), esAdmin() ? cargarPerfiles() : null, cargarConsecutivos()]);
+        await Promise.all([cargarMaestros(), veEquipo() ? cargarPerfiles() : null, cargarConsecutivos()]);
         $('cargaFecha').value = hoyISO();
         $('fechaPago').value = hoyISO();
         $('recDesde').value = inicioMesISO();
@@ -322,6 +326,7 @@ function registrarEventos() {
     ['intDesde', 'intHasta'].forEach(id => $(id).addEventListener('change', loadInteligencia));
     $('intActualizar').addEventListener('click', loadInteligencia);
     $('intBodega').addEventListener('change', loadInteligencia);
+    $('intVendedor').addEventListener('change', loadInteligencia);
     $('exportGramosButton').addEventListener('click', exportGramos);
 
     // Búsqueda de pedidos
@@ -469,6 +474,7 @@ function registrarEventos() {
 
     // Usuarios (administradores)
     $('usuarios-tab').addEventListener('shown.bs.tab', loadUsuarios);
+    registrarJerarquias();
     $('usuarioForm').addEventListener('submit', agregarUsuario);
     $('usuariosTableBody').addEventListener('change', e => {
         if (e.target.matches('.usr-activo')) actualizarUsuario(e.target, { activo: e.target.checked });
@@ -515,7 +521,7 @@ function crearBuscadorCliente(id, alElegir, { alNoEncontrar } = {}) {
                 return;
             }
             lista.innerHTML = resultados.map((c, i) => `<button type="button" class="list-group-item list-group-item-action" data-i="${i}">
-                <span class="badge text-bg-secondary me-2">${esAdmin() ? c.id : (c.consecutivo ?? c.id)}</span>${esc(c.nombre)}${c.tipo_cliente === 'MAYORISTA' ? ' <span class="badge text-bg-warning ms-1">Mayorista</span>' : ''}
+                <span class="badge text-bg-secondary me-2">${veEquipo() ? c.id : (c.consecutivo ?? c.id)}</span>${esc(c.nombre)}${c.tipo_cliente === 'MAYORISTA' ? ' <span class="badge text-bg-warning ms-1">Mayorista</span>' : ''}
                 <small class="text-muted ms-1">${esc(c.dpi || c.nit || c.telefono || '')}</small></button>`).join('');
             lista.classList.remove('d-none');
         });
@@ -574,7 +580,7 @@ function abrirModalCliente(c = {}, origen = 'clientes') {
 
 // "1003 · consecutivo 3 de Pablo" (admin) o "3" (vendedor)
 function textoCodigo(c) {
-    if (!esAdmin()) return String(c.consecutivo ?? c.id);
+    if (!veEquipo()) return String(c.consecutivo ?? c.id);
     const dueno = nombreUsuario(c.creado_por);
     return `${c.id}` + (c.consecutivo != null ? ` · consecutivo ${c.consecutivo}${dueno ? ` de ${dueno}` : ''}` : '');
 }
@@ -1051,13 +1057,13 @@ function loadSaldos() {
 function saldosFiltrados() {
     const q = norm($('filterSaldos').value), deudores = $('saldosSoloDeudores').checked;
     return fullSaldosData.filter(r => (!deudores || num(r.saldo) > 0.005) &&
-        (!q || coincideCodigo(r.codigo, q) || [r.nombre, r.dpi, r.nit, esAdmin() ? r.vendedor : ''].some(v => norm(v).includes(q))));
+        (!q || coincideCodigo(r.codigo, q) || [r.nombre, r.dpi, r.nit, veEquipo() ? r.vendedor : ''].some(v => norm(v).includes(q))));
 }
 
 function filterSaldos() {
     const d = saldosFiltrados();
     $('saldosTableBody').innerHTML = d.map(r => `<tr data-codigo="${r.codigo}" style="cursor:pointer">
-        <td class="num fw-semibold">${cod(r.codigo)}</td><td>${esc(r.nombre)}</td>${esAdmin() ? `<td>${esc(r.vendedor || '—')}</td>` : ''}<td>${esc(r.dpi || r.nit)}</td><td>${esc(r.telefono)}</td>
+        <td class="num fw-semibold">${cod(r.codigo)}</td><td>${esc(r.nombre)}</td>${veEquipo() ? `<td>${esc(r.vendedor || '—')}</td>` : ''}<td>${esc(r.dpi || r.nit)}</td><td>${esc(r.telefono)}</td>
         <td class="num">${fmtQ(r.total_ventas)}</td><td class="num">${fmtQ(r.total_pagos)}</td>
         <td class="num fw-semibold ${num(r.saldo) < 0 ? 'saldo-negativo' : ''}">${fmtQ(r.saldo)}</td>
         <td>${fmtFecha(r.ultima_venta)}</td><td>${fmtFecha(r.ultimo_pago)}</td></tr>`).join('');
@@ -1070,7 +1076,7 @@ function filterSaldos() {
 
 function exportSaldos() {
     exportarExcel('Saldos_clientes', 'Saldos por cliente', saldosFiltrados().map(r => ({
-        'Código cliente': cod(r.codigo), 'Cliente': r.nombre, ...(esAdmin() ? { 'Vendedor': r.vendedor } : {}), 'DPI': r.dpi, 'NIT': r.nit, 'Teléfono': r.telefono,
+        'Código cliente': cod(r.codigo), 'Cliente': r.nombre, ...(veEquipo() ? { 'Vendedor': r.vendedor } : {}), 'DPI': r.dpi, 'NIT': r.nit, 'Teléfono': r.telefono,
         'Compras': num(r.total_ventas), 'Pagos': num(r.total_pagos), 'Saldo': num(r.saldo),
         'Última venta': aFecha(r.ultima_venta), 'Último pago': aFecha(r.ultimo_pago),
     })));
@@ -1130,7 +1136,7 @@ function loadCarteraDetalleData() {
 }
 
 function renderCarteraDetalleTable(d) {
-    $('carteraDetalleTableBody').innerHTML = d.map(r => `<tr><td>${fmtFecha(r.fecha_venta)}</td><td>${esc(r.tienda)}</td><td class="num fw-semibold">${esc(cod(r.cliente_id))}</td><td>${esc(r.cliente)}</td>${esAdmin() ? `<td>${esc(r.vendedor || '—')}</td>` : ''}<td>${esc(r.envio)}</td><td class="num">${fmtQ(r.valor_venta)}</td><td class="num">${fmtQ(r.valor_pago)}</td><td class="num ${num(r.cartera) < 0 ? 'saldo-negativo' : ''}">${fmtQ(r.cartera)}</td></tr>`).join('');
+    $('carteraDetalleTableBody').innerHTML = d.map(r => `<tr><td>${fmtFecha(r.fecha_venta)}</td><td>${esc(r.tienda)}</td><td class="num fw-semibold">${esc(cod(r.cliente_id))}</td><td>${esc(r.cliente)}</td>${veEquipo() ? `<td>${esc(r.vendedor || '—')}</td>` : ''}<td>${esc(r.envio)}</td><td class="num">${fmtQ(r.valor_venta)}</td><td class="num">${fmtQ(r.valor_pago)}</td><td class="num ${num(r.cartera) < 0 ? 'saldo-negativo' : ''}">${fmtQ(r.cartera)}</td></tr>`).join('');
     const sum = k => d.reduce((s, r) => s + num(r[k]), 0);
     $('carteraDetalleVenta').textContent = fmtQ(sum('valor_venta'));
     $('carteraDetallePago').textContent = fmtQ(sum('valor_pago'));
@@ -1147,7 +1153,7 @@ const filterCarteraDetalle = () => renderCarteraDetalleTable(carteraDetalleFiltr
 function exportCarteraDetalle() {
     exportarExcel('Cartera_por_envio', 'Cartera por envío', carteraDetalleFiltrada().map(r => ({
         'Fecha venta': aFecha(r.fecha_venta), 'Tienda': r.tienda, 'Código cliente': cod(r.cliente_id), 'Cliente': r.cliente,
-        ...(esAdmin() ? { 'Vendedor': r.vendedor } : {}), 'Envío': r.envio,
+        ...(veEquipo() ? { 'Vendedor': r.vendedor } : {}), 'Envío': r.envio,
         'Valor venta': r.valor_venta, 'Valor pago': r.valor_pago, 'Cartera': r.cartera,
     })));
 }
@@ -1551,7 +1557,7 @@ function loadClientesData() {
     run(async () => {
         const [d] = await Promise.all([
             fetchAll(() => sb.from('clientes').select('*').order('id')),
-            esAdmin() ? cargarPerfiles() : null,
+            veEquipo() ? cargarPerfiles() : null,
         ]);
         d.forEach(recordarConsecutivo);
         fullClientesData = ordenarPorCodigo(d, 'id');
@@ -1567,7 +1573,7 @@ function clientesFiltrados() {
 
 function filterClientes() {
     const d = clientesFiltrados();
-    const admin = esAdmin();
+    const admin = veEquipo();
     $('clientesTableBody').innerHTML = d.slice(0, 1500).map(c => `<tr>
         <td class="num fw-semibold">${esc(cod(c.id))}</td><td>${esc(c.nombre)}</td>
         <td>${c.tipo_cliente === 'MAYORISTA' ? '<span class="badge text-bg-warning">Mayorista</span>' : '<span class="badge text-bg-light">Minorista</span>'}</td>
@@ -1580,12 +1586,12 @@ function filterClientes() {
 
 function exportClientes() {
     exportarExcel('Clientes', 'Clientes', clientesFiltrados().map(c => ({
-        'Código cliente': cod(c.id), ...(esAdmin() ? { 'Consecutivo del vendedor': c.consecutivo } : {}),
+        'Código cliente': cod(c.id), ...(veEquipo() ? { 'Consecutivo del vendedor': c.consecutivo } : {}),
         'Tipo': c.tipo_cliente === 'MAYORISTA' ? 'Mayorista' : 'Minorista',
         'Nombre y apellido': c.nombre, 'DPI': c.dpi, 'NIT': c.nit, 'NIT2': c.nit2,
         'Teléfono': c.telefono, 'Otro teléfono': c.telefono2, 'Correo': c.correo, 'Dirección': c.direccion,
         'Departamento': c.departamento, 'Fecha de nacimiento': aFecha(c.fecha_nacimiento),
-        'Referencia anterior': c.codigo_cliente, ...(esAdmin() ? { 'Responsable': nombreUsuario(c.creado_por) } : {}),
+        'Referencia anterior': c.codigo_cliente, ...(veEquipo() ? { 'Responsable': nombreUsuario(c.creado_por) } : {}),
     })));
 }
 
@@ -1612,7 +1618,7 @@ function loadUsuarios() {
             return `<tr class="${p.activo ? '' : 'text-muted'}" data-id="${p.id}">
                 <td>${esc(p.nombre)}${yo ? ' <span class="badge text-bg-light">usted</span>' : ''}</td>
                 <td class="fw-semibold">${esc(p.usuario || aUsuario(p.email))}</td>
-                <td>${p.rol === 'admin' ? 'Administrador' : 'Vendedor'}</td>
+                <td>${ROLES[p.rol] || 'Vendedor'}${p.supervisor_id ? `<div class="small text-muted">a cargo de ${esc(nombreUsuario(p.supervisor_id))}</div>` : ''}</td>
                 <td><select class="form-select form-select-sm usr-tienda" data-id="${p.id}" aria-label="Tienda">
                     <option value="">(sin tienda)</option>
                     ${[...new Set([...maestros.tiendas.filter(x => x.activo !== false).map(x => x.nombre), p.tienda].filter(Boolean))]
@@ -1678,6 +1684,94 @@ function agregarUsuario(e) {
         showAlert(`Vendedor creado${tienda ? ` en ${tienda}` : ''}. Entra con el usuario "${usuario}" y la contraseña que le asignó.`, 'success');
         loadUsuarios();
     });
+}
+
+// ---------------------------------------------------------------- jerarquías (supervisores y sus vendedores)
+const ROLES = { admin: 'Administrador', supervisor: 'Supervisor', vendedor: 'Vendedor' };
+const etiquetaUsuario = p => `${p.nombre || p.usuario}${p.usuario ? ` (${p.usuario})` : ''}`;
+
+function registrarJerarquias() {
+    $('jerarquias-tab').addEventListener('shown.bs.tab', () => run(async () => { await cargarPerfiles(); renderJerarquias(); }));
+    $('supervisorForm').addEventListener('submit', crearSupervisor);
+    $('jerConvertirBoton').addEventListener('click', () => {
+        const p = perfiles.find(x => x.id === $('jerConvertir').value);
+        if (!p) return;
+        if (!confirm(`¿Convertir a ${etiquetaUsuario(p)} en supervisor?`)) return;
+        cambiarPerfil(p.id, { rol: 'supervisor', supervisor_id: null }, `${p.nombre || p.usuario} ahora es supervisor`);
+    });
+    $('jerarquias').addEventListener('click', e => {
+        const b = e.target.closest('[data-jer]');
+        if (!b) return;
+        const { jer, id, sup } = b.dataset;
+        const p = perfiles.find(x => x.id === id), s = perfiles.find(x => x.id === sup);
+        if (jer === 'asignar') {
+            const vid = b.closest('.input-group').querySelector('select').value;
+            const v = perfiles.find(x => x.id === vid);
+            if (!v) return;
+            cambiarPerfil(vid, { supervisor_id: sup }, `${v.nombre || v.usuario} quedó a cargo de ${s.nombre || s.usuario}`);
+        }
+        if (jer === 'quitar') cambiarPerfil(id, { supervisor_id: null }, `${p.nombre || p.usuario} ya no está a cargo de ${s.nombre || s.usuario}`);
+        if (jer === 'degradar' && confirm(`¿Quitar el rol de supervisor a ${etiquetaUsuario(p)}? Vuelve a ser vendedor y sus vendedores quedan sin supervisor.`))
+            cambiarPerfil(id, { rol: 'vendedor' }, `${p.nombre || p.usuario} volvió a ser vendedor`);
+    });
+}
+
+function cambiarPerfil(id, datos, mensaje) {
+    run(async () => {
+        ok(await sb.from('perfiles').update(datos).eq('id', id));
+        await cargarPerfiles();
+        renderJerarquias();
+        showAlert(mensaje, 'success');
+    });
+}
+
+function crearSupervisor(e) {
+    e.preventDefault();
+    const usuario = $('supUsuario').value.trim().toLowerCase();
+    run(async () => {
+        ok(await sb.rpc('admin_crear_usuario', {
+            p_usuario: usuario, p_nombre: $('supNombre').value.trim(), p_password: $('supPassword').value, p_rol: 'supervisor',
+        }));
+        $('supervisorForm').reset();
+        await cargarPerfiles();
+        renderJerarquias();
+        showAlert(`Supervisor creado. Entra con el usuario "${usuario}" y la contraseña que le asignó. Ahora asígnele sus vendedores.`, 'success');
+    });
+}
+
+function renderJerarquias() {
+    const activos = perfiles.filter(p => p.activo);
+    const supervisores = activos.filter(p => p.rol === 'supervisor');
+    const vendedores = activos.filter(p => p.rol === 'vendedor');
+    const nombre = id => { const p = perfiles.find(x => x.id === id); return p ? (p.nombre || p.usuario) : ''; };
+    const detalle = v => [v.usuario, v.tienda].filter(Boolean).map(esc).join(' · ');
+    populateDropdown('jerConvertir', [], 'Seleccione un vendedor...');
+    $('jerConvertir').innerHTML += vendedores.map(v => `<option value="${v.id}">${esc(etiquetaUsuario(v))}</option>`).join('');
+    $('jerSupervisores').innerHTML = supervisores.map(s => {
+        const equipo = vendedores.filter(v => v.supervisor_id === s.id);
+        const libres = vendedores.filter(v => v.supervisor_id !== s.id);
+        return `<div class="card mb-3">
+          <div class="card-header card-header-custom d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span><i class="bi bi-diagram-3 me-2"></i>${esc(s.nombre || s.usuario)} <small class="text-muted ms-1">${esc(s.usuario || '')}</small></span>
+            <span class="small">${equipo.length} vendedor(es) a cargo</span></div>
+          <div class="card-body">
+            <ul class="list-group mb-3">${equipo.map(v => `<li class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                <span><strong>${esc(v.nombre || v.usuario)}</strong> <small class="text-muted ms-1">${detalle(v)}</small></span>
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-jer="quitar" data-id="${v.id}" data-sup="${s.id}">Quitar</button></li>`).join('')
+                || '<li class="list-group-item text-muted">Sin vendedores asignados.</li>'}</ul>
+            <div class="input-group">
+              <select class="form-select" aria-label="Vendedor a asignar"><option value="">Asignar un vendedor...</option>
+                ${libres.map(v => `<option value="${v.id}">${esc(etiquetaUsuario(v))}${v.supervisor_id ? ` — hoy con ${esc(nombre(v.supervisor_id))}` : ''}</option>`).join('')}</select>
+              <button type="button" class="btn btn-gold" data-jer="asignar" data-sup="${s.id}">Asignar</button>
+            </div>
+            <div class="text-end mt-2"><button type="button" class="btn btn-link btn-sm text-danger p-0" data-jer="degradar" data-id="${s.id}">Quitar rol de supervisor</button></div>
+          </div></div>`;
+    }).join('') || '<div class="card mb-3"><div class="card-body text-muted">Todavía no hay supervisores. Cree uno o convierta a un usuario existente.</div></div>';
+    const sin = vendedores.filter(v => !v.supervisor_id);
+    $('jerSinCuenta').textContent = `${sin.length} de ${vendedores.length}`;
+    $('jerSinSupervisor').innerHTML = sin.length
+        ? `<div class="d-flex flex-wrap gap-2">${sin.map(v => `<span class="badge text-bg-light">${esc(v.nombre || v.usuario)}</span>`).join('')}</div>`
+        : '<span class="text-muted small">Todos los vendedores tienen supervisor.</span>';
 }
 
 // ---------------------------------------------------------------- datos en bruto (administradores)
@@ -2075,7 +2169,7 @@ const REPORTES = [
 let repFilas = [], repColumnas = [];   // filas del último reporte generado y columnas en su orden
 let repGenerado = false;
 const reporteActual = () => REPORTES.find(r => r.id === $('repTipo').value) || REPORTES[0];
-const columnasDisponibles = rep => rep.columnas.filter(c => c.solo !== 'admin' || esAdmin());
+const columnasDisponibles = rep => rep.columnas.filter(c => c.solo !== 'admin' || veEquipo());
 const claveColumnas = rep => `ariga.reporte.${rep.id}`;
 
 function construirReportes() {
@@ -2170,7 +2264,7 @@ function generarReporte() {
         const [filas] = await Promise.all([
             fetchAll(consulta),
             rep.columnas.some(c => ['_dueno', '_tipo_cliente', '_departamento', '_cliente'].includes(c.campo)) ? cargarClientesReporte() : null,
-            esAdmin() && !perfiles.length ? cargarPerfiles() : null,
+            veEquipo() && !perfiles.length ? cargarPerfiles() : null,
         ]);
         // Traslados: la bodega puede ser el origen o el destino
         repFilas = filas.filter(r => !tienda || !Array.isArray(rep.tienda) || rep.tienda.some(c => r[c] === tienda))
@@ -2563,8 +2657,18 @@ function loadInteligencia() {
             bodegaInteligenciaLista = true;
             repoblar('intBodega', maestros.tiendas.map(t => t.nombre), 'Todas las bodegas');
             if (!esAdmin() && perfil?.tienda) setSelectValue('intBodega', perfil.tienda);
+            if (veEquipo()) {
+                // Admin: todos los usuarios. Supervisor: él y su equipo.
+                if (!perfiles.length) await cargarPerfiles();
+                const lista = perfiles.filter(p => p.activo && p.rol !== 'admin' && (esAdmin() || p.id === perfil.id || p.supervisor_id === perfil.id));
+                $('intVendedor').innerHTML = `<option value="">${esAdmin() ? 'Todos' : 'Todo mi equipo'}</option>`
+                    + lista.map(p => `<option value="${p.id}">${esc(p.nombre || p.usuario)}${p.id === perfil.id ? ' (yo)' : ''}</option>`).join('');
+            }
         }
-        indicadores = ok(await sb.rpc('indicadores_comerciales', { p_desde: desde, p_hasta: hasta, p_tienda: $('intBodega').value || null }));
+        const vendedor = veEquipo() ? $('intVendedor').value : '';
+        indicadores = ok(await sb.rpc('indicadores_comerciales', {
+            p_desde: desde, p_hasta: hasta, p_tienda: $('intBodega').value || null, ...(vendedor ? { p_vendedor: vendedor } : {}),
+        }));
         renderInteligencia();
     });
 }
@@ -2573,7 +2677,8 @@ function renderInteligencia() {
     const d = indicadores;
     const bodega = $('intBodega').value;
     $('kpiGramosAlcance').textContent = bodega ? `(${bodega})` : '(todas las bodegas)';
-    $('intAlcance').textContent = (esAdmin() ? 'Clientes de todos los vendedores' : 'Sus clientes')
+    const vend = veEquipo() && $('intVendedor').value ? $('intVendedor').selectedOptions[0].textContent : '';
+    $('intAlcance').textContent = (vend ? `Clientes de ${vend}` : esAdmin() ? 'Clientes de todos los vendedores' : esSupervisor() ? 'Sus clientes y los de su equipo' : 'Sus clientes')
         + (bodega ? ` · cartera de clientes cuya última compra fue en ${bodega}` : ' · todas las bodegas')
         + (bodega && d.usuarios_bodega?.length ? ` · usuarios: ${d.usuarios_bodega.join(', ')}` : '');
     const fila = (a, b) => `<div class="fila"><span>${a}</span><b>${b}</b></div>`;
