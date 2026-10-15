@@ -128,6 +128,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `16_corregir_pagos_envio.sql` | Corrige pagos registrados con un envío equivocado (número de pedido en vez de envío; pagos de CELESTE DE LEÓN al envío de otra clienta) y hace que la cartera por envío solo cuente los pagos del mismo cliente. |
 | `17_supervisores.sql` | **Supervisores y jerarquías**: rol supervisor, vendedores a cargo de un supervisor (`perfiles.supervisor_id`) y permisos de solo lectura para que el supervisor vea clientes, ventas, pagos, devoluciones y traslados de su equipo. Inteligencia comercial filtrable por vendedor. |
 | `18_editar_saldo_inicial.sql` | Permite editar el saldo pendiente inicial de un cliente (valor, fecha, tienda, vendedor) desde la ficha del cliente; no puede quedar por debajo de lo ya abonado. Lo hace el dueño del cliente o el admin. |
+| `19_mover_pago_envio.sql` | Función para mover un pago (completo o una parte) a otro envío del mismo cliente, desde la pantalla de Pagos. Corrige los abonos repartidos automáticamente cuyo valor coincide exacto con un envío (DAILI HERRERA, DORIS ELISABETH). |
 
 ## Despliegue en Vercel
 

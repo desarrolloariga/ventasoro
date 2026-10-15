@@ -351,6 +351,10 @@ function registrarEventos() {
         mostrarNuevoSaldo();
     });
     $('pagoRepartirBoton').addEventListener('click', repartirPago);
+    moverPagoModal = new bootstrap.Modal($('moverPagoModal'));
+    $('pagoHistorialBody').addEventListener('click', e => { const b = e.target.closest('.mover-pago'); if (b) abrirMoverPago(Number(b.dataset.id)); });
+    $('moverPagoEnvio').addEventListener('change', sugerirValorMover);
+    $('moverPagoGuardar').addEventListener('click', guardarMoverPago);
     $('pagoVerPagados').addEventListener('change', renderEnviosPago);
     $('pills-recibidos-tab').addEventListener('shown.bs.tab', loadRecibidos);
     ['recDesde', 'recHasta', 'recSinCliente'].forEach(id => $(id).addEventListener('change', loadRecibidos));
@@ -889,11 +893,13 @@ let clientePago = null, saldoClientePago = 0;
 
 function seleccionarClientePago(c) {
     run(async () => {
-        const [resumen, envios, pagosSinEnvio] = await Promise.all([
+        const [resumen, envios, pagosCliente] = await Promise.all([
             sb.from('cartera_clientes').select('*').eq('codigo', c.id).maybeSingle().then(ok),
             sb.rpc('envios_cliente', { p_cliente: c.id }).then(ok),
-            fetchAll(() => sb.from('pagos').select('valor_pagado,envio').eq('cliente_id', c.id).is('envio', null)),
+            fetchAll(() => sb.from('pagos').select('id,fecha_pago,envio,valor_pagado,metodo_pago,boleta,observaciones')
+                .eq('cliente_id', c.id).order('fecha_pago', { ascending: false }).order('id', { ascending: false })),
         ]);
+        const pagosSinEnvio = pagosCliente.filter(p => !(p.envio || '').trim());
         clientePago = c;
         saldoClientePago = num(resumen?.saldo);
         $('pagoInfoCodigo').textContent = cod(c.id);
@@ -912,8 +918,53 @@ function seleccionarClientePago(c) {
         $('pagoRepartir').value = '';
         $('pagoEnviosBody').innerHTML = '';   // abonos del cliente anterior no se conservan
         renderEnviosPago();
+        renderPagosCliente(pagosCliente);
         $('pagoClienteInfo').classList.remove('d-none');
         mostrarNuevoSaldo();
+    });
+}
+
+// Pagos ya registrados del cliente; el dueño del cliente o el admin pueden moverlos de envío
+let pagosClienteLista = [], pagoMoviendo = null, moverPagoModal;
+function renderPagosCliente(lista) {
+    pagosClienteLista = lista;
+    const puedeMover = esAdmin() || clientePago?.creado_por === perfil?.id;
+    $('pagoHistorialCuenta').textContent = `(${lista.length})`;
+    $('pagoHistorialBody').innerHTML = lista.map(p => `<tr><td>${fmtFecha(p.fecha_pago)}</td><td class="fw-semibold">${esc(p.envio || '(sin envío)')}</td>
+        <td class="num">${fmtQ(p.valor_pagado)}</td><td>${esc(p.metodo_pago)}</td><td>${esc(p.boleta)}</td>
+        <td class="small text-muted">${esc(p.observaciones)}</td>
+        <td class="text-end">${puedeMover ? `<button type="button" class="btn btn-outline-secondary btn-sm mover-pago" data-id="${p.id}">Mover</button>` : ''}</td></tr>`).join('')
+        || '<tr><td colspan="7" class="text-muted">El cliente no tiene pagos registrados.</td></tr>';
+}
+
+function abrirMoverPago(id) {
+    pagoMoviendo = pagosClienteLista.find(p => p.id === id);
+    if (!pagoMoviendo) return;
+    const destinos = enviosPago.filter(e => e.envio !== (pagoMoviendo.envio || '').trim() && num(e.saldo) > 0.005);
+    if (!destinos.length) { showAlert('El cliente no tiene otro envío con saldo pendiente al cual mover este pago.', 'warning'); return; }
+    $('moverPagoInfo').innerHTML = `Pago del <strong>${fmtFecha(pagoMoviendo.fecha_pago)}</strong> por <strong>${fmtQ(pagoMoviendo.valor_pagado)}</strong>`
+        + ` (${esc(pagoMoviendo.metodo_pago || '')}${pagoMoviendo.boleta ? `, boleta ${esc(pagoMoviendo.boleta)}` : ''}), hoy aplicado al envío <strong>${esc(pagoMoviendo.envio || '(sin envío)')}</strong>.`;
+    $('moverPagoEnvio').innerHTML = destinos.map(e => `<option value="${esc(e.envio)}" data-saldo="${num(e.saldo)}">Envío ${esc(e.envio)} · debe ${fmtQ(e.saldo)}</option>`).join('');
+    sugerirValorMover();
+    moverPagoModal.show();
+}
+
+function sugerirValorMover() {
+    const saldo = num($('moverPagoEnvio').selectedOptions[0]?.dataset.saldo);
+    const max = Math.min(num(pagoMoviendo.valor_pagado), saldo);
+    $('moverPagoValor').value = max.toFixed(2);
+    $('moverPagoValor').max = max.toFixed(2);
+}
+
+function guardarMoverPago() {
+    if (!$('moverPagoValor').checkValidity()) { $('moverPagoValor').reportValidity(); return; }
+    const envio = $('moverPagoEnvio').value, valor = num($('moverPagoValor').value);
+    run(async () => {
+        ok(await sb.rpc('mover_pago', { p_pago: pagoMoviendo.id, p_envio: envio, p_valor: valor }));
+        moverPagoModal.hide();
+        showAlert(`${fmtQ(valor)} del pago del ${fmtFecha(pagoMoviendo.fecha_pago)} pasaron al envío ${envio}`, 'success');
+        seleccionarClientePago(clientePago);
+        $('pagoHistorialBox').open = true;
     });
 }
 

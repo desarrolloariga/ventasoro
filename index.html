@@ -236,6 +236,28 @@
         </div>
     </div>
 
+    <!-- Pagos: mover un pago (o parte) a otro envío del cliente -->
+    <div class="modal fade" id="moverPagoModal" tabindex="-1" aria-labelledby="moverPagoTitulo" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="moverPagoTitulo">Mover pago a otro envío</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small mb-3" id="moverPagoInfo"></p>
+                    <div class="mb-3"><label class="form-label" for="moverPagoEnvio">Aplicarlo al envío</label><select class="form-select" id="moverPagoEnvio"></select></div>
+                    <div class="mb-2"><label class="form-label" for="moverPagoValor">Valor a mover Q</label><input type="number" class="form-control" id="moverPagoValor" step="0.01" min="0.01"></div>
+                    <div class="form-text">Si mueve solo una parte, el pago se divide en dos: lo que queda sigue en su envío actual.</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-gold" id="moverPagoGuardar">Mover</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="appView" class="app d-none">
       <div class="menu-velo" id="menuVelo"></div>
 
@@ -494,6 +516,12 @@
                                     </div>
                                 </div>
                                 <div class="small mt-2 d-none" id="pagoSaldoFavor"></div>
+                                <details class="mt-2" id="pagoHistorialBox"><summary class="small">Pagos registrados del cliente <span id="pagoHistorialCuenta"></span></summary>
+                                    <div class="table-responsive mt-2"><table class="table table-sm align-middle mb-0">
+                                        <thead class="table-light"><tr><th>Fecha</th><th>Envío</th><th class="num">Valor</th><th>Método</th><th>Boleta</th><th>Observaciones</th><th></th></tr></thead>
+                                        <tbody id="pagoHistorialBody"></tbody></table></div>
+                                    <div class="form-text">Si un pago quedó en un envío que no era, use <strong>Mover</strong> para pasarlo (completo o una parte) al envío correcto.</div>
+                                </details>
                             </div>
                         </div>
                         <form id="paymentForm" class="card mb-3">
