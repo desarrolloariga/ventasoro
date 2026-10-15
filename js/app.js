@@ -303,7 +303,7 @@ function registrarEventos() {
         },
     });
     crearBuscadorCliente('pagoCliente', seleccionarClientePago);
-    crearBuscadorCliente('ecCliente', c => cargarEstadoCuenta(c.id));
+    crearBuscadorCliente('ecCliente', c => cargarEstadoCuenta(c.id), { filtrar: clienteEnFiltroCartera });
     crearBuscadorCliente('asignarCliente', asignarClienteAPago);
 
     // Venta
@@ -373,17 +373,17 @@ function registrarEventos() {
     ['filterCliente', 'filterTienda', 'filterTipo', 'filterProducto'].forEach(id => $(id).addEventListener('input', filterHistory));
 
     // Cartera
-    const subCartera = { 'pills-saldoscli-tab': loadSaldos, 'pills-estado-tab': () => {}, 'pills-detalle-tab': loadCarteraDetalleData };
-    $('cartera-tab').addEventListener('shown.bs.tab', () =>
-        subCartera[document.querySelector('#cartera .nav-pills .active').id]());
-    $('pills-saldoscli-tab').addEventListener('shown.bs.tab', loadSaldos);
-    $('pills-detalle-tab').addEventListener('shown.bs.tab', loadCarteraDetalleData);
+    // Saldos y Por envío usan los mismos datos (se recargan al abrir Cartera o cambiar de sección)
+    $('cartera-tab').addEventListener('shown.bs.tab', loadCartera);
+    $('pills-saldoscli-tab').addEventListener('shown.bs.tab', loadCartera);
+    $('pills-detalle-tab').addEventListener('shown.bs.tab', loadCartera);
+    ['carBodega', 'carVendedor'].forEach(id => $(id).addEventListener('change', aplicarFiltrosCartera));
     ['filterSaldos', 'saldosSoloDeudores'].forEach(id => $(id).addEventListener('input', filterSaldos));
     $('saldosTableBody').addEventListener('click', e => {
         const tr = e.target.closest('tr[data-codigo]');
         if (tr) verEstadoCuenta(Number(tr.dataset.codigo));
     });
-    ['filterCarteraDetalleTienda', 'filterCarteraDetalleCliente', 'filterCarteraDetalleEnvio'].forEach(id => $(id).addEventListener('input', filterCarteraDetalle));
+    ['filterCarteraDetalleCliente', 'filterCarteraDetalleEnvio'].forEach(id => $(id).addEventListener('input', filterCarteraDetalle));
 
     // Inventario: cada sub-sección se recarga al abrirla
     const subInventario = { 'pills-saldos-tab': loadInventoryData, 'pills-carga-tab': loadCargas,
@@ -507,7 +507,7 @@ function registrarEventos() {
 
 // ---------------------------------------------------------------- buscador de clientes
 // Un resultado: se elige solo. Varios: lista para escoger. Ninguno: alNoEncontrar.
-function crearBuscadorCliente(id, alElegir, { alNoEncontrar } = {}) {
+function crearBuscadorCliente(id, alElegir, { alNoEncontrar, filtrar } = {}) {
     const input = $(id), lista = $(id + 'Resultados');
     let resultados = [];
     const cerrar = () => lista.classList.add('d-none');
@@ -516,12 +516,14 @@ function crearBuscadorCliente(id, alElegir, { alNoEncontrar } = {}) {
         if (!q) return;
         run(async () => {
             resultados = ok(await sb.rpc('buscar_clientes', { p_termino: q }));
+            const antes = resultados.length;
+            if (filtrar) resultados = resultados.filter(filtrar);
             resultados.forEach(recordarConsecutivo);
             ordenarPorCodigo(resultados, 'id');
             if (resultados.length === 1) { cerrar(); alElegir(resultados[0]); return; }
             if (!resultados.length) {
                 cerrar();
-                if (alNoEncontrar) alNoEncontrar(q); else showAlert(`No se encontró ningún cliente con "${q}"`, 'warning');
+                if (alNoEncontrar) alNoEncontrar(q); else showAlert(`No se encontró ningún cliente con "${q}"` + (antes ? ' que cumpla los filtros de bodega o vendedor de arriba' : ''), 'warning');
                 return;
             }
             lista.innerHTML = resultados.map((c, i) => `<button type="button" class="list-group-item list-group-item-action" data-i="${i}">
@@ -1144,19 +1146,71 @@ function exportHistorico() {
     })));
 }
 
-// ---------------------------------------------------------------- cartera: saldos por cliente
-function loadSaldos() {
+// ---------------------------------------------------------------- cartera: filtros comunes (bodega y vendedor)
+const filtroCartera = () => ({ bodega: $('carBodega').value, vendedor: veEquipo() ? $('carVendedor').value : '' });
+let vendedorDeCliente = {};   // código de cliente -> dueño
+
+// Vendedores que puede elegir: el admin, todos; el supervisor, él y su equipo
+function prepararVendedoresCartera() {
+    if (!veEquipo()) return;
+    const v = $('carVendedor').value;
+    const lista = perfiles.filter(p => p.activo && (esAdmin() || p.id === perfil.id || p.supervisor_id === perfil.id));
+    $('carVendedor').innerHTML = `<option value="">${esAdmin() ? 'Todos' : 'Todo mi equipo'}</option>`
+        + lista.map(p => `<option value="${p.id}">${esc(p.nombre || p.usuario)}${p.id === perfil.id ? ' (yo)' : ''}</option>`).join('');
+    $('carVendedor').value = v;
+}
+
+function loadCartera() {
     run(async () => {
-        fullSaldosData = await fetchAll(() => sb.from('cartera_clientes').select('*').order('codigo'));
-        fullSaldosData.forEach(r => recordarConsecutivo({ id: r.codigo, consecutivo: r.consecutivo }));
+        const [saldos, detalle] = await Promise.all([
+            fetchAll(() => sb.from('cartera_clientes').select('*').order('codigo')),
+            fetchAll(() => sb.from('cartera_detalle').select('*').order('fecha_venta', { ascending: false }).order('envio')),
+            veEquipo() && !perfiles.length ? cargarPerfiles() : null,
+        ]);
+        fullSaldosData = saldos;
+        fullCarteraDetalleData = detalle;
+        vendedorDeCliente = Object.fromEntries(saldos.map(r => [r.codigo, r.vendedor_id]));
+        saldos.forEach(r => recordarConsecutivo({ id: r.codigo, consecutivo: r.consecutivo }));
         ordenarPorCodigo(fullSaldosData, 'codigo');
-        filterSaldos();
+        ordenarPorCodigo(fullCarteraDetalleData, 'cliente_id');
+        prepararVendedoresCartera();
+        aplicarFiltrosCartera();
     });
 }
 
+function aplicarFiltrosCartera() {
+    const { bodega, vendedor } = filtroCartera();
+    const vend = vendedor ? $('carVendedor').selectedOptions[0].textContent : '';
+    $('carFiltroNota').textContent = !bodega && !vendedor ? 'Aplica a Saldos por cliente, Estado de cuenta (búsqueda) y Por envío.'
+        : [vend && `Clientes de ${vend}`, bodega && `Saldos de los envíos de ${bodega}`].filter(Boolean).join(' · ');
+    filterSaldos();
+    filterCarteraDetalle();
+}
+
+// ¿El cliente cumple los filtros de cartera? (para la búsqueda del estado de cuenta)
+function clienteEnFiltroCartera(c) {
+    const { bodega, vendedor } = filtroCartera();
+    if (vendedor && c.creado_por !== vendedor) return false;
+    if (bodega && fullCarteraDetalleData.length && !fullCarteraDetalleData.some(r => r.cliente_id === c.id && r.tienda === bodega)) return false;
+    return true;
+}
+
+// ---------------------------------------------------------------- cartera: saldos por cliente
+// Con bodega elegida, compras, pagos y saldo son los de los envíos de esa bodega
 function saldosFiltrados() {
     const q = norm($('filterSaldos').value), deudores = $('saldosSoloDeudores').checked;
-    return fullSaldosData.filter(r => (!deudores || num(r.saldo) > 0.005) &&
+    const { bodega, vendedor } = filtroCartera();
+    let base = vendedor ? fullSaldosData.filter(r => r.vendedor_id === vendedor) : fullSaldosData;
+    if (bodega) {
+        const porCliente = {};
+        fullCarteraDetalleData.filter(r => r.tienda === bodega && r.cliente_id != null).forEach(r => {
+            const x = porCliente[r.cliente_id] ??= { ventas: 0, pagos: 0, saldo: 0 };
+            x.ventas += num(r.valor_venta); x.pagos += num(r.valor_pago); x.saldo += num(r.cartera);
+        });
+        base = base.filter(r => porCliente[r.codigo]).map(r => ({ ...r,
+            total_ventas: porCliente[r.codigo].ventas, total_pagos: porCliente[r.codigo].pagos, saldo: porCliente[r.codigo].saldo }));
+    }
+    return base.filter(r => (!deudores || num(r.saldo) > 0.005) &&
         (!q || coincideCodigo(r.codigo, q) || [r.nombre, r.dpi, r.nit, veEquipo() ? r.vendedor : ''].some(v => norm(v).includes(q))));
 }
 
@@ -1225,15 +1279,6 @@ function exportEstadoCuenta() {
 }
 
 // ---------------------------------------------------------------- cartera: por envío
-function loadCarteraDetalleData() {
-    run(async () => {
-        fullCarteraDetalleData = await fetchAll(() => sb.from('cartera_detalle').select('*')
-            .order('fecha_venta', { ascending: false }).order('envio'));
-        fullCarteraDetalleData.forEach(r => recordarConsecutivo({ id: r.cliente_id, consecutivo: r.consecutivo }));
-        ordenarPorCodigo(fullCarteraDetalleData, 'cliente_id');
-        filterCarteraDetalle();
-    });
-}
 
 function renderCarteraDetalleTable(d) {
     $('carteraDetalleTableBody').innerHTML = d.map(r => `<tr><td>${fmtFecha(r.fecha_venta)}</td><td>${esc(r.tienda)}</td><td class="num fw-semibold">${esc(cod(r.cliente_id))}</td><td>${esc(r.cliente)}</td>${veEquipo() ? `<td>${esc(r.vendedor || '—')}</td>` : ''}<td>${esc(r.envio)}</td><td class="num">${fmtQ(r.valor_venta)}</td><td class="num">${fmtQ(r.valor_pago)}</td><td class="num ${num(r.cartera) < 0 ? 'saldo-negativo' : ''}">${fmtQ(r.cartera)}</td></tr>`).join('');
@@ -1244,9 +1289,11 @@ function renderCarteraDetalleTable(d) {
 }
 
 function carteraDetalleFiltrada() {
-    const t = $('filterCarteraDetalleTienda').value, c = norm($('filterCarteraDetalleCliente').value), e = norm($('filterCarteraDetalleEnvio').value);
+    const { bodega, vendedor } = filtroCartera();
+    const c = norm($('filterCarteraDetalleCliente').value), e = norm($('filterCarteraDetalleEnvio').value);
     return fullCarteraDetalleData.filter(r =>
-        (!t || r.tienda === t) && (!c || coincideCodigo(r.cliente_id, c) || norm(r.cliente).includes(c)) && norm(r.envio).includes(e));
+        (!bodega || r.tienda === bodega) && (!vendedor || vendedorDeCliente[r.cliente_id] === vendedor)
+        && (!c || coincideCodigo(r.cliente_id, c) || norm(r.cliente).includes(c)) && norm(r.envio).includes(e));
 }
 const filterCarteraDetalle = () => renderCarteraDetalleTable(carteraDetalleFiltrada());
 
@@ -2595,7 +2642,7 @@ async function cargarMaestros() {
     const activos = l => l.filter(x => x.activo !== false).map(x => x.nombre);
 
     // Filtros de consulta: todos. Formularios: solo activos.
-    ['filterTienda', 'filterCarteraDetalleTienda', 'repTienda'].forEach(id => repoblar(id, todos(tiendas), 'Todas'));
+    ['filterTienda', 'carBodega', 'repTienda'].forEach(id => repoblar(id, todos(tiendas), 'Todas'));
     repoblar('tiendaSelect', activos(tiendas), 'Seleccione Tienda...');
     repoblar('cargaTienda', activos(tiendas), 'Seleccione Tienda...');
     repoblar('saldoInicialTienda', activos(tiendas), '(opcional)');
