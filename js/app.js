@@ -479,6 +479,7 @@ function registrarEventos() {
     // Usuarios (administradores)
     $('usuarios-tab').addEventListener('shown.bs.tab', loadUsuarios);
     registrarJerarquias();
+    registrarCaja();
     $('usuarioForm').addEventListener('submit', agregarUsuario);
     $('usuariosTableBody').addEventListener('change', e => {
         if (e.target.matches('.usr-activo')) actualizarUsuario(e.target, { activo: e.target.checked });
@@ -758,7 +759,9 @@ function handleFormSubmit(e) {
         showAlert('Complete los datos requeridos (cliente, tienda, vendedor y al menos un producto)', 'warning');
         return;
     }
-    const venta = { header, productLines, summary: { envio: $('envio').value.trim(), factura: $('factura').value.trim() } };
+    const formaPago = $('formaPago').value;
+    if (formaPago === 'EFECTIVO' && !header.clienteId) { showAlert('Una venta en efectivo debe tener un cliente registrado (búsquelo o créelo).', 'warning'); return; }
+    const venta = { header, productLines, summary: { envio: $('envio').value.trim(), factura: $('factura').value.trim(), formaPago } };
     const clave = $('envioOriginal').value;
 
     run(async () => {
@@ -766,7 +769,10 @@ function handleFormSubmit(e) {
             const faltantes = await verificarStock(header.tienda, productLines);
             if (faltantes.length && !confirm('Inventario insuficiente:\n\n' + faltantes.join('\n') + '\n\n¿Registrar la venta de todas formas?')) return;
             const id = ok(await sb.rpc('registrar_venta', { p_venta: venta }));
-            showAlert(`Venta registrada con éxito. Pedido: ${id} · Fecha: ${fmtFecha(hoyISO())}`, 'success');
+            const total = productLines.reduce((t, l) => t + num(l.valorTotal), 0);
+            showAlert(formaPago === 'EFECTIVO'
+                ? `Venta en efectivo registrada. Pedido: ${id} · ${fmtQ(total)} pagados y sumados a su caja menor`
+                : `Venta registrada con éxito. Pedido: ${id} · Fecha: ${fmtFecha(hoyISO())}`, 'success');
         } else {
             const m = ok(await sb.rpc('actualizar_venta', { p_envio: clave, p_venta: venta }));
             showAlert(m, 'success');
@@ -828,6 +834,8 @@ function abrirPedido(clave) {
         $('envioOriginal').value = clave;
         $('factura').value = h.factura || '';
         $('fechaVentaVista').value = fmtFecha(h.fecha_venta);
+        $('formaPago').value = h.forma_pago || 'CREDITO';
+        notaFormaPago();
         $('productLines').innerHTML = '';
         rows.forEach(l => addProductLine(l));
         updateSubtotal();
@@ -878,6 +886,7 @@ function resetForm() {
     $('newSaleButton').classList.add('d-none');
     updateSubtotal();
     aplicarTiendaUsuario();
+    notaFormaPago();
 }
 
 function deleteOrder() {
@@ -935,7 +944,7 @@ function renderPagosCliente(lista) {
     $('pagoHistorialBody').innerHTML = lista.map(p => `<tr><td>${fmtFecha(p.fecha_pago)}</td><td class="fw-semibold">${esc(p.envio || '(sin envío)')}</td>
         <td class="num">${fmtQ(p.valor_pagado)}</td><td>${esc(p.metodo_pago)}</td><td>${esc(p.boleta)}</td>
         <td class="small text-muted">${esc(p.observaciones)}</td>
-        <td class="text-end">${puedeMover ? `<button type="button" class="btn btn-outline-secondary btn-sm mover-pago" data-id="${p.id}">Mover</button>` : ''}</td></tr>`).join('')
+        <td class="text-end">${puedeMover && !(p.observaciones || '').startsWith('Venta en efectivo') ? `<button type="button" class="btn btn-outline-secondary btn-sm mover-pago" data-id="${p.id}">Mover</button>` : ''}</td></tr>`).join('')
         || '<tr><td colspan="7" class="text-muted">El cliente no tiene pagos registrados.</td></tr>';
 }
 
@@ -1921,6 +1930,195 @@ function renderJerarquias() {
         : '<span class="text-muted small">Todos los vendedores tienen supervisor.</span>';
 }
 
+// ---------------------------------------------------------------- caja menor (efectivo de cada usuario)
+// Entradas: ventas en efectivo (automáticas) y manuales. Salidas: liquidación / entrega a oficina, gastos...
+let cajaMovs = [], cajaSaldos = [];
+const cajaUsuarioElegido = () => veEquipo() ? $('cajaUsuario').value : perfil.id;   // '' = todas las cajas
+const puedeMoverCaja = uid => !!uid && (esAdmin() || uid === perfil.id);
+const nombreCaja = uid => uid === perfil?.id ? (perfil.nombre || perfil.usuario) : (nombreUsuario(uid) || cajaSaldos.find(s => s.usuario_id === uid)?.usuario || '');
+
+function registrarCaja() {
+    $('caja-tab').addEventListener('shown.bs.tab', loadCaja);
+    $('cajaUsuario').addEventListener('change', loadCaja);
+    ['cajaDesde', 'cajaHasta'].forEach(id => $(id).addEventListener('change', renderCaja));
+    $('cajaForm').addEventListener('submit', guardarMovimientoCaja);
+    $('cajaLiquidar').addEventListener('click', prepararLiquidacion);
+    $('cajaExportar').addEventListener('click', exportarCaja);
+    $('cajaResumenBody').addEventListener('click', e => {
+        const tr = e.target.closest('tr[data-id]');
+        if (tr) { $('cajaUsuario').value = tr.dataset.id; loadCaja(); }
+    });
+    $('cajaBody').addEventListener('click', e => {
+        const b = e.target.closest('.caja-borrar');
+        if (b) eliminarMovimientoCaja(Number(b.dataset.id));
+    });
+    // Venta: aviso según la forma de pago
+    $('formaPago').addEventListener('change', notaFormaPago);
+    notaFormaPago();
+}
+
+function notaFormaPago() {
+    $('formaPagoNota').textContent = $('formaPago').value === 'EFECTIVO'
+        ? 'El cliente paga al momento: el pago queda registrado (método EFECTIVO) y el total entra a la caja menor de quien registra la venta.'
+        : 'El cliente queda debiendo el total; los abonos se registran en Pagos.';
+}
+
+// Lista "Caja de": el admin ve todas; el supervisor, la suya y las de su equipo
+function prepararUsuariosCaja() {
+    if (!veEquipo()) return;
+    const v = $('cajaUsuario').value;
+    const lista = perfiles.filter(p => p.activo && (esAdmin() || p.id === perfil.id || p.supervisor_id === perfil.id));
+    $('cajaUsuario').innerHTML = `<option value="">${esAdmin() ? 'Todas las cajas' : 'Todo mi equipo'}</option>`
+        + lista.map(p => `<option value="${p.id}">${esc(p.nombre || p.usuario)}${p.id === perfil.id ? ' (mi caja)' : ''}</option>`).join('');
+    $('cajaUsuario').value = lista.some(p => p.id === v) ? v : '';
+}
+
+function loadCaja() {
+    run(async () => {
+        if (veEquipo() && !perfiles.length) await cargarPerfiles();
+        prepararUsuariosCaja();
+        const uid = cajaUsuarioElegido();
+        const [saldos, movs] = await Promise.all([
+            sb.from('caja_menor_saldos').select('*').then(ok),
+            fetchAll(() => { let q = sb.from('caja_menor_detalle').select('*'); if (uid) q = q.eq('usuario_id', uid); return q.order('fecha').order('id'); }),
+        ]);
+        // Cajas que le corresponden a quien mira (las demás salen en 0 por los permisos)
+        cajaSaldos = saldos.filter(s => esAdmin() ? (num(s.movimientos) > 0 || s.usuario_id === perfil.id)
+            : esSupervisor() ? (s.usuario_id === perfil.id || perfiles.some(p => p.id === s.usuario_id && p.supervisor_id === perfil.id))
+            : s.usuario_id === perfil.id)
+            .sort((a, b) => num(b.saldo) - num(a.saldo) || String(a.usuario).localeCompare(b.usuario));
+        cajaMovs = movs;
+        if (!$('cajaFecha').value) $('cajaFecha').value = hoyISO();
+        renderCaja();
+    });
+}
+
+const saldoCaja = uid => cajaSaldos.filter(s => !uid || s.usuario_id === uid).reduce((t, s) => t + num(s.saldo), 0);
+
+function movimientosCajaFiltrados() {
+    const desde = $('cajaDesde').value, hasta = $('cajaHasta').value;
+    // Saldo acumulado por caja, de más antiguo a más reciente (sobre todos los movimientos cargados)
+    const acum = {};
+    const conSaldo = cajaMovs.map(m => {
+        acum[m.usuario_id] = (acum[m.usuario_id] || 0) + (m.tipo === 'ENTRADA' ? num(m.valor) : -num(m.valor));
+        return { ...m, saldo: acum[m.usuario_id] };
+    });
+    return conSaldo.filter(m => (!desde || m.fecha >= desde) && (!hasta || m.fecha <= hasta)).reverse();
+}
+
+function renderCaja() {
+    const uid = cajaUsuarioElegido(), todas = !uid;
+    const d = movimientosCajaFiltrados();
+    const desde = $('cajaDesde').value, hasta = $('cajaHasta').value;
+    const periodo = desde || hasta ? `(${desde ? 'desde ' + fmtFecha(desde) : ''}${desde && hasta ? ' ' : ''}${hasta ? 'hasta ' + fmtFecha(hasta) : ''})` : '(todo el historial)';
+    const fila = (a, b) => `<div class="fila"><span>${a}</span><b>${b}</b></div>`;
+
+    // Indicadores
+    const saldo = saldoCaja(uid);
+    $('cajaAlcance').textContent = todas ? (esAdmin() ? '(todas las cajas)' : '(mi equipo)') : `(${nombreCaja(uid)})`;
+    $('cajaSaldo').textContent = fmtQ(saldo);
+    $('cajaSaldo').classList.toggle('saldo-negativo', saldo < -0.005);
+    $('cajaSaldoSub').innerHTML = todas ? fila('Cajas con efectivo', cajaSaldos.filter(s => num(s.saldo) > 0.005).length) : '';
+    const ent = d.filter(m => m.tipo === 'ENTRADA'), sal = d.filter(m => m.tipo === 'SALIDA');
+    const suma = l => l.reduce((t, m) => t + num(m.valor), 0);
+    $('cajaPeriodoTxt1').textContent = periodo; $('cajaPeriodoTxt2').textContent = periodo;
+    $('cajaEntradas').textContent = fmtQ(suma(ent));
+    $('cajaEntradasSub').innerHTML = fila('Ventas en efectivo', `${ent.filter(m => m.origen === 'VENTA').length} · ${fmtQ(suma(ent.filter(m => m.origen === 'VENTA')))}`)
+        + fila('Entradas manuales', `${ent.filter(m => m.origen !== 'VENTA').length} · ${fmtQ(suma(ent.filter(m => m.origen !== 'VENTA')))}`);
+    $('cajaSalidas').textContent = fmtQ(suma(sal));
+    $('cajaSalidasSub').innerHTML = fila('Movimientos', sal.length);
+
+    // Resumen por usuario (cuando se ven todas)
+    $('cajaResumenBox').classList.toggle('d-none', !(todas && veEquipo()));
+    if (todas && veEquipo()) {
+        $('cajaResumenBody').innerHTML = cajaSaldos.map(s => `<tr data-id="${s.usuario_id}" style="cursor:pointer">
+            <td class="fw-semibold">${esc(s.usuario)}${s.usuario_id === perfil.id ? ' <span class="badge text-bg-light">mi caja</span>' : ''}</td><td>${esc(s.tienda)}</td>
+            <td class="num">${fmtQ(s.entradas)}</td><td class="num">${fmtQ(s.salidas)}</td>
+            <td class="num fw-semibold ${num(s.saldo) < -0.005 ? 'saldo-negativo' : ''}">${fmtQ(s.saldo)}</td><td>${fmtFecha(s.ultimo_movimiento)}</td></tr>`).join('')
+            || '<tr><td colspan="6" class="text-muted">Todavía no hay movimientos de caja.</td></tr>';
+    }
+
+    // Formulario: solo en la caja propia (o cualquiera, el admin)
+    const puede = puedeMoverCaja(uid);
+    $('cajaForm').querySelectorAll('input, select, button').forEach(el => el.disabled = !puede);
+    $('cajaSoloLectura').classList.toggle('d-none', puede);
+    $('cajaSoloLectura').textContent = todas ? 'Elija la caja de un usuario (arriba o en la tabla) para registrarle un movimiento.'
+        : 'Solo puede consultar esta caja. Los movimientos los registra su dueño o el administrador.';
+    $('cajaFormDe').textContent = puede && uid !== perfil.id ? `· en la caja de ${nombreCaja(uid)}` : '';
+
+    // Movimientos
+    $('cajaHead').innerHTML = `<tr><th>Fecha</th>${todas ? '<th>Caja de</th>' : ''}<th>Movimiento</th><th>Concepto</th><th>Observaciones</th>
+        <th class="num">Entrada</th><th class="num">Salida</th>${todas ? '' : '<th class="num">Saldo</th>'}<th>Registró</th><th></th></tr>`;
+    $('cajaBody').innerHTML = d.map(m => {
+        const borrable = m.origen === 'MANUAL' && (esAdmin() || (m.usuario_id === perfil.id && m.creado_por === perfil.id));
+        return `<tr><td>${fmtFecha(m.fecha)}</td>${todas ? `<td>${esc(m.usuario)}</td>` : ''}
+            <td><span class="badge ${m.tipo === 'ENTRADA' ? 'text-bg-success' : 'text-bg-secondary'}">${m.tipo === 'ENTRADA' ? 'Entrada' : 'Salida'}</span>
+                <span class="small text-muted ms-1">${m.origen === 'VENTA' ? 'venta en efectivo' : 'manual'}</span></td>
+            <td>${esc(m.concepto)}${m.pedido_id && m.origen === 'VENTA' ? '' : ''}</td><td class="small text-muted">${esc(m.observaciones)}</td>
+            <td class="num">${m.tipo === 'ENTRADA' ? fmtQ(m.valor) : ''}</td><td class="num">${m.tipo === 'SALIDA' ? fmtQ(m.valor) : ''}</td>
+            ${todas ? '' : `<td class="num fw-semibold ${m.saldo < -0.005 ? 'saldo-negativo' : ''}">${fmtQ(m.saldo)}</td>`}
+            <td class="small">${esc(m.registrado_por)}</td>
+            <td class="text-end">${borrable ? `<button type="button" class="btn btn-outline-danger btn-sm caja-borrar" data-id="${m.id}" title="Eliminar"><i class="bi bi-trash"></i></button>` : ''}</td></tr>`;
+    }).join('') || `<tr><td colspan="10" class="text-muted">Sin movimientos${desde || hasta ? ' en esas fechas' : ''}.</td></tr>`;
+    $('cajaInfo').textContent = `${d.length} movimiento(s)`;
+}
+
+function guardarMovimientoCaja(e) {
+    e.preventDefault();
+    const uid = cajaUsuarioElegido();
+    if (!puedeMoverCaja(uid)) { showAlert('Elija la caja de un usuario para registrar el movimiento.', 'warning'); return; }
+    const d = {
+        usuario_id: uid, tipo: $('cajaTipo').value, fecha: $('cajaFecha').value,
+        valor: Math.round(num($('cajaValor').value) * 100) / 100,
+        concepto: normalizarNombre($('cajaConcepto').value), observaciones: $('cajaObs').value.trim() || null,
+    };
+    if (!(d.valor > 0)) { $('cajaValor').reportValidity(); return; }
+    const actual = saldoCaja(uid);
+    if (d.tipo === 'SALIDA' && d.valor > actual + 0.005
+        && !confirm(`La salida (${fmtQ(d.valor)}) es mayor que el efectivo en caja (${fmtQ(actual)}). ¿Registrarla de todas formas?`)) return;
+    run(async () => {
+        ok(await sb.from('caja_menor').insert(d));
+        showAlert(`${d.tipo === 'SALIDA' ? 'Salida' : 'Entrada'} de ${fmtQ(d.valor)} registrada en la caja de ${nombreCaja(uid)}. Efectivo en caja: ${fmtQ(actual + (d.tipo === 'SALIDA' ? -d.valor : d.valor))}`, 'success');
+        ['cajaValor', 'cajaObs', 'cajaConcepto'].forEach(id => $(id).value = '');
+        loadCaja();
+    });
+}
+
+// Liquidar: salida por todo el efectivo de la caja (se confirma al guardar)
+function prepararLiquidacion() {
+    const uid = cajaUsuarioElegido();
+    if (!puedeMoverCaja(uid)) { showAlert('Elija la caja de un usuario para liquidarla.', 'warning'); return; }
+    const actual = saldoCaja(uid);
+    if (actual <= 0.005) { showAlert('La caja no tiene efectivo para liquidar.', 'info'); return; }
+    $('cajaTipo').value = 'SALIDA';
+    $('cajaFecha').value = hoyISO();
+    $('cajaValor').value = actual.toFixed(2);
+    $('cajaConcepto').value = 'LIQUIDACIÓN · ENTREGA A OFICINA';
+    $('cajaObs').focus();
+    showAlert(`Salida de ${fmtQ(actual)} preparada. Revise y pulse "Guardar movimiento".`, 'info');
+}
+
+function eliminarMovimientoCaja(id) {
+    const m = cajaMovs.find(x => x.id === id);
+    if (!m || !confirm(`¿Eliminar la ${m.tipo === 'ENTRADA' ? 'entrada' : 'salida'} de ${fmtQ(m.valor)} del ${fmtFecha(m.fecha)} (${m.concepto || 'sin concepto'})?`)) return;
+    run(async () => {
+        const borrados = ok(await sb.from('caja_menor').delete().eq('id', id).select());
+        if (!borrados.length) throw new Error('No se pudo eliminar el movimiento (no tiene permiso o ya no existe).');
+        showAlert('Movimiento eliminado', 'success');
+        loadCaja();
+    });
+}
+
+function exportarCaja() {
+    const todas = !cajaUsuarioElegido();
+    exportarExcel('Caja_menor', 'Caja menor', movimientosCajaFiltrados().map(m => ({
+        'Fecha': aFecha(m.fecha), 'Caja de': m.usuario, 'Tienda': m.tienda, 'Movimiento': m.tipo,
+        'Origen': m.origen === 'VENTA' ? 'VENTA EN EFECTIVO' : 'MANUAL', 'Concepto': m.concepto, 'Pedido': m.pedido_id,
+        'Entrada': m.tipo === 'ENTRADA' ? num(m.valor) : null, 'Salida': m.tipo === 'SALIDA' ? num(m.valor) : null,
+        ...(todas ? {} : { 'Saldo': m.saldo }), 'Observaciones': m.observaciones, 'Registró': m.registrado_por,
+    })));
+}
+
 // ---------------------------------------------------------------- datos en bruto (administradores)
 const TABLAS_DATOS = [
     { tabla: 'ventas', titulo: 'Ventas', orden: 'cliente_id,id' },
@@ -1936,6 +2134,7 @@ const TABLAS_DATOS = [
     { tabla: 'inventario_items', titulo: 'Inventario (configuración)', orden: 'id' },
     { tabla: 'inventario', titulo: 'Inventario (saldos)', orden: 'tienda' },
     { tabla: 'inventario_movimientos', titulo: 'Inventario (movimientos)', orden: 'fecha' },
+    { tabla: 'caja_menor', titulo: 'Caja menor', orden: 'usuario_id,fecha,id' },
     { tabla: 'tiendas', titulo: 'Maestro: Tiendas', orden: 'orden' },
     { tabla: 'vendedores', titulo: 'Maestro: Vendedores', orden: 'orden' },
     { tabla: 'tipos', titulo: 'Maestro: Tipos', orden: 'orden' },
@@ -1985,7 +2184,7 @@ const HISTORIALES = [
     { id: 'ventas', titulo: 'Ventas', tabla: 'ventas', fecha: 'fecha_venta', porCodigo: 'cliente_id', orden: [['fecha_venta', false], ['id', false]],
       campos: [['id', 'N°', 'solo'], ['fecha_venta', 'Fecha', 'fecha'], ['pedido_id', 'Pedido'], ['envio', 'Envío'], ['factura', 'Factura'],
                ['tienda', 'Tienda / Bodega', 'tienda'], ['vendedor', 'Vendedor', 'vendedor'], ['cliente_id', 'Código cliente', 'codigo'],
-               ['cliente', 'Cliente'], ['documento_cliente', 'DPI / NIT'], ['tipo', 'Tipo (material)', 'tipo'], ['cantidad', 'Cantidad', 'num'],
+               ['cliente', 'Cliente'], ['documento_cliente', 'DPI / NIT'], ['tipo', 'Tipo (material)', 'tipo'], ['forma_pago', 'Forma de pago', ['CREDITO', 'EFECTIVO']], ['cantidad', 'Cantidad', 'num'],
                ['valor_unitario', 'Valor unitario', 'dinero'], ['valor_total', 'Valor total', 'dinero'], ['fecha_vencimiento', 'Vencimiento', 'fecha'],
                ['nota_importacion', 'Nota', 'larga'], ['creado_por', 'Registrado por', 'usuario'], ['created_at', 'Creado el', 'solo-fechahora']] },
     { id: 'pagos', titulo: 'Pagos recibidos', tabla: 'pagos', fecha: 'fecha_pago', porCodigo: 'cliente_id', orden: [['fecha_pago', false], ['id', false]],
@@ -2010,6 +2209,11 @@ const HISTORIALES = [
     { id: 'devoluciones_oficina', titulo: 'Devoluciones a oficina', tabla: 'devoluciones_oficina', fecha: 'fecha_devolucion', orden: [['fecha_devolucion', false], ['id', false]],
       campos: [['id', 'N°', 'solo'], ['fecha_devolucion', 'Fecha', 'fecha'], ['tienda', 'Tienda / Bodega', 'tienda'],
                ['producto', 'Tipo (material)', 'tipo'], ['cantidad', 'Cantidad', 'num']] },
+    { id: 'caja', titulo: 'Caja menor', tabla: 'caja_menor', fecha: 'fecha', orden: [['fecha', false], ['id', false]],
+      nota: 'Las entradas por venta en efectivo (origen VENTA) siguen a su pedido: al editar o eliminar la venta se ajustan solas.',
+      campos: [['id', 'N°', 'solo'], ['fecha', 'Fecha', 'fecha'], ['usuario_id', 'Caja de', 'usuario'], ['tipo', 'Movimiento', ['ENTRADA', 'SALIDA']],
+               ['origen', 'Origen', 'solo'], ['valor', 'Valor', 'dinero'], ['concepto', 'Concepto'], ['observaciones', 'Observaciones', 'larga'],
+               ['pedido_id', 'Pedido', 'solo'], ['creado_por', 'Registrado por', 'usuario'], ['created_at', 'Creado el', 'solo-fechahora']] },
     { id: 'clientes', titulo: 'Clientes', tabla: 'clientes', fecha: 'created_at', porCodigo: 'id', orden: [['id']],
       nota: 'Si cambia el dueño a un vendedor con rango, el cliente pasa a un código de ese rango. Al eliminar un cliente, sus ventas y pagos se conservan con el código anterior.',
       campos: [['id', 'Código', 'solo'], ['consecutivo', 'Consecutivo', 'num'], ['nombre', 'Nombre'], ['tipo_cliente', 'Tipo de cliente', ['MINORISTA', 'MAYORISTA']],
@@ -2212,7 +2416,7 @@ const REPORTES = [
             ['tienda', 'Tienda / Bodega', 'texto', 1], ['vendedor', 'Vendedor', 'texto', 1], ['cliente_id', 'Código cliente', 'codigo', 1],
             ['cliente', 'Cliente', 'texto', 1], ['_tipo_cliente', 'Tipo de cliente'], ['_departamento', 'Departamento'],
             ['_dueno', 'Dueño del cliente', 'texto', 0, 'admin'], ['tipo', 'Tipo (material)', 'texto', 1],
-            ['_unidad', 'Unidad'], ['cantidad', 'Cantidad', 'num', 1], ['valor_unitario', 'Valor unitario', 'dinero', 1],
+            ['forma_pago', 'Forma de pago', 'texto', 1], ['_unidad', 'Unidad'], ['cantidad', 'Cantidad', 'num', 1], ['valor_unitario', 'Valor unitario', 'dinero', 1],
             ['valor_total', 'Valor total', 'dinero', 1], ['fecha_vencimiento', 'Vencimiento', 'fecha'], ['created_at', 'Registrado el', 'fechahora'],
         ],
     },
@@ -2298,6 +2502,16 @@ const REPORTES = [
             ['cliente_id', 'Código cliente', 'codigo', 1], ['_cliente', 'Cliente', 'texto', 1], ['fecha', 'Fecha', 'fecha', 1],
             ['movimiento', 'Movimiento', 'texto', 1], ['detalle', 'Detalle', 'texto', 1], ['metodo_pago', 'Método de pago'],
             ['cargo', 'Cargo', 'dinero', 1], ['abono', 'Abono', 'dinero', 1],
+        ],
+    },
+    {
+        id: 'caja', grupo: 'Caja menor', titulo: 'Caja menor (movimientos)', fuente: 'caja_menor_detalle', fecha: 'fecha',
+        descripcion: 'Entradas (ventas en efectivo y manuales) y salidas de la caja menor de cada usuario.',
+        orden: [['fecha', false], ['id', false]],
+        columnas: [
+            ['fecha', 'Fecha', 'fecha', 1], ['usuario', 'Caja de', 'texto', 1], ['tienda', 'Tienda / Bodega'], ['tipo', 'Movimiento', 'texto', 1],
+            ['origen', 'Origen', 'texto', 1], ['concepto', 'Concepto', 'texto', 1], ['pedido_id', 'Pedido'], ['valor', 'Valor', 'dinero', 1],
+            ['observaciones', 'Observaciones'], ['registrado_por', 'Registrado por'], ['created_at', 'Registrado el', 'fechahora'],
         ],
     },
     {

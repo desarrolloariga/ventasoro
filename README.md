@@ -129,6 +129,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `17_supervisores.sql` | **Supervisores y jerarquías**: rol supervisor, vendedores a cargo de un supervisor (`perfiles.supervisor_id`) y permisos de solo lectura para que el supervisor vea clientes, ventas, pagos, devoluciones y traslados de su equipo. Inteligencia comercial filtrable por vendedor. |
 | `18_editar_saldo_inicial.sql` | Permite editar el saldo pendiente inicial de un cliente (valor, fecha, tienda, vendedor) desde la ficha del cliente; no puede quedar por debajo de lo ya abonado. Lo hace el dueño del cliente o el admin. |
 | `19_mover_pago_envio.sql` | Función para mover un pago (completo o una parte) a otro envío del mismo cliente, desde la pantalla de Pagos. Corrige los abonos repartidos automáticamente cuyo valor coincide exacto con un envío (DAILI HERRERA, DORIS ELISABETH). |
+| `20_caja_menor.sql` | **Ventas en efectivo y caja menor**: la venta puede ser a crédito o en efectivo (registra sola su pago y una entrada a la caja menor de quien la registra; al editar o eliminar la venta se ajustan). Tabla `caja_menor` con entradas y salidas manuales por usuario; cada uno ve y mueve su caja, el supervisor ve las de su equipo y el admin todas. |
 
 ## Despliegue en Vercel
 
