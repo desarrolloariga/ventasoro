@@ -2130,6 +2130,7 @@ const fmtPct = v => `${num(v).toLocaleString('es-GT', { minimumFractionDigits: 1
 // bueno: si subir es bueno ('sube'), malo ('baja') o ninguno (null)
 const INDICADORES_CUADRE = [
     { id: 'cartera', titulo: 'Cuentas por cobrar al cierre', icono: 'cash-stack', campo: 'cartera', fmt: v => fmtQ(v), dims: ['tienda'], bueno: 'baja' },
+    { id: 'recaudo', titulo: 'Recaudo del mes', icono: 'cash-coin', campo: 'recaudo', recaudo: true, fmt: v => fmtQ(v), dims: ['tienda', 'metodo'], bueno: 'sube' },
     { id: 'inventario', titulo: 'Inventario disponible al cierre', icono: 'boxes', campo: 'inventario_gr', fmt: v => fmtG(v), dims: ['tienda'], bueno: null },
     { id: 'ventas_gr', titulo: 'Ventas en gramos', icono: 'gem', campo: 'ventas_gr', fmt: v => fmtG(v), dims: ['tienda', 'vendedor'], bueno: 'sube' },
     { id: 'ventas_q', titulo: 'Ventas en dinero', icono: 'currency-dollar', campo: 'ventas_q', fmt: v => fmtQ(v), dims: ['tienda', 'vendedor'], bueno: 'sube' },
@@ -2174,6 +2175,7 @@ function valorCuadre(ind, mes, dim = null, clave = null) {
         return metaTotal > 0 ? { valor: ventas / metaTotal * 100, ventas, meta: metaTotal } : null;
     }
     const suma = c => filas.reduce((t, r) => t + num(r[c]), 0);
+    if (ind.recaudo) return { valor: suma('recaudo'), efectivo: suma('recaudo_efectivo') };
     return ind.caja ? { valor: suma('caja'), entradas: suma('caja_entradas'), salidas: suma('caja_salidas') } : { valor: suma(ind.campo) };
 }
 
@@ -2203,6 +2205,7 @@ function renderCuadre() {
             const sub = ind.meta
                 ? (actual ? `Ventas ${fmtQ(actual.ventas)} de una meta de ${fmtQ(actual.meta)}` : 'Configure las metas en Maestros &gt; Vendedores')
                 : ind.caja ? `Entradas del mes ${fmtQ(actual?.entradas)} · Salidas ${fmtQ(actual?.salidas)}`
+                : ind.recaudo ? `Abonos a cartera ${fmtQ(num(actual?.valor) - num(actual?.efectivo))} · Ventas en efectivo ${fmtQ(actual?.efectivo)}`
                 : `${nombreMes(prev)}: ${previo ? ind.fmt(previo.valor) : '—'}`;
             const detalle = ind.dims.map(dim => {
                 const claves = [...new Set(cuadreFilas.filter(r => r.mes === mes && r.dimension === dim && (!ind.meta || num(r.meta) > 0)).map(r => r.clave))];
@@ -2210,7 +2213,7 @@ function renderCuadre() {
                     .filter(x => x.a && (ind.meta || Math.abs(x.a.valor) > 0.005 || (x.p && Math.abs(x.p.valor) > 0.005)))
                     .sort((x, y) => num(y.a.valor) - num(x.a.valor));
                 if (!filas.length) return '';
-                return `<details class="cuadre-detalle"><summary>Por ${dim === 'tienda' ? 'tienda / bodega' : dim === 'usuario' ? 'usuario' : 'vendedor'} (${filas.length})</summary>
+                return `<details class="cuadre-detalle"><summary>Por ${dim === 'tienda' ? 'tienda / bodega' : dim === 'usuario' ? 'usuario' : dim === 'metodo' ? 'método de pago' : 'vendedor'} (${filas.length})</summary>
                     <table class="table table-sm mb-0"><tbody>${filas.map(x => `<tr><td>${esc(x.k)}${ind.meta ? `<div class="small text-muted">${fmtQ(x.a.ventas)} de ${fmtQ(x.a.meta)}</div>`
                         : ind.caja && (x.a.entradas || x.a.salidas) ? `<div class="small text-muted">+${fmtQ(x.a.entradas)} / −${fmtQ(x.a.salidas)}</div>` : ''}</td>
                     <td class="num fw-semibold">${textoValorCuadre(ind, x.a)}</td><td class="num">${variacionCuadre(ind, x.a, x.p)}</td></tr>`).join('')}</tbody></table></details>`;
@@ -2232,13 +2235,14 @@ function exportarCuadre() {
     const desde = $('cuaDesde').value + '-01', hasta = $('cuaHasta').value + '-01';
     const filas = cuadreFilas.filter(r => r.mes >= desde && r.mes <= hasta);
     exportarExcel('Cuadre_tiendas', 'Cuadre de tiendas', filas.map(r => ({
-        'Mes': nombreMes(r.mes), 'Por': { tienda: 'Tienda', vendedor: 'Vendedor', usuario: 'Usuario (caja)' }[r.dimension] || r.dimension, 'Tienda / Vendedor / Usuario': r.clave,
+        'Mes': nombreMes(r.mes), 'Por': { tienda: 'Tienda', vendedor: 'Vendedor', usuario: 'Usuario (caja)', metodo: 'Método de pago' }[r.dimension] || r.dimension, 'Tienda / Vendedor / Usuario / Método': r.clave,
         'Cartera al cierre': r.cartera === null ? null : num(r.cartera), 'Inventario g al cierre': r.inventario_gr === null ? null : num(r.inventario_gr),
         'Ventas g': num(r.ventas_gr), 'Ventas Q': num(r.ventas_q), 'Comisión Q': num(r.comision),
         'Meta Q': r.meta === null ? null : num(r.meta),
         'Cumplimiento %': num(r.meta) > 0 ? Math.round(num(r.ventas_q) / num(r.meta) * 1000) / 10 : null,
         'Caja al cierre Q': r.caja == null ? null : num(r.caja), 'Caja entradas del mes': r.caja_entradas == null ? null : num(r.caja_entradas),
         'Caja salidas del mes': r.caja_salidas == null ? null : num(r.caja_salidas),
+        'Recaudo Q': r.recaudo == null ? null : num(r.recaudo), 'Recaudo de ventas en efectivo Q': r.recaudo_efectivo == null ? null : num(r.recaudo_efectivo),
     })));
 }
 

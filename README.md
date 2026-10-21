@@ -132,6 +132,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `20_caja_menor.sql` | **Ventas en efectivo y caja menor**: la venta puede ser a crédito o en efectivo (registra sola su pago y una entrada a la caja menor de quien la registra; al editar o eliminar la venta se ajustan). Tabla `caja_menor` con entradas y salidas manuales por usuario; cada uno ve y mueve su caja, el supervisor ve las de su equipo y el admin todas. |
 | `21_cuadre_tiendas.sql` | **Cuadre de tiendas**: % de comisión y meta mensual por vendedor (Maestros > Vendedores, solo admin) y función `cuadre_tiendas` con la foto al cierre de cada mes (cartera por cobrar, inventario en gramos, ventas en gramos y Q, comisiones y meta) por tienda y por vendedor. Solo para el admin. |
 | `22_cuadre_caja.sql` | Agrega al cuadre de tiendas la **caja menor al cierre** de cada mes (y sus entradas y salidas del mes), por tienda y por usuario. |
+| `23_cuadre_recaudo.sql` | Agrega al cuadre de tiendas el **recaudo del mes** (pagos recibidos, incluidos los de ventas en efectivo) por tienda del envío pagado y por método de pago. Incluye lo del 22. |
 
 ## Despliegue en Vercel
 
