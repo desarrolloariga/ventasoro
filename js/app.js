@@ -693,11 +693,23 @@ function saveNewClient() {
 
 // ---------------------------------------------------------------- venta: elegir cliente del listado
 let listaClientesModal, listaClientes = [];
+// Desde dónde se abrió el listado: qué hacer al elegir y qué clientes mostrar
+let listaClientesUso = null;
 const sinTildes = v => norm(v).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 function registrarListaClientes() {
     listaClientesModal = new bootstrap.Modal($('listaClientesModal'));
-    $('listaClientesBoton').addEventListener('click', abrirListaClientes);
+    // Venta y Pagos: solo clientes propios (el admin, todos). Pedidos: todos los que el usuario puede ver.
+    $('listaClientesBoton').addEventListener('click', () => abrirListaClientes({
+        entrada: 'clientDPI', soloPropios: true, crear: true, titulo: 'Elegir cliente para la venta', alElegir: ponerClienteEnVenta }));
+    $('pagoListaClientes').addEventListener('click', () => abrirListaClientes({
+        entrada: 'pagoCliente', soloPropios: true, titulo: 'Elegir cliente para registrar el pago', alElegir: seleccionarClientePago }));
+    $('pedidosListaClientes').addEventListener('click', () => abrirListaClientes({
+        entrada: 'searchEnvioInput', soloPropios: false, titulo: 'Ver los pedidos de un cliente', alElegir: c => {
+            $('searchPedidoCampo').value = 'codigo';
+            $('searchEnvioInput').value = cod(c.id);
+            buscarPedidos();
+        } }));
     $('listaClientesModal').addEventListener('shown.bs.modal', () => $('listaClientesBuscar').focus());
     $('listaClientesBuscar').addEventListener('input', renderListaClientes);
     $('listaClientesBuscar').addEventListener('keydown', e => {
@@ -710,8 +722,8 @@ function registrarListaClientes() {
         if (!b) return;
         const c = listaClientes.find(x => String(x.id) === b.dataset.id);
         listaClientesModal.hide();
-        ponerClienteEnVenta(c);
-        showAlert(`Cliente ${cod(c.id)} · ${c.nombre} seleccionado`, 'success');
+        listaClientesUso.alElegir(c);
+        if (listaClientesUso.entrada === 'clientDPI') showAlert(`Cliente ${cod(c.id)} · ${c.nombre} seleccionado`, 'success');
     });
     $('listaClientesNuevo').addEventListener('click', () => {
         const q = $('listaClientesBuscar').value.trim();
@@ -720,17 +732,23 @@ function registrarListaClientes() {
     });
 }
 
-function abrirListaClientes() {
-    // Lo escrito en el buscador de la venta pasa al listado
-    const escrito = $('clientDPI').value.trim();
-    $('listaClientesBuscar').value = escrito && escrito !== $('clientName').value && !$('clientId').dataset.real ? escrito : '';
+function abrirListaClientes(uso) {
+    listaClientesUso = uso;
+    $('listaClientesTitulo').textContent = uso.titulo;
+    $('listaClientesNuevo').classList.toggle('d-none', !uso.crear);
+    // Lo escrito en el buscador pasa al listado (en la venta, si todavía no hay cliente elegido)
+    const escrito = $(uso.entrada).value.trim();
+    const yaElegido = uso.entrada === 'clientDPI' ? !!$('clientId').dataset.real
+        : uso.entrada === 'pagoCliente' ? !!clientePago && escrito === `${clientePago.id} · ${clientePago.nombre}` : false;
+    $('listaClientesBuscar').value = escrito && !yaElegido && !(uso.entrada === 'searchEnvioInput' && $('searchPedidoCampo').value !== 'todo' && $('searchPedidoCampo').value !== 'cliente') ? escrito : '';
     $('listaClientesBody').innerHTML = '<div class="list-group-item text-muted">Cargando clientes…</div>';
     listaClientesModal.show();
     run(async () => {
+        if (veEquipo() && !perfiles.length) await cargarPerfiles();
         const todos = await fetchAll(() => sb.from('clientes')
             .select('id,consecutivo,nombre,dpi,nit,telefono,telefono2,tipo_cliente,departamento,creado_por').order('id'));
-        // Solo se vende a clientes propios (el admin, a cualquiera)
-        listaClientes = ordenarPorCodigo(todos.filter(c => esAdmin() || c.creado_por === perfil.id), 'id');
+        // Ventas y pagos solo a clientes propios (el admin, a cualquiera)
+        listaClientes = ordenarPorCodigo(todos.filter(c => !uso.soloPropios || esAdmin() || c.creado_por === perfil.id), 'id');
         listaClientes.forEach(recordarConsecutivo);
         renderListaClientes();
     });
@@ -741,14 +759,16 @@ function renderListaClientes() {
     // Cada palabra escrita debe aparecer en alguno de los datos del cliente
     const palabras = sinTildes($('listaClientesBuscar').value).split(/\s+/).filter(Boolean);
     const d = listaClientes.filter(c => {
-        const texto = sinTildes([cod(c.id), c.id, c.nombre, c.dpi, c.nit, c.telefono, c.telefono2, c.departamento].filter(Boolean).join(' '));
+        const texto = sinTildes([cod(c.id), c.id, c.nombre, c.dpi, c.nit, c.telefono, c.telefono2, c.departamento,
+            veEquipo() ? nombreUsuario(c.creado_por) : ''].filter(Boolean).join(' '));
         return palabras.every(p => texto.includes(p));
     });
     $('listaClientesBody').innerHTML = d.slice(0, MAX_LISTA_CLIENTES).map(c => `<button type="button" class="list-group-item list-group-item-action" data-id="${c.id}">
         <div class="d-flex justify-content-between align-items-center gap-2">
           <span><span class="badge text-bg-secondary me-2">${esc(cod(c.id))}</span><strong>${esc(c.nombre)}</strong>${c.tipo_cliente === 'MAYORISTA' ? ' <span class="badge text-bg-warning ms-1">Mayorista</span>' : ''}</span>
           <i class="bi bi-chevron-right text-muted"></i></div>
-        <div class="small text-muted mt-1">${[c.dpi && `DPI ${esc(c.dpi)}`, c.nit && `NIT ${esc(c.nit)}`, c.telefono && `Tel. ${esc(c.telefono)}`, c.departamento && esc(c.departamento)].filter(Boolean).join(' · ') || '&nbsp;'}</div>
+        <div class="small text-muted mt-1">${[c.dpi && `DPI ${esc(c.dpi)}`, c.nit && `NIT ${esc(c.nit)}`, c.telefono && `Tel. ${esc(c.telefono)}`, c.departamento && esc(c.departamento),
+            veEquipo() && c.creado_por && c.creado_por !== perfil.id && `Vendedor: ${esc(nombreUsuario(c.creado_por))}`].filter(Boolean).join(' · ') || '&nbsp;'}</div>
       </button>`).join('')
         || `<div class="list-group-item text-muted">${listaClientes.length ? 'Ningún cliente coincide. Puede crearlo con el botón de abajo.' : 'Todavía no tiene clientes.'}</div>`;
     $('listaClientesInfo').textContent = `${d.length} de ${listaClientes.length} cliente(s)` + (d.length > MAX_LISTA_CLIENTES ? ` · se muestran ${MAX_LISTA_CLIENTES}; escriba más para afinar` : '');
