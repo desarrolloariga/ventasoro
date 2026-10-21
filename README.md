@@ -130,6 +130,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `18_editar_saldo_inicial.sql` | Permite editar el saldo pendiente inicial de un cliente (valor, fecha, tienda, vendedor) desde la ficha del cliente; no puede quedar por debajo de lo ya abonado. Lo hace el dueño del cliente o el admin. |
 | `19_mover_pago_envio.sql` | Función para mover un pago (completo o una parte) a otro envío del mismo cliente, desde la pantalla de Pagos. Corrige los abonos repartidos automáticamente cuyo valor coincide exacto con un envío (DAILI HERRERA, DORIS ELISABETH). |
 | `20_caja_menor.sql` | **Ventas en efectivo y caja menor**: la venta puede ser a crédito o en efectivo (registra sola su pago y una entrada a la caja menor de quien la registra; al editar o eliminar la venta se ajustan). Tabla `caja_menor` con entradas y salidas manuales por usuario; cada uno ve y mueve su caja, el supervisor ve las de su equipo y el admin todas. |
+| `21_cuadre_tiendas.sql` | **Cuadre de tiendas**: % de comisión y meta mensual por vendedor (Maestros > Vendedores, solo admin) y función `cuadre_tiendas` con la foto al cierre de cada mes (cartera por cobrar, inventario en gramos, ventas en gramos y Q, comisiones y meta) por tienda y por vendedor. Solo para el admin. |
 
 ## Despliegue en Vercel
 

@@ -274,7 +274,7 @@
               </div>
               <div class="menu-grupo">
                 <button type="button" class="menu-rotulo" aria-expanded="true" data-grupo="CONSULTAS"><span>CONSULTAS</span><i class="bi bi-chevron-down"></i></button>
-                <button class="nav-link menu-item" id="inteligencia-tab" data-bs-toggle="tab" data-bs-target="#inteligencia" type="button" role="tab" data-titulo="Inteligencia comercial" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-graph-up"></i><span class="menu-texto">Inteligencia</span></button><button class="nav-link menu-item" id="historico-tab" data-bs-toggle="tab" data-bs-target="#historico" type="button" role="tab" data-titulo="Histórico" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-clock-history"></i><span class="menu-texto">Histórico</span></button><button class="nav-link menu-item" id="cartera-tab" data-bs-toggle="tab" data-bs-target="#cartera" type="button" role="tab" data-titulo="Cartera" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-wallet2"></i><span class="menu-texto">Cartera</span></button><button class="nav-link menu-item" id="reportes-tab" data-bs-toggle="tab" data-bs-target="#reportes" type="button" role="tab" data-titulo="Reportes" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-file-earmark-bar-graph"></i><span class="menu-texto">Reportes</span></button>
+                <button class="nav-link menu-item" id="inteligencia-tab" data-bs-toggle="tab" data-bs-target="#inteligencia" type="button" role="tab" data-titulo="Inteligencia comercial" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-graph-up"></i><span class="menu-texto">Inteligencia</span></button><button class="nav-link menu-item" id="historico-tab" data-bs-toggle="tab" data-bs-target="#historico" type="button" role="tab" data-titulo="Histórico" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-clock-history"></i><span class="menu-texto">Histórico</span></button><button class="nav-link menu-item" id="cartera-tab" data-bs-toggle="tab" data-bs-target="#cartera" type="button" role="tab" data-titulo="Cartera" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-wallet2"></i><span class="menu-texto">Cartera</span></button><button class="nav-link menu-item" id="reportes-tab" data-bs-toggle="tab" data-bs-target="#reportes" type="button" role="tab" data-titulo="Reportes" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-file-earmark-bar-graph"></i><span class="menu-texto">Reportes</span></button><button class="nav-link menu-item solo-admin d-none" id="cuadre-tab" data-bs-toggle="tab" data-bs-target="#cuadre" type="button" role="tab" data-titulo="Cuadre de tiendas" data-migaja="CONSULTAS"><span class="rombo"></span><i class="bi bi-calendar2-check"></i><span class="menu-texto">Cuadre de tiendas</span></button>
               </div>
               <div class="menu-grupo">
                 <button type="button" class="menu-rotulo" aria-expanded="true" data-grupo="INVENTARIO"><span>INVENTARIO</span><i class="bi bi-chevron-down"></i></button>
@@ -1076,6 +1076,27 @@
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            <!-- Pestaña: Cuadre de tiendas (cierre mensual, solo administradores) -->
+            <div class="tab-pane fade" id="cuadre" role="tabpanel">
+              <div class="mt-3">
+                <div class="card mb-3">
+                  <div class="card-body py-3">
+                    <div class="row g-3 align-items-end">
+                      <div class="col-md-4"><label class="form-label" for="cuaTienda">Tienda / Bodega</label><select class="form-select" id="cuaTienda"><option value="">Todas</option></select></div>
+                      <div class="col-6 col-md-2"><label class="form-label" for="cuaDesde">Desde (mes)</label><input type="month" class="form-control" id="cuaDesde"></div>
+                      <div class="col-6 col-md-2"><label class="form-label" for="cuaHasta">Hasta (mes)</label><input type="month" class="form-control" id="cuaHasta"></div>
+                      <div class="col-md-4 d-flex gap-2 justify-content-md-end">
+                        <button type="button" class="btn btn-gold" id="cuaActualizar"><i class="bi bi-arrow-clockwise me-1"></i> Actualizar</button>
+                        <button type="button" class="btn btn-outline-secondary" id="cuaExportar"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+                      </div>
+                    </div>
+                    <p class="small text-muted mt-2 mb-0">Cada mes muestra la foto al <strong>cierre</strong> (último día del mes; el mes en curso, a hoy). La variación compara con el mes anterior. Comisión y meta se configuran en Maestros &gt; Vendedores.</p>
+                  </div>
+                </div>
+                <div id="cuaMeses"></div>
               </div>
             </div>
 

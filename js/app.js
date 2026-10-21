@@ -459,6 +459,7 @@ function registrarEventos() {
     });
     $('maestros').addEventListener('change', e => {
         if (e.target.classList.contains('maestro-activo')) cambiarActivoMaestro(e.target);
+        if (e.target.matches('.maestro-comision, .maestro-meta')) cambiarParametroVendedor(e.target);
         if (e.target.classList.contains('maestro-unidad')) cambiarUnidadTipo(e.target);
         else if (e.target.classList.contains('maestro-clase')) cambiarClaseTienda(e.target);
     });
@@ -480,6 +481,7 @@ function registrarEventos() {
     $('usuarios-tab').addEventListener('shown.bs.tab', loadUsuarios);
     registrarJerarquias();
     registrarCaja();
+    registrarCuadre();
     $('usuarioForm').addEventListener('submit', agregarUsuario);
     $('usuariosTableBody').addEventListener('change', e => {
         if (e.target.matches('.usr-activo')) actualizarUsuario(e.target, { activo: e.target.checked });
@@ -2119,6 +2121,121 @@ function exportarCaja() {
     })));
 }
 
+// ---------------------------------------------------------------- cuadre de tiendas (cierre mensual)
+const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const nombreMes = iso => { const [y, m] = iso.split('-').map(Number); return `${MESES_LARGOS[m - 1]} ${y}`; };
+const mesAnterior = iso => { const [y, m] = iso.split('-').map(Number); const d = new Date(Date.UTC(y, m - 2, 1)); return d.toISOString().slice(0, 10); };
+const fmtPct = v => `${num(v).toLocaleString('es-GT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+
+// bueno: si subir es bueno ('sube'), malo ('baja') o ninguno (null)
+const INDICADORES_CUADRE = [
+    { id: 'cartera', titulo: 'Cuentas por cobrar al cierre', icono: 'cash-stack', campo: 'cartera', fmt: v => fmtQ(v), dims: ['tienda'], bueno: 'baja' },
+    { id: 'inventario', titulo: 'Inventario disponible al cierre', icono: 'boxes', campo: 'inventario_gr', fmt: v => fmtG(v), dims: ['tienda'], bueno: null },
+    { id: 'ventas_gr', titulo: 'Ventas en gramos', icono: 'gem', campo: 'ventas_gr', fmt: v => fmtG(v), dims: ['tienda', 'vendedor'], bueno: 'sube' },
+    { id: 'ventas_q', titulo: 'Ventas en dinero', icono: 'currency-dollar', campo: 'ventas_q', fmt: v => fmtQ(v), dims: ['tienda', 'vendedor'], bueno: 'sube' },
+    { id: 'comision', titulo: 'Comisiones', icono: 'percent', campo: 'comision', fmt: v => fmtQ(v), dims: ['vendedor', 'tienda'], bueno: null },
+    { id: 'meta', titulo: 'Cumplimiento de meta', icono: 'bullseye', meta: true, dims: ['vendedor'], bueno: 'sube' },
+];
+let cuadreFilas = [];
+
+function registrarCuadre() {
+    const hoy = hoyISO().slice(0, 7);
+    const [y, m] = hoy.split('-').map(Number);
+    $('cuaHasta').value = hoy;
+    $('cuaDesde').value = new Date(Date.UTC(y, m - 6, 1)).toISOString().slice(0, 7);
+    $('cuadre-tab').addEventListener('shown.bs.tab', () => { if (!$('cuaMeses').children.length) cargarCuadre(); });
+    ['cuaTienda', 'cuaDesde', 'cuaHasta'].forEach(id => $(id).addEventListener('change', cargarCuadre));
+    $('cuaActualizar').addEventListener('click', cargarCuadre);
+    $('cuaExportar').addEventListener('click', exportarCuadre);
+}
+
+function cargarCuadre() {
+    const desde = $('cuaDesde').value, hasta = $('cuaHasta').value;
+    if (!desde || !hasta) return;
+    if (desde > hasta) { showAlert('El mes "Desde" es posterior a "Hasta".', 'warning'); return; }
+    run(async () => {
+        // Se pide un mes antes para calcular la variación del primero
+        cuadreFilas = ok(await sb.rpc('cuadre_tiendas', {
+            p_desde: mesAnterior(desde + '-01'), p_hasta: hasta + '-01', p_tienda: $('cuaTienda').value || null,
+        })).map(r => ({ ...r, mes: String(r.mes).slice(0, 10) }));
+        renderCuadre();
+    });
+}
+
+// Valor de un indicador para un mes (total o de una clave de tienda/vendedor)
+function valorCuadre(ind, mes, dim = null, clave = null) {
+    const filas = cuadreFilas.filter(r => r.mes === mes && (ind.meta ? r.dimension === 'vendedor' : r.dimension === (dim || 'tienda'))
+        && (clave === null || r.clave === clave));
+    if (ind.meta) {
+        const conMeta = filas.filter(r => num(r.meta) > 0);
+        const metaTotal = conMeta.reduce((t, r) => t + num(r.meta), 0);
+        const ventas = conMeta.reduce((t, r) => t + num(r.ventas_q), 0);
+        return metaTotal > 0 ? { valor: ventas / metaTotal * 100, ventas, meta: metaTotal } : null;
+    }
+    return { valor: filas.reduce((t, r) => t + num(r[ind.campo]), 0) };
+}
+
+function variacionCuadre(ind, actual, previo) {
+    if (!actual || !previo) return '<span class="variacion neutra">—</span>';
+    let dif, txt;
+    if (ind.meta) { dif = actual.valor - previo.valor; txt = `${dif >= 0 ? '+' : ''}${dif.toFixed(1)} pts`; }
+    else {
+        if (Math.abs(previo.valor) < 0.005) return `<span class="variacion neutra">${Math.abs(actual.valor) < 0.005 ? '0 %' : 'nuevo'}</span>`;
+        dif = (actual.valor - previo.valor) / Math.abs(previo.valor) * 100;
+        txt = `${dif >= 0 ? '+' : ''}${dif.toLocaleString('es-GT', { maximumFractionDigits: 1 })} %`;
+    }
+    const flecha = Math.abs(dif) < 0.05 ? '' : dif > 0 ? '▲ ' : '▼ ';
+    const clase = !ind.bueno || Math.abs(dif) < 0.05 ? 'neutra' : (dif > 0) === (ind.bueno === 'sube') ? 'buena' : 'mala';
+    return `<span class="variacion ${clase}">${flecha}${txt}</span>`;
+}
+
+const textoValorCuadre = (ind, v) => !v ? '—' : ind.meta ? fmtPct(v.valor) : ind.fmt(v.valor);
+
+function renderCuadre() {
+    const desde = $('cuaDesde').value + '-01', hasta = $('cuaHasta').value + '-01', mesHoy = hoyISO().slice(0, 7) + '-01';
+    const meses = [...new Set(cuadreFilas.map(r => r.mes))].filter(m => m >= desde && m <= hasta).sort().reverse();
+    $('cuaMeses').innerHTML = meses.map(mes => {
+        const prev = mesAnterior(mes);
+        const tarjetas = INDICADORES_CUADRE.map(ind => {
+            const actual = valorCuadre(ind, mes), previo = valorCuadre(ind, prev);
+            const sub = ind.meta
+                ? (actual ? `Ventas ${fmtQ(actual.ventas)} de una meta de ${fmtQ(actual.meta)}` : 'Configure las metas en Maestros &gt; Vendedores')
+                : `${nombreMes(prev)}: ${previo ? ind.fmt(previo.valor) : '—'}`;
+            const detalle = ind.dims.map(dim => {
+                const claves = [...new Set(cuadreFilas.filter(r => r.mes === mes && r.dimension === dim && (!ind.meta || num(r.meta) > 0)).map(r => r.clave))];
+                const filas = claves.map(k => ({ k, a: valorCuadre(ind, mes, dim, k), p: valorCuadre(ind, prev, dim, k) }))
+                    .filter(x => x.a && (ind.meta || Math.abs(x.a.valor) > 0.005 || (x.p && Math.abs(x.p.valor) > 0.005)))
+                    .sort((x, y) => num(y.a.valor) - num(x.a.valor));
+                if (!filas.length) return '';
+                return `<details class="cuadre-detalle"><summary>Por ${dim === 'tienda' ? 'tienda / bodega' : 'vendedor'} (${filas.length})</summary>
+                    <table class="table table-sm mb-0"><tbody>${filas.map(x => `<tr><td>${esc(x.k)}${ind.meta ? `<div class="small text-muted">${fmtQ(x.a.ventas)} de ${fmtQ(x.a.meta)}</div>` : ''}</td>
+                    <td class="num fw-semibold">${textoValorCuadre(ind, x.a)}</td><td class="num">${variacionCuadre(ind, x.a, x.p)}</td></tr>`).join('')}</tbody></table></details>`;
+            }).join('');
+            return `<div class="col-md-6 col-xl-4"><div class="card kpi h-100"><div class="card-body">
+                <div class="kpi-titulo"><i class="bi bi-${ind.icono}"></i> ${ind.titulo}</div>
+                <div class="d-flex align-items-baseline justify-content-between gap-2 flex-wrap">
+                  <div class="kpi-valor">${textoValorCuadre(ind, actual)}</div>${variacionCuadre(ind, actual, previo)}</div>
+                <div class="kpi-sub mb-2">${sub}</div>${detalle}
+              </div></div></div>`;
+        }).join('');
+        return `<section class="cuadre-mes mb-4">
+            <h3 class="cuadre-mes-titulo">${nombreMes(mes)}${mes === mesHoy ? ' <span class="badge text-bg-warning">en curso</span>' : ''}</h3>
+            <div class="row g-3">${tarjetas}</div></section>`;
+    }).join('') || '<div class="card"><div class="card-body text-muted">No hay meses en ese rango.</div></div>';
+}
+
+function exportarCuadre() {
+    const desde = $('cuaDesde').value + '-01', hasta = $('cuaHasta').value + '-01';
+    const filas = cuadreFilas.filter(r => r.mes >= desde && r.mes <= hasta);
+    exportarExcel('Cuadre_tiendas', 'Cuadre de tiendas', filas.map(r => ({
+        'Mes': nombreMes(r.mes), 'Por': r.dimension === 'tienda' ? 'Tienda' : 'Vendedor', 'Tienda / Vendedor': r.clave,
+        'Cartera al cierre': r.cartera === null ? null : num(r.cartera), 'Inventario g al cierre': r.inventario_gr === null ? null : num(r.inventario_gr),
+        'Ventas g': num(r.ventas_gr), 'Ventas Q': num(r.ventas_q), 'Comisión Q': num(r.comision),
+        'Meta Q': r.meta === null ? null : num(r.meta),
+        'Cumplimiento %': num(r.meta) > 0 ? Math.round(num(r.ventas_q) / num(r.meta) * 1000) / 10 : null,
+    })));
+}
+
 // ---------------------------------------------------------------- datos en bruto (administradores)
 const TABLAS_DATOS = [
     { tabla: 'ventas', titulo: 'Ventas', orden: 'cliente_id,id' },
@@ -2790,12 +2907,17 @@ function renderMaestro(m) {
                 <button type="submit" class="btn btn-gold btn-sm">Guardar</button>
                 <button type="button" class="btn btn-outline-secondary btn-sm maestro-cancelar">Cancelar</button></form></li>`;
         const detalle = m === 'tiendas' ? `<small>Usuarios: ${esc(usuariosPorTienda[x.nombre]?.join(', ') || '—')}</small>`
-            : m === 'tipos' ? `<small>${x.controla_inventario === false ? 'Sin inventario' : `Inventario en ${(x.unidad || 'GRAMOS').toLowerCase()}`}</small>` : '';
+            : m === 'tipos' ? `<small>${x.controla_inventario === false ? 'Sin inventario' : `Inventario en ${(x.unidad || 'GRAMOS').toLowerCase()}`}</small>`
+            : m === 'vendedores' && !admin ? `<small>Comisión ${fmtPct(x.comision_pct)} · Meta ${fmtQ(x.meta_mensual)}</small>` : '';
         return `<li class="list-group-item ${x.activo === false ? 'inactivo' : ''}">
             <div class="maestro-nombre">${admin ? `<span role="button" class="maestro-editar" ${datos} title="Cambiar nombre">${nombre}</span>` : nombre}${detalle}</div>
             <div class="maestro-acciones">
               ${m === 'tiendas' ? `<select class="form-select form-select-sm maestro-clase" data-nombre="${nombre}" aria-label="Tipo">
                 ${['TIENDA', 'BODEGA'].map(c => `<option value="${c}" ${x.clase === c ? 'selected' : ''}>${c === 'TIENDA' ? 'Tienda' : 'Bodega'}</option>`).join('')}</select>` : ''}
+              ${m === 'vendedores' && admin ? `<div class="input-group input-group-sm" style="width: 118px" title="Comisión sobre la venta">
+                <input type="number" class="form-control text-end maestro-comision" ${datos} value="${num(x.comision_pct)}" min="0" max="100" step="0.01" aria-label="Porcentaje de comisión"><span class="input-group-text">%</span></div>
+                <div class="input-group input-group-sm" style="width: 175px" title="Meta de venta mensual"><span class="input-group-text">Meta Q</span>
+                <input type="number" class="form-control text-end maestro-meta" ${datos} value="${num(x.meta_mensual)}" min="0" step="0.01" aria-label="Meta mensual"></div>` : ''}
               ${m === 'tipos' ? `<select class="form-select form-select-sm maestro-clase maestro-unidad" data-nombre="${nombre}" aria-label="Unidad">
                 ${OPCIONES_UNIDAD.map(([v, t]) => `<option value="${v}" ${unidadDeTipo(x) === v ? 'selected' : ''}>${t}</option>`).join('')}</select>` : ''}
               <div class="form-check form-switch m-0" title="${x.activo === false ? 'Inactivo' : 'Activo'}"><input class="form-check-input maestro-activo" type="checkbox" role="switch" ${datos} ${x.activo === false ? '' : 'checked'} aria-label="Activo"></div>
@@ -2856,7 +2978,7 @@ async function cargarMaestros() {
     const activos = l => l.filter(x => x.activo !== false).map(x => x.nombre);
 
     // Filtros de consulta: todos. Formularios: solo activos.
-    ['filterTienda', 'carBodega', 'repTienda'].forEach(id => repoblar(id, todos(tiendas), 'Todas'));
+    ['filterTienda', 'carBodega', 'repTienda', 'cuaTienda'].forEach(id => repoblar(id, todos(tiendas), 'Todas'));
     repoblar('tiendaSelect', activos(tiendas), 'Seleccione Tienda...');
     repoblar('cargaTienda', activos(tiendas), 'Seleccione Tienda...');
     repoblar('saldoInicialTienda', activos(tiendas), '(opcional)');
@@ -2959,6 +3081,18 @@ function eliminarMaestro(m, nombre) {
         ok(await sb.from(m).delete().eq('nombre', nombre));
         await cargarMaestros();
         showAlert(`"${nombre}" eliminado`, 'success');
+    });
+}
+
+function cambiarParametroVendedor(inp) {
+    const esComision = inp.classList.contains('maestro-comision');
+    const valor = Math.round(num(inp.value) * 100) / 100;
+    if (valor < 0 || (esComision && valor > 100)) { inp.reportValidity(); return; }
+    run(async () => {
+        ok(await sb.from('vendedores').update(esComision ? { comision_pct: valor } : { meta_mensual: valor }).eq('nombre', inp.dataset.nombre));
+        const x = maestros.vendedores.find(v => v.nombre === inp.dataset.nombre);
+        if (x) x[esComision ? 'comision_pct' : 'meta_mensual'] = valor;
+        showAlert(`${inp.dataset.nombre}: ${esComision ? `comisión ${fmtPct(valor)}` : `meta mensual ${fmtQ(valor)}`}`, 'success');
     });
 }
 

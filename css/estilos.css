@@ -447,3 +447,15 @@ details > summary { color: var(--gold-dark); cursor: pointer; font-size: 12px; }
 .btn-icono-claro:hover, .btn-icono-claro:focus-visible { color: var(--ink); background: rgba(198, 161, 91, .14); }
 .rep-columnas li:first-child [data-mover="arriba"], .rep-columnas li:last-child [data-mover="abajo"] { visibility: hidden; }
 #repTabla td, #repTabla th { white-space: nowrap; }
+
+/* ---------------------------------------------------------------- cuadre de tiendas */
+.cuadre-mes-titulo { font-family: var(--display); font-weight: 400; font-size: 24px; text-transform: capitalize; margin: 0 0 12px; display: flex; align-items: center; gap: 10px; }
+.cuadre-mes-titulo .badge { font-family: var(--sans); font-size: 10px; text-transform: none; }
+.variacion { font-size: 12px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.variacion.buena { color: var(--sage); }
+.variacion.mala { color: var(--clay); }
+.variacion.neutra { color: var(--ink-42); }
+.cuadre-detalle { border-top: 1px solid var(--ink-6, rgba(11, 11, 12, .06)); padding-top: 6px; margin-top: 6px; }
+.cuadre-detalle summary { font-size: 12px; color: var(--gold-dark); cursor: pointer; }
+.cuadre-detalle table { font-size: 12px; margin-top: 4px; }
+.cuadre-detalle td { padding: 4px 2px; }
