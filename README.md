@@ -131,6 +131,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `19_mover_pago_envio.sql` | Función para mover un pago (completo o una parte) a otro envío del mismo cliente, desde la pantalla de Pagos. Corrige los abonos repartidos automáticamente cuyo valor coincide exacto con un envío (DAILI HERRERA, DORIS ELISABETH). |
 | `20_caja_menor.sql` | **Ventas en efectivo y caja menor**: la venta puede ser a crédito o en efectivo (registra sola su pago y una entrada a la caja menor de quien la registra; al editar o eliminar la venta se ajustan). Tabla `caja_menor` con entradas y salidas manuales por usuario; cada uno ve y mueve su caja, el supervisor ve las de su equipo y el admin todas. |
 | `21_cuadre_tiendas.sql` | **Cuadre de tiendas**: % de comisión y meta mensual por vendedor (Maestros > Vendedores, solo admin) y función `cuadre_tiendas` con la foto al cierre de cada mes (cartera por cobrar, inventario en gramos, ventas en gramos y Q, comisiones y meta) por tienda y por vendedor. Solo para el admin. |
+| `22_cuadre_caja.sql` | Agrega al cuadre de tiendas la **caja menor al cierre** de cada mes (y sus entradas y salidas del mes), por tienda y por usuario. |
 
 ## Despliegue en Vercel
 
