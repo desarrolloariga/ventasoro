@@ -258,6 +258,30 @@
         </div>
     </div>
 
+    <!-- Venta: elegir cliente del listado -->
+    <div class="modal fade" id="listaClientesModal" tabindex="-1" aria-labelledby="listaClientesTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="listaClientesTitulo">Elegir cliente</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="input-group mb-2">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="search" class="form-control" id="listaClientesBuscar" placeholder="Nombre, código, DPI, NIT o teléfono…" autocomplete="off" aria-label="Buscar cliente">
+                    </div>
+                    <div class="small text-muted mb-2" id="listaClientesInfo"></div>
+                    <div class="list-group lista-clientes" id="listaClientesBody"></div>
+                </div>
+                <div class="modal-footer justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary" id="listaClientesNuevo"><i class="bi bi-person-plus me-1"></i> Crear cliente nuevo</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="appView" class="app d-none">
       <div class="menu-velo" id="menuVelo"></div>
 
@@ -324,10 +348,11 @@
                                     <div class="buscador-cliente position-relative">
                                         <div class="input-group">
                                             <input type="text" class="form-control" id="clientDPI" placeholder="" autocomplete="off">
-                                            <button class="btn btn-outline-secondary" type="button" id="clientDPIBoton"><i class="bi bi-search"></i> Buscar</button>
+                                            <button class="btn btn-outline-secondary" type="button" id="clientDPIBoton">Buscar</button>
                                         </div>
                                         <div class="list-group shadow buscador-resultados d-none" id="clientDPIResultados"></div>
                                     </div>
+                                    <button class="btn btn-gold" type="button" id="listaClientesBoton" title="Buscar en el listado de clientes" aria-label="Buscar en el listado de clientes"><i class="bi bi-search"></i></button>
                                     <button class="btn btn-outline-secondary" type="button" id="newClientSaleButton" title="Crear cliente"><i class="bi bi-person-plus"></i></button>
                                     </div>
                                 </div>
