@@ -1230,14 +1230,20 @@ function cargarMisComisiones() {
         $('misComCumpl').textContent = actual?.cumplimiento != null ? fmtPct(actual.cumplimiento) : '—';
         $('misComCumplSub').textContent = actual
             ? (actual.esquema && actual.esquema !== 'FIJO' && num(actual.meta) === 0 ? `Ventas ${fmtQ(actual.ventas_q)} (meta de grupo)` : `Ventas ${fmtQ(actual.ventas_q)} de una meta de ${fmtQ(actual.meta)}`) : 'Sin ventas este mes';
-        $('misComTramo').textContent = actual?.comision_pct != null ? fmtPct(actual.comision_pct) : '—';
-        $('misComTramoSub').textContent = actual?.esquema ? (actual.esquema === 'FIJO' ? 'Comisión fija' : `Esquema ${actual.esquema}`) : '';
+        const det = actual?.detalle || [];
+        $('misComTramo').textContent = det.length > 1 ? det.map(d => fmtPct(d.pct)).join(' + ') : actual?.comision_pct != null ? fmtPct(actual.comision_pct) : '—';
+        $('misComTramoSub').innerHTML = det.length > 1
+            ? det.map(d => `${esc(d.esquema)}: cumplimiento ${d.cumplimiento != null ? fmtPct(d.cumplimiento) : '—'} → ${fmtQ(d.comision)}`).join('<br>')
+            : actual?.esquema ? esc(actual.esquema === 'FIJO' ? 'Comisión fija' : `Esquema ${actual.esquema}`) : '';
         const conDatos = lista.filter(r => num(r.ventas_q) > 0 || num(r.comision) > 0 || r.mes === hoy.slice(0, 7) + '-01');
         $('misComBody').innerHTML = conDatos.map(r => `<tr${r === actual ? ' class="fw-semibold"' : ''}>
             <td>${nombreMes(r.mes)}${r === actual ? ' <span class="badge text-bg-warning">en curso</span>' : ''}</td>
             <td class="num">${fmtQ(r.ventas_q)}</td><td class="num">${num(r.meta) > 0 ? fmtQ(r.meta) : '—'}</td>
             <td class="num">${r.cumplimiento != null ? fmtPct(r.cumplimiento) : '—'}</td><td class="num">${r.comision_pct != null ? fmtPct(r.comision_pct) : '—'}</td>
-            <td class="num fw-semibold">${fmtQ(r.comision)}</td></tr>`).join('')
+            <td class="num fw-semibold">${fmtQ(r.comision)}</td></tr>`
+            + ((r.detalle || []).length > 1 ? r.detalle.map(d => `<tr class="small text-muted"><td class="ps-4">↳ ${esc(d.esquema)}</td>
+                <td class="num">${fmtQ(d.ventas)}</td><td class="num">${num(d.meta) > 0 ? fmtQ(d.meta) : '—'}</td>
+                <td class="num">${d.cumplimiento != null ? fmtPct(d.cumplimiento) : '—'}</td><td class="num">${fmtPct(d.pct)}</td><td class="num">${fmtQ(d.comision)}</td></tr>`).join('') : '')).join('')
             || '<tr><td colspan="6" class="text-muted">Todavía no tiene ventas en los últimos 12 meses.</td></tr>';
     });
 }
@@ -2252,7 +2258,7 @@ const PANEL_COMISIONES = `<div class="tab-pane fade" id="maestro-panel-comisione
       </div>
       <div class="card-body">
         <p class="small text-muted">Cada tramo dice: desde qué % de cumplimiento de la meta se paga qué % sobre la venta. <strong>Individual</strong>: sobre las ventas y la meta de la persona.
-          <strong>Grupal</strong>: sobre las ventas de su grupo (ella y quienes la tienen como supervisora) y la meta del grupo (la suya, o si no tiene, la suma de las del equipo).
+          <strong>Grupal</strong>: sobre las ventas de su grupo (ella y quienes la tienen como supervisora) y la <strong>meta grupal</strong> de la supervisora (si es 0, la suma de las metas individuales del grupo). Una persona puede tener varios esquemas: su comisión es la suma.
           Las ventas a clientes <strong>mayoristas</strong> pagan el % de mayoreo y cuentan para el cumplimiento.</p>
         <div class="row g-3" id="esqLista"></div>
       </div>
@@ -2261,14 +2267,15 @@ const PANEL_COMISIONES = `<div class="tab-pane fade" id="maestro-panel-comisione
       <div class="card-header card-header-custom"><i class="bi bi-person-vcard me-2"></i> Asignación por vendedor</div>
       <div class="card-body">
         <div class="table-responsive"><table class="table table-sm align-middle mb-0">
-          <thead class="table-light"><tr><th>Vendedor</th><th>Esquema</th><th>Supervisor(a)</th><th class="num">Meta mensual Q</th><th class="num">% fijo (sin esquema)</th></tr></thead>
+          <thead class="table-light"><tr><th>Vendedor</th><th>Esquemas</th><th>Supervisor(a)</th><th class="num">Meta individual Q</th><th class="num">Meta grupal Q</th><th class="num">% fijo (sin esquema)</th></tr></thead>
           <tbody id="asigComisiones"></tbody>
         </table></div>
-        <div class="form-text">Los cambios se guardan al salir de cada campo. Sin esquema se paga el % fijo sobre todas sus ventas.</div>
+        <div class="form-text">Los cambios se guardan al salir de cada campo. Con varios esquemas la comisión es la suma de cada uno (p. ej. una supervisora que también vende: SUPERVISORA RS + EJECUTIVA DE VENTA). La meta grupal aplica a los esquemas grupales; en 0 se usa la suma de las metas individuales del grupo. Sin esquemas se paga el % fijo.</div>
       </div>
     </div>
   </div>`;
-let esquemasComision = [];
+let esquemasComision = [], vendedorEsquemas = [];   // vendedorEsquemas: [{ vendedor, esquema_id }]
+const esquemasDe = nombre => vendedorEsquemas.filter(x => x.vendedor === nombre).map(x => esquemasComision.find(e => e.id === x.esquema_id)).filter(Boolean);
 
 function construirPestanaComisiones() {
     // Eventos delegados (el panel se arma una vez)
@@ -2290,8 +2297,7 @@ function construirPestanaComisiones() {
 }
 
 async function cargarComisiones() {
-    esquemasComision = ok(await sb.from('esquemas_comision').select('*').order('orden').order('nombre'));
-    await cargarMaestros();
+    await cargarMaestros();   // trae también los esquemas y sus asignaciones
     renderEsquemas();
     renderAsignaciones();
 }
@@ -2303,7 +2309,7 @@ const filaTramo = t => `<tr><td><div class="input-group input-group-sm"><span cl
   <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm" data-esq="quitar-tramo" title="Quitar tramo"><i class="bi bi-x-lg"></i></button></td></tr>`;
 
 function renderEsquemas() {
-    const usados = id => maestros.vendedores.filter(v => v.esquema_id === id).length;
+    const usados = id => vendedorEsquemas.filter(x => x.esquema_id === id).length;
     $('esqLista').innerHTML = esquemasComision.map(e => {
         const tramos = [...(e.tramos || [])].sort((a, b) => num(a.desde) - num(b.desde));
         return `<div class="col-lg-6"><div class="border rounded p-3 h-100" data-id="${e.id}">
@@ -2356,7 +2362,7 @@ function nuevoEsquema() {
 
 function eliminarEsquema(id) {
     const e = esquemasComision.find(x => x.id === id);
-    const n = maestros.vendedores.filter(v => v.esquema_id === id).length;
+    const n = vendedorEsquemas.filter(x => x.esquema_id === id).length;
     if (!confirm(`¿Eliminar el esquema "${e.nombre}"?${n ? `\n\n${n} vendedor(es) lo tienen asignado y pasarán a su % fijo.` : ''}`)) return;
     run(async () => {
         ok(await sb.from('esquemas_comision').delete().eq('id', id));
@@ -2369,21 +2375,40 @@ function renderAsignaciones() {
     const vendedores = maestros.vendedores.filter(v => v.activo !== false);
     $('asigComisiones').innerHTML = vendedores.map(v => {
         const datos = `data-nombre="${esc(v.nombre)}"`;
+        const suyos = esquemasDe(v.nombre).map(e => e.id);
+        const tieneGrupal = esquemasDe(v.nombre).some(e => e.tipo === 'GRUPAL');
         return `<tr><td class="fw-semibold">${esc(v.nombre)}</td>
-          <td><select class="form-select form-select-sm" data-asig="esquema_id" ${datos} aria-label="Esquema">
-            <option value="">% fijo</option>${esquemasComision.map(e => `<option value="${e.id}" ${v.esquema_id === e.id ? 'selected' : ''}>${esc(e.nombre)}${e.tipo === 'GRUPAL' ? ' (grupal)' : ''}</option>`).join('')}</select></td>
+          <td>${esquemasComision.map(e => `<div class="form-check form-check-inline m-0 me-2">
+              <input class="form-check-input" type="checkbox" id="asig-${esc(v.nombre)}-${e.id}" data-asig="esquema" data-esquema="${e.id}" ${datos} ${suyos.includes(e.id) ? 'checked' : ''}>
+              <label class="form-check-label small" for="asig-${esc(v.nombre)}-${e.id}">${esc(e.nombre)}${e.tipo === 'GRUPAL' ? ' <span class="text-muted">(grupal)</span>' : ''}</label></div>`).join('')
+              || '<span class="text-muted small">Cree un esquema arriba</span>'}</td>
           <td><select class="form-select form-select-sm" data-asig="supervisor" ${datos} aria-label="Supervisor">
             <option value="">(ninguno)</option>${vendedores.filter(x => x.nombre !== v.nombre).map(x => `<option value="${esc(x.nombre)}" ${v.supervisor === x.nombre ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select></td>
-          <td><input type="number" class="form-control form-control-sm text-end" style="min-width: 110px" data-asig="meta_mensual" ${datos} value="${num(v.meta_mensual)}" min="0" step="0.01" aria-label="Meta mensual"></td>
-          <td><input type="number" class="form-control form-control-sm text-end" style="min-width: 80px" data-asig="comision_pct" ${datos} value="${num(v.comision_pct)}" min="0" max="100" step="0.01" ${v.esquema_id ? 'disabled title="Tiene esquema asignado"' : ''} aria-label="Porcentaje fijo"></td></tr>`;
-    }).join('') || '<tr><td colspan="5" class="text-muted">No hay vendedores activos.</td></tr>';
+          <td><input type="number" class="form-control form-control-sm text-end" style="min-width: 105px" data-asig="meta_mensual" ${datos} value="${num(v.meta_mensual)}" min="0" step="0.01" aria-label="Meta individual"></td>
+          <td><input type="number" class="form-control form-control-sm text-end" style="min-width: 105px" data-asig="meta_grupal" ${datos} value="${num(v.meta_grupal)}" min="0" step="0.01"
+              ${tieneGrupal ? '' : 'disabled title="Solo aplica con un esquema grupal"'} aria-label="Meta grupal"></td>
+          <td><input type="number" class="form-control form-control-sm text-end" style="min-width: 75px" data-asig="comision_pct" ${datos} value="${num(v.comision_pct)}" min="0" max="100" step="0.01"
+              ${suyos.length ? 'disabled title="Tiene esquemas asignados"' : ''} aria-label="Porcentaje fijo"></td></tr>`;
+    }).join('') || '<tr><td colspan="6" class="text-muted">No hay vendedores activos.</td></tr>';
 }
 
 function guardarAsignacion(el) {
     const campo = el.dataset.asig, nombre = el.dataset.nombre;
+    if (campo === 'esquema') {
+        const id = Number(el.dataset.esquema), e = esquemasComision.find(x => x.id === id);
+        run(async () => {
+            if (el.checked) ok(await sb.from('vendedor_esquemas').insert({ vendedor: nombre, esquema_id: id }));
+            else ok(await sb.from('vendedor_esquemas').delete().eq('vendedor', nombre).eq('esquema_id', id));
+            vendedorEsquemas = el.checked ? [...vendedorEsquemas, { vendedor: nombre, esquema_id: id }]
+                : vendedorEsquemas.filter(x => !(x.vendedor === nombre && x.esquema_id === id));
+            renderAsignaciones(); renderEsquemas(); renderMaestro('vendedores');
+            const lista = esquemasDe(nombre).map(x => x.nombre);
+            showAlert(`${nombre}: ${el.checked ? 'se agregó' : 'se quitó'} el esquema ${e?.nombre}. Esquemas: ${lista.length ? lista.join(' + ') : 'ninguno (% fijo)'}`, 'success');
+        });
+        return;
+    }
     let valor = el.value;
-    if (campo === 'esquema_id') valor = valor ? Number(valor) : null;
-    else if (campo === 'supervisor') valor = valor || null;
+    if (campo === 'supervisor') valor = valor || null;
     else {
         valor = Math.round(num(valor) * 100) / 100;
         if (valor < 0 || (campo === 'comision_pct' && valor > 100)) { el.reportValidity(); return; }
@@ -2392,9 +2417,9 @@ function guardarAsignacion(el) {
         ok(await sb.from('vendedores').update({ [campo]: valor }).eq('nombre', nombre));
         const v = maestros.vendedores.find(x => x.nombre === nombre);
         if (v) v[campo] = valor;
-        if (campo === 'esquema_id') renderAsignaciones();
-        const txt = { esquema_id: `esquema ${valor ? esquemasComision.find(e => e.id === valor)?.nombre : '% fijo'}`, supervisor: `supervisor(a) ${valor || 'ninguno'}`,
-                      meta_mensual: `meta mensual ${fmtQ(valor)}`, comision_pct: `comisión fija ${fmtPct(valor)}` }[campo];
+        renderMaestro('vendedores');
+        const txt = { supervisor: `supervisor(a) ${valor || 'ninguno'}`, meta_mensual: `meta individual ${fmtQ(valor)}`,
+                      meta_grupal: `meta grupal ${fmtQ(valor)}`, comision_pct: `comisión fija ${fmtPct(valor)}` }[campo];
         showAlert(`${nombre}: ${txt}`, 'success');
     });
 }
@@ -2455,7 +2480,8 @@ function valorCuadre(ind, mes, dim = null, clave = null) {
     const suma = c => filas.reduce((t, r) => t + num(r[c]), 0);
     if (ind.recaudo) return { valor: suma('recaudo'), efectivo: suma('recaudo_efectivo') };
     if (ind.id === 'comision' && clave !== null && filas[0])
-        return { valor: suma('comision'), pct: filas[0].comision_pct, cumpl: filas[0].cumplimiento, esquema: filas[0].esquema };
+        return { valor: suma('comision'),
+                 detalle: cuadreFilas.filter(r => r.mes === mes && r.dimension === 'comision' && r.clave === clave) };
     return ind.caja ? { valor: suma('caja'), entradas: suma('caja_entradas'), salidas: suma('caja_salidas') } : { valor: suma(ind.campo) };
 }
 
@@ -2496,7 +2522,7 @@ function renderCuadre() {
                 return `<details class="cuadre-detalle"><summary>Por ${dim === 'tienda' ? 'tienda / bodega' : dim === 'usuario' ? 'usuario' : dim === 'metodo' ? 'método de pago' : 'vendedor'} (${filas.length})</summary>
                     <table class="table table-sm mb-0"><tbody>${filas.map(x => `<tr><td>${esc(x.k)}${ind.meta ? `<div class="small text-muted">${fmtQ(x.a.ventas)} de ${fmtQ(x.a.meta)}</div>`
                         : ind.caja && (x.a.entradas || x.a.salidas) ? `<div class="small text-muted">+${fmtQ(x.a.entradas)} / −${fmtQ(x.a.salidas)}</div>`
-                        : ind.id === 'comision' && x.a.esquema ? `<div class="small text-muted">${esc(x.a.esquema)} · ${x.a.cumpl != null ? `cumplimiento ${fmtPct(x.a.cumpl)} · ` : ''}tramo ${fmtPct(x.a.pct)}</div>` : ''}</td>
+                        : ind.id === 'comision' && x.a.detalle?.length ? x.a.detalle.map(d => `<div class="small text-muted">${esc(d.esquema)} · ${d.cumplimiento != null ? `cumplimiento ${fmtPct(d.cumplimiento)} · ` : ''}tramo ${fmtPct(d.comision_pct)}${x.a.detalle.length > 1 ? ` · ${fmtQ(d.comision)}` : ''}</div>`).join('') : ''}</td>
                     <td class="num fw-semibold">${textoValorCuadre(ind, x.a)}</td><td class="num">${variacionCuadre(ind, x.a, x.p)}</td></tr>`).join('')}</tbody></table></details>`;
             }).join('');
             return `<div class="col-md-6 col-xl-4"><div class="card kpi h-100"><div class="card-body">
@@ -2917,22 +2943,21 @@ const REPORTES = [
     {
         // Datos del cuadre (solo administrador): un registro por mes y vendedor
         id: 'comisiones', grupo: 'Comisiones', titulo: 'Comisiones por vendedor (mensual)', soloAdmin: true, fecha: 'mes', tienda: 'tienda',
-        descripcion: 'Por cada mes y vendedor: ventas, meta, cumplimiento, esquema, tramo aplicado y comisión. Las fechas eligen los meses (sin fechas: últimos 12 meses).',
+        descripcion: 'Por cada mes, vendedor y esquema: ventas y meta evaluadas (las del grupo en esquemas grupales), cumplimiento, tramo aplicado y comisión. Quien tiene varios esquemas sale en varias filas. Las fechas eligen los meses (sin fechas: últimos 12 meses).',
         orden: [],
         opciones: [{ id: 'conMovimiento', texto: 'Solo vendedores con ventas o comisión en el mes', incluir: r => num(r.ventas_q) > 0 || num(r.comision) > 0, def: true }],
         cargar: async ({ desde, hasta, tienda }) => {
             const hoy = hoyISO();
             const ini = desde || new Date(Date.UTC(Number(hoy.slice(0, 4)), Number(hoy.slice(5, 7)) - 12, 1)).toISOString().slice(0, 10);
             const filas = ok(await sb.rpc('cuadre_tiendas', { p_desde: ini, p_hasta: hasta || hoy, p_tienda: tienda || null }));
-            return filas.filter(r => r.dimension === 'vendedor')
-                .map(r => ({ ...r, mes: String(r.mes).slice(0, 10), _mes: nombreMes(String(r.mes).slice(0, 10)),
-                             _cumpl_ind: num(r.meta) > 0 ? Math.round(num(r.ventas_q) / num(r.meta) * 1000) / 10 : null }))
-                .sort((a, b) => b.mes.localeCompare(a.mes) || num(b.comision) - num(a.comision));
+            return filas.filter(r => r.dimension === 'comision')
+                .map(r => ({ ...r, mes: String(r.mes).slice(0, 10), _mes: nombreMes(String(r.mes).slice(0, 10)) }))
+                .sort((a, b) => b.mes.localeCompare(a.mes) || a.clave.localeCompare(b.clave) || String(a.esquema).localeCompare(String(b.esquema)));
         },
         columnas: [
-            ['_mes', 'Mes', 'texto', 1], ['clave', 'Vendedor', 'texto', 1], ['esquema', 'Esquema', 'texto', 1], ['meta', 'Meta mensual', 'dinero', 1],
-            ['ventas_q', 'Ventas', 'dinero', 1], ['ventas_gr', 'Ventas en gramos', 'num'], ['_cumpl_ind', 'Cumplimiento individual', 'pct'],
-            ['cumplimiento', 'Cumplimiento evaluado', 'pct', 1], ['comision_pct', 'Tramo aplicado', 'pct', 1], ['comision', 'Comisión', 'dinero', 1],
+            ['_mes', 'Mes', 'texto', 1], ['clave', 'Vendedor', 'texto', 1], ['esquema', 'Esquema', 'texto', 1],
+            ['ventas_q', 'Ventas evaluadas', 'dinero', 1], ['meta', 'Meta evaluada', 'dinero', 1],
+            ['cumplimiento', 'Cumplimiento', 'pct', 1], ['comision_pct', 'Tramo aplicado', 'pct', 1], ['comision', 'Comisión', 'dinero', 1],
         ],
     },
     {
@@ -3241,8 +3266,8 @@ function renderMaestro(m) {
             : m === 'tipos' ? (x.controla_inventario === false
                 ? `<small><span class="badge text-bg-info me-1">Servicio</span>se vende sin descontar inventario</small>`
                 : `<small>Producto · inventario en ${(x.unidad || 'GRAMOS').toLowerCase()}</small>`)
-            : m === 'vendedores' ? `<small>${esc(esquemasComision.find(e => e.id === x.esquema_id)?.nombre || (x.esquema_id ? 'Esquema' : `Comisión fija ${fmtPct(x.comision_pct)}`))}
-                · Meta ${fmtQ(x.meta_mensual)}${x.supervisor ? ` · a cargo de ${esc(x.supervisor)}` : ''}</small>` : '';
+            : m === 'vendedores' ? `<small>${esc(esquemasDe(x.nombre).map(e => e.nombre).join(' + ') || `Comisión fija ${fmtPct(x.comision_pct)}`)}
+                · Meta ${fmtQ(x.meta_mensual)}${num(x.meta_grupal) > 0 ? ` · Meta grupal ${fmtQ(x.meta_grupal)}` : ''}${x.supervisor ? ` · a cargo de ${esc(x.supervisor)}` : ''}</small>` : '';
         return `<li class="list-group-item ${x.activo === false ? 'inactivo' : ''}">
             <div class="maestro-nombre">${admin ? `<span role="button" class="maestro-editar" ${datos} title="Cambiar nombre">${nombre}</span>` : nombre}${detalle}</div>
             <div class="maestro-acciones">
@@ -3299,6 +3324,7 @@ async function cargarMaestros() {
         })));
     await cargarReferencias();   // copia de los tipos: unidad e inventario
     { const { data } = await sb.from('esquemas_comision').select('*').order('orden'); esquemasComision = data || []; }
+    { const { data } = await sb.from('vendedor_esquemas').select('*'); vendedorEsquemas = data || []; }
     // Usuarios vinculados a cada bodega (una bodega puede tener varios)
     const { data: usuarios } = await sb.from('perfiles').select('nombre,usuario,tienda,activo');
     usuariosPorTienda = {};
