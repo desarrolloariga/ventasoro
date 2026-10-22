@@ -460,7 +460,6 @@ function registrarEventos() {
     });
     $('maestros').addEventListener('change', e => {
         if (e.target.classList.contains('maestro-activo')) cambiarActivoMaestro(e.target);
-        if (e.target.matches('.maestro-comision, .maestro-meta')) cambiarParametroVendedor(e.target);
         if (e.target.classList.contains('maestro-unidad')) cambiarUnidadTipo(e.target);
         else if (e.target.classList.contains('maestro-clase')) cambiarClaseTienda(e.target);
     });
@@ -2205,6 +2204,162 @@ function exportarCaja() {
     })));
 }
 
+// ---------------------------------------------------------------- comisiones: esquemas por cumplimiento y asignación
+const PANEL_COMISIONES = `<div class="tab-pane fade" id="maestro-panel-comisiones">
+    <div class="card mb-3">
+      <div class="card-header card-header-custom d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="bi bi-diagram-2 me-2"></i> Esquemas de comisión</span>
+        <button type="button" class="btn btn-gold btn-sm" id="esqNuevo"><i class="bi bi-plus-lg"></i> Nuevo esquema</button>
+      </div>
+      <div class="card-body">
+        <p class="small text-muted">Cada tramo dice: desde qué % de cumplimiento de la meta se paga qué % sobre la venta. <strong>Individual</strong>: sobre las ventas y la meta de la persona.
+          <strong>Grupal</strong>: sobre las ventas de su grupo (ella y quienes la tienen como supervisora) y la meta del grupo (la suya, o si no tiene, la suma de las del equipo).
+          Las ventas a clientes <strong>mayoristas</strong> pagan el % de mayoreo y cuentan para el cumplimiento.</p>
+        <div class="row g-3" id="esqLista"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header card-header-custom"><i class="bi bi-person-vcard me-2"></i> Asignación por vendedor</div>
+      <div class="card-body">
+        <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+          <thead class="table-light"><tr><th>Vendedor</th><th>Esquema</th><th>Supervisor(a)</th><th class="num">Meta mensual Q</th><th class="num">% fijo (sin esquema)</th></tr></thead>
+          <tbody id="asigComisiones"></tbody>
+        </table></div>
+        <div class="form-text">Los cambios se guardan al salir de cada campo. Sin esquema se paga el % fijo sobre todas sus ventas.</div>
+      </div>
+    </div>
+  </div>`;
+let esquemasComision = [];
+
+function construirPestanaComisiones() {
+    // Eventos delegados (el panel se arma una vez)
+    document.addEventListener('shown.bs.tab', e => { if (e.target.id === 'maestro-tab-comisiones') run(cargarComisiones); });
+    document.addEventListener('click', e => {
+        if (e.target.closest('#esqNuevo')) nuevoEsquema();
+        const b = e.target.closest('[data-esq]');
+        if (!b) return;
+        const card = b.closest('[data-id]');
+        if (b.dataset.esq === 'agregar-tramo') card.querySelector('.esq-tramos').insertAdjacentHTML('beforeend', filaTramo({ desde: '', pct: '' }));
+        if (b.dataset.esq === 'quitar-tramo') b.closest('tr').remove();
+        if (b.dataset.esq === 'guardar') guardarEsquema(card);
+        if (b.dataset.esq === 'eliminar') eliminarEsquema(Number(card.dataset.id));
+    });
+    document.addEventListener('change', e => {
+        const el = e.target.closest('[data-asig]');
+        if (el) guardarAsignacion(el);
+    });
+}
+
+async function cargarComisiones() {
+    esquemasComision = ok(await sb.from('esquemas_comision').select('*').order('orden').order('nombre'));
+    await cargarMaestros();
+    renderEsquemas();
+    renderAsignaciones();
+}
+
+const filaTramo = t => `<tr><td><div class="input-group input-group-sm"><span class="input-group-text">desde</span>
+    <input type="number" class="form-control text-end esq-desde" value="${esc(t.desde)}" min="0" step="1" aria-label="Desde % de cumplimiento"><span class="input-group-text">%</span></div></td>
+  <td><div class="input-group input-group-sm"><span class="input-group-text">paga</span>
+    <input type="number" class="form-control text-end esq-pct" value="${esc(t.pct)}" min="0" max="100" step="0.01" aria-label="Porcentaje de pago"><span class="input-group-text">%</span></div></td>
+  <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm" data-esq="quitar-tramo" title="Quitar tramo"><i class="bi bi-x-lg"></i></button></td></tr>`;
+
+function renderEsquemas() {
+    const usados = id => maestros.vendedores.filter(v => v.esquema_id === id).length;
+    $('esqLista').innerHTML = esquemasComision.map(e => {
+        const tramos = [...(e.tramos || [])].sort((a, b) => num(a.desde) - num(b.desde));
+        return `<div class="col-lg-6"><div class="border rounded p-3 h-100" data-id="${e.id}">
+          <div class="row g-2 mb-2">
+            <div class="col-7"><label class="form-label">Nombre</label><input type="text" class="form-control form-control-sm esq-nombre" value="${esc(e.nombre)}"></div>
+            <div class="col-5"><label class="form-label">Tipo</label><select class="form-select form-select-sm esq-tipo">
+              <option value="INDIVIDUAL" ${e.tipo === 'INDIVIDUAL' ? 'selected' : ''}>Individual</option><option value="GRUPAL" ${e.tipo === 'GRUPAL' ? 'selected' : ''}>Grupal</option></select></div>
+          </div>
+          <label class="form-label">Tramos por cumplimiento</label>
+          <table class="table table-sm mb-1"><tbody class="esq-tramos">${tramos.map(filaTramo).join('')}</tbody></table>
+          <button type="button" class="btn btn-link btn-sm p-0 mb-2" data-esq="agregar-tramo"><i class="bi bi-plus"></i> Agregar tramo</button>
+          <div class="d-flex align-items-end justify-content-between gap-2 flex-wrap">
+            <div style="max-width: 190px"><label class="form-label">Mayoreo</label><div class="input-group input-group-sm"><span class="input-group-text">paga</span>
+              <input type="number" class="form-control text-end esq-mayoreo" value="${num(e.pct_mayoreo)}" min="0" max="100" step="0.01" aria-label="Porcentaje de mayoreo"><span class="input-group-text">%</span></div></div>
+            <div class="d-flex gap-2 align-items-center"><span class="small text-muted">${usados(e.id)} vendedor(es)</span>
+              <button type="button" class="btn btn-outline-danger btn-sm" data-esq="eliminar" title="Eliminar esquema"><i class="bi bi-trash"></i></button>
+              <button type="button" class="btn btn-gold btn-sm" data-esq="guardar">Guardar</button></div>
+          </div></div></div>`;
+    }).join('') || '<div class="col-12 text-muted">No hay esquemas. Cree uno con "Nuevo esquema".</div>';
+}
+
+function guardarEsquema(card) {
+    const id = Number(card.dataset.id);
+    const tramos = [...card.querySelectorAll('.esq-tramos tr')].map(tr => ({ desde: tr.querySelector('.esq-desde').value, pct: tr.querySelector('.esq-pct').value }))
+        .filter(t => t.desde !== '' || t.pct !== '').map(t => ({ desde: Math.round(num(t.desde) * 100) / 100, pct: Math.round(num(t.pct) * 100) / 100 }))
+        .sort((a, b) => a.desde - b.desde);
+    const d = { nombre: normalizarNombre(card.querySelector('.esq-nombre').value), tipo: card.querySelector('.esq-tipo').value,
+                pct_mayoreo: Math.round(num(card.querySelector('.esq-mayoreo').value) * 100) / 100, tramos };
+    if (!d.nombre) { showAlert('Escriba el nombre del esquema.', 'warning'); return; }
+    if (!tramos.length || tramos[0].desde !== 0) { showAlert('El primer tramo debe empezar "desde 0 %".', 'warning'); return; }
+    if (new Set(tramos.map(t => t.desde)).size !== tramos.length) { showAlert('Hay dos tramos que empiezan en el mismo %.', 'warning'); return; }
+    if (tramos.some(t => t.pct < 0 || t.pct > 100) || d.pct_mayoreo > 100) { showAlert('Los % de pago deben estar entre 0 y 100.', 'warning'); return; }
+    run(async () => {
+        ok(await sb.from('esquemas_comision').update(d).eq('id', id));
+        await cargarComisiones();
+        showAlert(`Esquema "${d.nombre}" guardado: ${tramos.map(t => `desde ${t.desde}% → ${t.pct}%`).join(' · ')} · mayoreo ${d.pct_mayoreo}%`, 'success');
+    });
+}
+
+function nuevoEsquema() {
+    const nombre = normalizarNombre(prompt('Nombre del nuevo esquema de comisión:') || '');
+    if (!nombre) return;
+    run(async () => {
+        const orden = Math.max(0, ...esquemasComision.map(e => e.orden || 0)) + 1;
+        ok(await sb.from('esquemas_comision').insert({ nombre, tipo: 'INDIVIDUAL', tramos: [{ desde: 0, pct: 1 }], pct_mayoreo: 0, orden }));
+        await cargarComisiones();
+        showAlert(`Esquema "${nombre}" creado. Configure sus tramos y pulse Guardar.`, 'success');
+    });
+}
+
+function eliminarEsquema(id) {
+    const e = esquemasComision.find(x => x.id === id);
+    const n = maestros.vendedores.filter(v => v.esquema_id === id).length;
+    if (!confirm(`¿Eliminar el esquema "${e.nombre}"?${n ? `\n\n${n} vendedor(es) lo tienen asignado y pasarán a su % fijo.` : ''}`)) return;
+    run(async () => {
+        ok(await sb.from('esquemas_comision').delete().eq('id', id));
+        await cargarComisiones();
+        showAlert(`Esquema "${e.nombre}" eliminado`, 'success');
+    });
+}
+
+function renderAsignaciones() {
+    const vendedores = maestros.vendedores.filter(v => v.activo !== false);
+    $('asigComisiones').innerHTML = vendedores.map(v => {
+        const datos = `data-nombre="${esc(v.nombre)}"`;
+        return `<tr><td class="fw-semibold">${esc(v.nombre)}</td>
+          <td><select class="form-select form-select-sm" data-asig="esquema_id" ${datos} aria-label="Esquema">
+            <option value="">% fijo</option>${esquemasComision.map(e => `<option value="${e.id}" ${v.esquema_id === e.id ? 'selected' : ''}>${esc(e.nombre)}${e.tipo === 'GRUPAL' ? ' (grupal)' : ''}</option>`).join('')}</select></td>
+          <td><select class="form-select form-select-sm" data-asig="supervisor" ${datos} aria-label="Supervisor">
+            <option value="">(ninguno)</option>${vendedores.filter(x => x.nombre !== v.nombre).map(x => `<option value="${esc(x.nombre)}" ${v.supervisor === x.nombre ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select></td>
+          <td><input type="number" class="form-control form-control-sm text-end" style="min-width: 110px" data-asig="meta_mensual" ${datos} value="${num(v.meta_mensual)}" min="0" step="0.01" aria-label="Meta mensual"></td>
+          <td><input type="number" class="form-control form-control-sm text-end" style="min-width: 80px" data-asig="comision_pct" ${datos} value="${num(v.comision_pct)}" min="0" max="100" step="0.01" ${v.esquema_id ? 'disabled title="Tiene esquema asignado"' : ''} aria-label="Porcentaje fijo"></td></tr>`;
+    }).join('') || '<tr><td colspan="5" class="text-muted">No hay vendedores activos.</td></tr>';
+}
+
+function guardarAsignacion(el) {
+    const campo = el.dataset.asig, nombre = el.dataset.nombre;
+    let valor = el.value;
+    if (campo === 'esquema_id') valor = valor ? Number(valor) : null;
+    else if (campo === 'supervisor') valor = valor || null;
+    else {
+        valor = Math.round(num(valor) * 100) / 100;
+        if (valor < 0 || (campo === 'comision_pct' && valor > 100)) { el.reportValidity(); return; }
+    }
+    run(async () => {
+        ok(await sb.from('vendedores').update({ [campo]: valor }).eq('nombre', nombre));
+        const v = maestros.vendedores.find(x => x.nombre === nombre);
+        if (v) v[campo] = valor;
+        if (campo === 'esquema_id') renderAsignaciones();
+        const txt = { esquema_id: `esquema ${valor ? esquemasComision.find(e => e.id === valor)?.nombre : '% fijo'}`, supervisor: `supervisor(a) ${valor || 'ninguno'}`,
+                      meta_mensual: `meta mensual ${fmtQ(valor)}`, comision_pct: `comisión fija ${fmtPct(valor)}` }[campo];
+        showAlert(`${nombre}: ${txt}`, 'success');
+    });
+}
+
 // ---------------------------------------------------------------- cuadre de tiendas (cierre mensual)
 const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 const nombreMes = iso => { const [y, m] = iso.split('-').map(Number); return `${MESES_LARGOS[m - 1]} ${y}`; };
@@ -2218,7 +2373,7 @@ const INDICADORES_CUADRE = [
     { id: 'inventario', titulo: 'Inventario disponible al cierre', icono: 'boxes', campo: 'inventario_gr', fmt: v => fmtG(v), dims: ['tienda'], bueno: null },
     { id: 'ventas_gr', titulo: 'Ventas en gramos', icono: 'gem', campo: 'ventas_gr', fmt: v => fmtG(v), dims: ['tienda', 'vendedor'], bueno: 'sube' },
     { id: 'ventas_q', titulo: 'Ventas en dinero', icono: 'currency-dollar', campo: 'ventas_q', fmt: v => fmtQ(v), dims: ['tienda', 'vendedor'], bueno: 'sube' },
-    { id: 'comision', titulo: 'Comisiones', icono: 'percent', campo: 'comision', fmt: v => fmtQ(v), dims: ['vendedor', 'tienda'], bueno: null },
+    { id: 'comision', titulo: 'Comisiones', icono: 'percent', campo: 'comision', fmt: v => fmtQ(v), dims: ['vendedor'], totalDim: 'vendedor', bueno: null },
     { id: 'meta', titulo: 'Cumplimiento de meta', icono: 'bullseye', meta: true, dims: ['vendedor'], bueno: 'sube' },
     { id: 'caja', titulo: 'Caja menor al cierre', icono: 'safe2', campo: 'caja', caja: true, fmt: v => fmtQ(v), dims: ['tienda', 'usuario'], bueno: null },
 ];
@@ -2250,7 +2405,7 @@ function cargarCuadre() {
 
 // Valor de un indicador para un mes (total o de una clave de tienda/vendedor)
 function valorCuadre(ind, mes, dim = null, clave = null) {
-    const filas = cuadreFilas.filter(r => r.mes === mes && (ind.meta ? r.dimension === 'vendedor' : r.dimension === (dim || 'tienda'))
+    const filas = cuadreFilas.filter(r => r.mes === mes && (ind.meta ? r.dimension === 'vendedor' : r.dimension === (dim || ind.totalDim || 'tienda'))
         && (clave === null || r.clave === clave));
     if (ind.meta) {
         const conMeta = filas.filter(r => num(r.meta) > 0);
@@ -2260,6 +2415,8 @@ function valorCuadre(ind, mes, dim = null, clave = null) {
     }
     const suma = c => filas.reduce((t, r) => t + num(r[c]), 0);
     if (ind.recaudo) return { valor: suma('recaudo'), efectivo: suma('recaudo_efectivo') };
+    if (ind.id === 'comision' && clave !== null && filas[0])
+        return { valor: suma('comision'), pct: filas[0].comision_pct, cumpl: filas[0].cumplimiento, esquema: filas[0].esquema };
     return ind.caja ? { valor: suma('caja'), entradas: suma('caja_entradas'), salidas: suma('caja_salidas') } : { valor: suma(ind.campo) };
 }
 
@@ -2299,7 +2456,8 @@ function renderCuadre() {
                 if (!filas.length) return '';
                 return `<details class="cuadre-detalle"><summary>Por ${dim === 'tienda' ? 'tienda / bodega' : dim === 'usuario' ? 'usuario' : dim === 'metodo' ? 'método de pago' : 'vendedor'} (${filas.length})</summary>
                     <table class="table table-sm mb-0"><tbody>${filas.map(x => `<tr><td>${esc(x.k)}${ind.meta ? `<div class="small text-muted">${fmtQ(x.a.ventas)} de ${fmtQ(x.a.meta)}</div>`
-                        : ind.caja && (x.a.entradas || x.a.salidas) ? `<div class="small text-muted">+${fmtQ(x.a.entradas)} / −${fmtQ(x.a.salidas)}</div>` : ''}</td>
+                        : ind.caja && (x.a.entradas || x.a.salidas) ? `<div class="small text-muted">+${fmtQ(x.a.entradas)} / −${fmtQ(x.a.salidas)}</div>`
+                        : ind.id === 'comision' && x.a.esquema ? `<div class="small text-muted">${esc(x.a.esquema)} · ${x.a.cumpl != null ? `cumplimiento ${fmtPct(x.a.cumpl)} · ` : ''}tramo ${fmtPct(x.a.pct)}</div>` : ''}</td>
                     <td class="num fw-semibold">${textoValorCuadre(ind, x.a)}</td><td class="num">${variacionCuadre(ind, x.a, x.p)}</td></tr>`).join('')}</tbody></table></details>`;
             }).join('');
             return `<div class="col-md-6 col-xl-4"><div class="card kpi h-100"><div class="card-body">
@@ -2327,6 +2485,8 @@ function exportarCuadre() {
         'Caja al cierre Q': r.caja == null ? null : num(r.caja), 'Caja entradas del mes': r.caja_entradas == null ? null : num(r.caja_entradas),
         'Caja salidas del mes': r.caja_salidas == null ? null : num(r.caja_salidas),
         'Recaudo Q': r.recaudo == null ? null : num(r.recaudo), 'Recaudo de ventas en efectivo Q': r.recaudo_efectivo == null ? null : num(r.recaudo_efectivo),
+        'Esquema de comisión': r.esquema || null, 'Tramo de comisión %': r.comision_pct == null ? null : num(r.comision_pct),
+        'Cumplimiento evaluado %': r.cumplimiento == null ? null : num(r.cumplimiento),
     })));
 }
 
@@ -2970,6 +3130,7 @@ const datosUnidad = v => v === 'SIN' ? { unidad: 'UNIDADES', controla_inventario
 
 // Una pestaña por maestro, cada una con su formulario para agregar, buscador y lista
 function construirMaestros() {
+    construirPestanaComisiones();
     const claves = Object.keys(MAESTROS);
     $('maestrosPestanas').innerHTML = claves.map((m, i) => `<li class="nav-item"><button class="nav-link ${i ? '' : 'active'}" id="maestro-tab-${m}"
         data-bs-toggle="pill" data-bs-target="#maestro-panel-${m}" type="button"><i class="bi bi-${MAESTROS[m].icono} me-1"></i>${MAESTROS[m].titulo}
@@ -2986,6 +3147,9 @@ function construirMaestros() {
           </div>
           <ul class="list-group maestro-lista" id="maestro-${m}"></ul>
         </div></div></div>`).join('');
+    $('maestrosPestanas').insertAdjacentHTML('beforeend', `<li class="nav-item solo-admin d-none"><button class="nav-link" id="maestro-tab-comisiones"
+        data-bs-toggle="pill" data-bs-target="#maestro-panel-comisiones" type="button"><i class="bi bi-percent me-1"></i>Comisiones</button></li>`);
+    $('maestrosPaneles').insertAdjacentHTML('beforeend', PANEL_COMISIONES);
 }
 
 function renderMaestro(m) {
@@ -3005,16 +3169,13 @@ function renderMaestro(m) {
             : m === 'tipos' ? (x.controla_inventario === false
                 ? `<small><span class="badge text-bg-info me-1">Servicio</span>se vende sin descontar inventario</small>`
                 : `<small>Producto · inventario en ${(x.unidad || 'GRAMOS').toLowerCase()}</small>`)
-            : m === 'vendedores' && !admin ? `<small>Comisión ${fmtPct(x.comision_pct)} · Meta ${fmtQ(x.meta_mensual)}</small>` : '';
+            : m === 'vendedores' ? `<small>${esc(esquemasComision.find(e => e.id === x.esquema_id)?.nombre || (x.esquema_id ? 'Esquema' : `Comisión fija ${fmtPct(x.comision_pct)}`))}
+                · Meta ${fmtQ(x.meta_mensual)}${x.supervisor ? ` · a cargo de ${esc(x.supervisor)}` : ''}</small>` : '';
         return `<li class="list-group-item ${x.activo === false ? 'inactivo' : ''}">
             <div class="maestro-nombre">${admin ? `<span role="button" class="maestro-editar" ${datos} title="Cambiar nombre">${nombre}</span>` : nombre}${detalle}</div>
             <div class="maestro-acciones">
               ${m === 'tiendas' ? `<select class="form-select form-select-sm maestro-clase" data-nombre="${nombre}" aria-label="Tipo">
                 ${['TIENDA', 'BODEGA'].map(c => `<option value="${c}" ${x.clase === c ? 'selected' : ''}>${c === 'TIENDA' ? 'Tienda' : 'Bodega'}</option>`).join('')}</select>` : ''}
-              ${m === 'vendedores' && admin ? `<div class="input-group input-group-sm" style="width: 118px" title="Comisión sobre la venta">
-                <input type="number" class="form-control text-end maestro-comision" ${datos} value="${num(x.comision_pct)}" min="0" max="100" step="0.01" aria-label="Porcentaje de comisión"><span class="input-group-text">%</span></div>
-                <div class="input-group input-group-sm" style="width: 175px" title="Meta de venta mensual"><span class="input-group-text">Meta Q</span>
-                <input type="number" class="form-control text-end maestro-meta" ${datos} value="${num(x.meta_mensual)}" min="0" step="0.01" aria-label="Meta mensual"></div>` : ''}
               ${m === 'tipos' ? `<select class="form-select form-select-sm maestro-clase maestro-unidad" data-nombre="${nombre}" aria-label="Unidad">
                 ${OPCIONES_UNIDAD.map(([v, t]) => `<option value="${v}" ${unidadDeTipo(x) === v ? 'selected' : ''}>${t}</option>`).join('')}</select>` : ''}
               <div class="form-check form-switch m-0" title="${x.activo === false ? 'Inactivo' : 'Activo'}"><input class="form-check-input maestro-activo" type="checkbox" role="switch" ${datos} ${x.activo === false ? '' : 'checked'} aria-label="Activo"></div>
@@ -3065,6 +3226,7 @@ async function cargarMaestros() {
             return data;
         })));
     await cargarReferencias();   // copia de los tipos: unidad e inventario
+    { const { data } = await sb.from('esquemas_comision').select('*').order('orden'); esquemasComision = data || []; }
     // Usuarios vinculados a cada bodega (una bodega puede tener varios)
     const { data: usuarios } = await sb.from('perfiles').select('nombre,usuario,tienda,activo');
     usuariosPorTienda = {};
@@ -3178,18 +3340,6 @@ function eliminarMaestro(m, nombre) {
         ok(await sb.from(m).delete().eq('nombre', nombre));
         await cargarMaestros();
         showAlert(`"${nombre}" eliminado`, 'success');
-    });
-}
-
-function cambiarParametroVendedor(inp) {
-    const esComision = inp.classList.contains('maestro-comision');
-    const valor = Math.round(num(inp.value) * 100) / 100;
-    if (valor < 0 || (esComision && valor > 100)) { inp.reportValidity(); return; }
-    run(async () => {
-        ok(await sb.from('vendedores').update(esComision ? { comision_pct: valor } : { meta_mensual: valor }).eq('nombre', inp.dataset.nombre));
-        const x = maestros.vendedores.find(v => v.nombre === inp.dataset.nombre);
-        if (x) x[esComision ? 'comision_pct' : 'meta_mensual'] = valor;
-        showAlert(`${inp.dataset.nombre}: ${esComision ? `comisión ${fmtPct(valor)}` : `meta mensual ${fmtQ(valor)}`}`, 'success');
     });
 }
 
