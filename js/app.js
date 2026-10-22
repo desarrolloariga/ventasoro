@@ -2876,6 +2876,27 @@ const REPORTES = [
         ],
     },
     {
+        // Datos del cuadre (solo administrador): un registro por mes y vendedor
+        id: 'comisiones', grupo: 'Comisiones', titulo: 'Comisiones por vendedor (mensual)', soloAdmin: true, fecha: 'mes', tienda: 'tienda',
+        descripcion: 'Por cada mes y vendedor: ventas, meta, cumplimiento, esquema, tramo aplicado y comisión. Las fechas eligen los meses (sin fechas: últimos 12 meses).',
+        orden: [],
+        opciones: [{ id: 'conMovimiento', texto: 'Solo vendedores con ventas o comisión en el mes', incluir: r => num(r.ventas_q) > 0 || num(r.comision) > 0, def: true }],
+        cargar: async ({ desde, hasta, tienda }) => {
+            const hoy = hoyISO();
+            const ini = desde || new Date(Date.UTC(Number(hoy.slice(0, 4)), Number(hoy.slice(5, 7)) - 12, 1)).toISOString().slice(0, 10);
+            const filas = ok(await sb.rpc('cuadre_tiendas', { p_desde: ini, p_hasta: hasta || hoy, p_tienda: tienda || null }));
+            return filas.filter(r => r.dimension === 'vendedor')
+                .map(r => ({ ...r, mes: String(r.mes).slice(0, 10), _mes: nombreMes(String(r.mes).slice(0, 10)),
+                             _cumpl_ind: num(r.meta) > 0 ? Math.round(num(r.ventas_q) / num(r.meta) * 1000) / 10 : null }))
+                .sort((a, b) => b.mes.localeCompare(a.mes) || num(b.comision) - num(a.comision));
+        },
+        columnas: [
+            ['_mes', 'Mes', 'texto', 1], ['clave', 'Vendedor', 'texto', 1], ['esquema', 'Esquema', 'texto', 1], ['meta', 'Meta mensual', 'dinero', 1],
+            ['ventas_q', 'Ventas', 'dinero', 1], ['ventas_gr', 'Ventas en gramos', 'num'], ['_cumpl_ind', 'Cumplimiento individual', 'pct'],
+            ['cumplimiento', 'Cumplimiento evaluado', 'pct', 1], ['comision_pct', 'Tramo aplicado', 'pct', 1], ['comision', 'Comisión', 'dinero', 1],
+        ],
+    },
+    {
         id: 'caja', grupo: 'Caja menor', titulo: 'Caja menor (movimientos)', fuente: 'caja_menor_detalle', fecha: 'fecha',
         descripcion: 'Entradas (ventas en efectivo y manuales) y salidas de la caja menor de cada usuario.',
         orden: [['fecha', false], ['id', false]],
@@ -2904,10 +2925,17 @@ const reporteActual = () => REPORTES.find(r => r.id === $('repTipo').value) || R
 const columnasDisponibles = rep => rep.columnas.filter(c => c.solo !== 'admin' || veEquipo());
 const claveColumnas = rep => `ariga.reporte.${rep.id}`;
 
-function construirReportes() {
-    const grupos = [...new Set(REPORTES.map(r => r.grupo))];
-    $('repTipo').innerHTML = grupos.map(g => `<optgroup label="${g}">${REPORTES.filter(r => r.grupo === g)
+function pintarTiposReporte() {
+    const v = $('repTipo').value;
+    const lista = REPORTES.filter(r => !r.soloAdmin || esAdmin());
+    const grupos = [...new Set(lista.map(r => r.grupo))];
+    $('repTipo').innerHTML = grupos.map(g => `<optgroup label="${g}">${lista.filter(r => r.grupo === g)
         .map(r => `<option value="${r.id}">${r.titulo}</option>`).join('')}</optgroup>`).join('');
+    if (lista.some(r => r.id === v)) $('repTipo').value = v;
+}
+
+function construirReportes() {
+    pintarTiposReporte();
     $('repTipo').addEventListener('change', () => elegirReporte(true));
     $('repGenerar').addEventListener('click', generarReporte);
     $('repExportar').addEventListener('click', exportarReporte);
@@ -2932,7 +2960,11 @@ function construirReportes() {
         pintarColumnas(reporteActual());
         columnasCambiaron();
     });
-    $('reportes-tab').addEventListener('shown.bs.tab', () => { if (!$('repColumnas').children.length) elegirReporte(false); });
+    $('reportes-tab').addEventListener('shown.bs.tab', () => {
+        const antes = $('repTipo').value;
+        pintarTiposReporte();
+        if (!$('repColumnas').children.length || $('repTipo').value !== antes) elegirReporte(!!$('repColumnas').children.length);
+    });
 }
 
 // Al cambiar de reporte: filtros que aplican, opciones y columnas (las guardadas o las de defecto)
@@ -2994,7 +3026,7 @@ function generarReporte() {
             return rep.orden.reduce((q2, [c, asc = true]) => q2.order(c, { ascending: asc }), q);
         };
         const [filas] = await Promise.all([
-            fetchAll(consulta),
+            rep.cargar ? rep.cargar({ desde, hasta, tienda }) : fetchAll(consulta),
             rep.columnas.some(c => ['_dueno', '_tipo_cliente', '_departamento', '_cliente'].includes(c.campo)) ? cargarClientesReporte() : null,
             veEquipo() && !perfiles.length ? cargarPerfiles() : null,
         ]);
@@ -3044,6 +3076,7 @@ function valorPantalla(c, v) {
         case 'fechahora': return new Date(v).toLocaleString('es-GT', { timeZone: CFG.ZONA_HORARIA, dateStyle: 'short', timeStyle: 'short' });
         case 'num': return fmt(v);
         case 'dinero': return fmtQ(v);
+        case 'pct': return fmtPct(v);
         case 'codigo': return String(cod(v));
         default: return String(v);
     }
@@ -3054,7 +3087,7 @@ function valorExcel(c, v) {
     switch (c.tipo) {
         case 'fecha': return aFecha(v);
         case 'fechahora': return valorPantalla(c, v);
-        case 'num': case 'dinero': return num(v);
+        case 'num': case 'dinero': case 'pct': return num(v);
         case 'codigo': return Number(cod(v)) || cod(v);
         default: return v;
     }
@@ -3064,7 +3097,7 @@ const MAX_FILAS_REPORTE = 500;
 function renderReporte() {
     if (!repGenerado) return;
     const d = repFiltradas(), cols = repColumnas;
-    const derecha = c => ['num', 'dinero', 'codigo'].includes(c.tipo) ? ' class="num"' : '';
+    const derecha = c => ['num', 'dinero', 'codigo', 'pct'].includes(c.tipo) ? ' class="num"' : '';
     $('repHead').innerHTML = `<tr>${cols.map(c => `<th${derecha(c)}>${esc(c.titulo)}</th>`).join('')}</tr>`;
     $('repBody').innerHTML = d.slice(0, MAX_FILAS_REPORTE).map(r => `<tr>${cols.map(c => `<td${derecha(c)}>${esc(valorPantalla(c, r[c.campo]))}</td>`).join('')}</tr>`).join('');
     const sumables = cols.filter(c => c.tipo === 'num' || c.tipo === 'dinero');
