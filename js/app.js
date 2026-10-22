@@ -2958,12 +2958,13 @@ const MAESTROS = {
     tiendas: { grupo: 'tiendas', nuevo: 'Nueva tienda o bodega', titulo: 'Tiendas y bodegas', icono: 'shop', ayuda: 'Nombre de la nueva tienda o bodega' },
     vendedores: { grupo: 'vendedores', nuevo: 'Nuevo vendedor', titulo: 'Vendedores', icono: 'person-vcard', ayuda: 'Nombre del nuevo vendedor' },
     metodos_pago: { grupo: 'métodos de pago', nuevo: 'Nuevo método de pago', titulo: 'Métodos de pago', icono: 'credit-card', ayuda: 'Nombre del nuevo método de pago' },
-    tipos: { grupo: 'tipos', nuevo: 'Nuevo tipo (material)', titulo: 'Tipos (materiales)', icono: 'gem', ayuda: 'Nuevo tipo (ej. ORO 18K, PLATA 925)' },
+    tipos: { grupo: 'productos y servicios', nuevo: 'Nuevo producto o servicio', titulo: 'Productos y servicios', icono: 'gem', ayuda: 'Nuevo producto o servicio (ej. ORO 18K, LIMPIEZA DE JOYAS)' },
     departamentos: { grupo: 'departamentos', nuevo: 'Nuevo departamento', titulo: 'Departamentos', icono: 'geo-alt', ayuda: 'Nuevo departamento' },
 };
 let maestroEditando = null;   // { m, nombre } del que se está renombrando
 // Unidad de un tipo: gramos o unidades, con o sin inventario
-const OPCIONES_UNIDAD = [['GRAMOS', 'Gramos'], ['UNIDADES', 'Unidades'], ['SIN', 'Sin inventario']];
+// Categoría de cada producto: con inventario (en gramos o unidades) o servicio (se vende sin descontar inventario)
+const OPCIONES_UNIDAD = [['GRAMOS', 'Producto · gramos'], ['UNIDADES', 'Producto · unidades'], ['SIN', 'Servicio']];
 const unidadDeTipo = x => x.controla_inventario === false ? 'SIN' : (x.unidad || 'GRAMOS');
 const datosUnidad = v => v === 'SIN' ? { unidad: 'UNIDADES', controla_inventario: false } : { unidad: v || 'GRAMOS', controla_inventario: true };
 
@@ -3001,7 +3002,9 @@ function renderMaestro(m) {
                 <button type="submit" class="btn btn-gold btn-sm">Guardar</button>
                 <button type="button" class="btn btn-outline-secondary btn-sm maestro-cancelar">Cancelar</button></form></li>`;
         const detalle = m === 'tiendas' ? `<small>Usuarios: ${esc(usuariosPorTienda[x.nombre]?.join(', ') || '—')}</small>`
-            : m === 'tipos' ? `<small>${x.controla_inventario === false ? 'Sin inventario' : `Inventario en ${(x.unidad || 'GRAMOS').toLowerCase()}`}</small>`
+            : m === 'tipos' ? (x.controla_inventario === false
+                ? `<small><span class="badge text-bg-info me-1">Servicio</span>se vende sin descontar inventario</small>`
+                : `<small>Producto · inventario en ${(x.unidad || 'GRAMOS').toLowerCase()}</small>`)
             : m === 'vendedores' && !admin ? `<small>Comisión ${fmtPct(x.comision_pct)} · Meta ${fmtQ(x.meta_mensual)}</small>` : '';
         return `<li class="list-group-item ${x.activo === false ? 'inactivo' : ''}">
             <div class="maestro-nombre">${admin ? `<span role="button" class="maestro-editar" ${datos} title="Cambiar nombre">${nombre}</span>` : nombre}${detalle}</div>
@@ -3191,8 +3194,17 @@ function cambiarParametroVendedor(inp) {
 }
 
 function cambiarUnidadTipo(sel) {
+    const nombre = sel.dataset.nombre;
+    const antes = unidadDeTipo(maestros.tipos.find(x => x.nombre === nombre) || {});
+    // Reclasificar entre producto y servicio cambia cómo afecta el inventario: se confirma
+    if ((sel.value === 'SIN') !== (antes === 'SIN')) {
+        const aServicio = sel.value === 'SIN';
+        const msg = aServicio
+            ? `¿Reclasificar "${nombre}" como SERVICIO?\n\nDesde ahora se vende sin descontar inventario, deja de aparecer en saldos, cargas y traslados, y no cuenta en las ventas en gramos.`
+            : `¿Reclasificar "${nombre}" como PRODUCTO con inventario?\n\nSus ventas descontarán inventario y aparecerá en saldos, cargas y traslados (cargue su inventario inicial).`;
+        if (!confirm(msg)) { sel.value = antes; return; }
+    }
     run(async () => {
-        const antes = unidadDeTipo(maestros.tipos.find(x => x.nombre === sel.dataset.nombre) || {});
         try {
             ok(await sb.from('tipos').update(datosUnidad(sel.value)).eq('nombre', sel.dataset.nombre));
         } catch (err) {
@@ -3200,7 +3212,8 @@ function cambiarUnidadTipo(sel) {
             throw err;
         }
         await cargarMaestros();
-        showAlert(`"${sel.dataset.nombre}": ${OPCIONES_UNIDAD.find(o => o[0] === sel.value)[1].toLowerCase()}`, 'success');
+        showAlert(sel.value === 'SIN' ? `"${sel.dataset.nombre}" ahora es un servicio: se vende sin descontar inventario`
+            : `"${sel.dataset.nombre}": ${OPCIONES_UNIDAD.find(o => o[0] === sel.value)[1].toLowerCase()}`, 'success');
     });
 }
 
