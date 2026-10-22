@@ -134,6 +134,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `22_cuadre_caja.sql` | Agrega al cuadre de tiendas la **caja menor al cierre** de cada mes (y sus entradas y salidas del mes), por tienda y por usuario. |
 | `23_cuadre_recaudo.sql` | Agrega al cuadre de tiendas el **recaudo del mes** (pagos recibidos, incluidos los de ventas en efectivo) por tienda del envío pagado y por método de pago. Incluye lo del 22. |
 | `24_esquemas_comision.sql` | **Esquemas de comisión por cumplimiento**: tabla `esquemas_comision` (tramos de % según cumplimiento de meta, individual o grupal, y % de mayoreo), con los esquemas "EJECUTIVA DE VENTA" y "SUPERVISORA RS" ya cargados. Cada vendedor tiene esquema y supervisor(a). El cuadre calcula la comisión de cada persona con su esquema. |
+| `25_mis_comisiones.sql` | **Cada vendedor ve su comisión**: `perfiles.vendedor` vincula el usuario con su vendedor de Maestros (si se deja vacío, por coincidencia de nombre) y `mis_comisiones` devuelve su comisión mes a mes. El cálculo del cuadre pasa a `cuadre_calculo` (interna). |
 
 ## Despliegue en Vercel
 

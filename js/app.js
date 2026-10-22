@@ -368,7 +368,8 @@ function registrarEventos() {
     });
 
     // Histórico
-    $('historico-tab').addEventListener('shown.bs.tab', () => esAdmin() ? cargarHistorialAdmin() : loadHistoryData());
+    $('historico-tab').addEventListener('shown.bs.tab', () => { if (esAdmin()) cargarHistorialAdmin(); else { loadHistoryData(); cargarMisComisiones(); } });
+    $('misComActualizar').addEventListener('click', cargarMisComisiones);
     construirHistorialAdmin();
     construirReportes();
     ['filterCliente', 'filterTienda', 'filterTipo', 'filterProducto'].forEach(id => $(id).addEventListener('input', filterHistory));
@@ -486,6 +487,7 @@ function registrarEventos() {
     $('usuariosTableBody').addEventListener('change', e => {
         if (e.target.matches('.usr-activo')) actualizarUsuario(e.target, { activo: e.target.checked });
         if (e.target.matches('.usr-tienda')) actualizarUsuario(e.target, { tienda: e.target.value || null });
+        if (e.target.matches('.usr-vendedor')) actualizarUsuario(e.target, { vendedor: e.target.value || null });
         if (e.target.matches('.usr-rango')) guardarRangoUsuario(e.target.closest('tr'));
     });
     $('usuariosTableBody').addEventListener('click', e => {
@@ -1208,6 +1210,38 @@ function asignarClienteAPago(c) {
 }
 
 // ---------------------------------------------------------------- histórico
+// ---------------------------------------------------------------- mis comisiones (vendedor)
+function cargarMisComisiones() {
+    run(async () => {
+        const hoy = hoyISO(), [y, m] = hoy.split('-').map(Number);
+        const desde = new Date(Date.UTC(y, m - 12, 1)).toISOString().slice(0, 10);
+        const [vend, filas] = await Promise.all([
+            sb.rpc('mi_vendedor').then(ok),
+            sb.rpc('mis_comisiones', { p_desde: desde, p_hasta: hoy }).then(ok),
+        ]);
+        $('misComSinVinculo').classList.toggle('d-none', !!vend);
+        $('misComContenido').classList.toggle('d-none', !vend);
+        $('misComVendedor').textContent = vend ? `· ${vend}` : '';
+        if (!vend) return;
+        const lista = filas.map(r => ({ ...r, mes: String(r.mes).slice(0, 10) }));
+        const actual = lista.find(r => r.mes === hoy.slice(0, 7) + '-01');
+        $('misComMes').textContent = nombreMes(hoy.slice(0, 7) + '-01');
+        $('misComActual').textContent = fmtQ(actual?.comision);
+        $('misComCumpl').textContent = actual?.cumplimiento != null ? fmtPct(actual.cumplimiento) : '—';
+        $('misComCumplSub').textContent = actual
+            ? (actual.esquema && actual.esquema !== 'FIJO' && num(actual.meta) === 0 ? `Ventas ${fmtQ(actual.ventas_q)} (meta de grupo)` : `Ventas ${fmtQ(actual.ventas_q)} de una meta de ${fmtQ(actual.meta)}`) : 'Sin ventas este mes';
+        $('misComTramo').textContent = actual?.comision_pct != null ? fmtPct(actual.comision_pct) : '—';
+        $('misComTramoSub').textContent = actual?.esquema ? (actual.esquema === 'FIJO' ? 'Comisión fija' : `Esquema ${actual.esquema}`) : '';
+        const conDatos = lista.filter(r => num(r.ventas_q) > 0 || num(r.comision) > 0 || r.mes === hoy.slice(0, 7) + '-01');
+        $('misComBody').innerHTML = conDatos.map(r => `<tr${r === actual ? ' class="fw-semibold"' : ''}>
+            <td>${nombreMes(r.mes)}${r === actual ? ' <span class="badge text-bg-warning">en curso</span>' : ''}</td>
+            <td class="num">${fmtQ(r.ventas_q)}</td><td class="num">${num(r.meta) > 0 ? fmtQ(r.meta) : '—'}</td>
+            <td class="num">${r.cumplimiento != null ? fmtPct(r.cumplimiento) : '—'}</td><td class="num">${r.comision_pct != null ? fmtPct(r.comision_pct) : '—'}</td>
+            <td class="num fw-semibold">${fmtQ(r.comision)}</td></tr>`).join('')
+            || '<tr><td colspan="6" class="text-muted">Todavía no tiene ventas en los últimos 12 meses.</td></tr>';
+    });
+}
+
 function loadHistoryData() {
     run(async () => {
         const d = await fetchAll(() => sb.from('ventas')
@@ -1864,6 +1898,10 @@ function loadUsuarios() {
                     <option value="">(sin tienda)</option>
                     ${[...new Set([...maestros.tiendas.filter(x => x.activo !== false).map(x => x.nombre), p.tienda].filter(Boolean))]
                         .map(n => `<option value="${esc(n)}" ${n === p.tienda ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></td>
+                <td><select class="form-select form-select-sm usr-vendedor" data-id="${p.id}" aria-label="Vendedor de Maestros">
+                    ${(() => { const auto = maestros.vendedores.find(v => norm(v.nombre) === norm(p.nombre));
+                        return `<option value="">${auto ? `(automático: ${esc(auto.nombre)})` : '(sin vincular)'}</option>`
+                            + maestros.vendedores.map(v => `<option value="${esc(v.nombre)}" ${v.nombre === p.vendedor ? 'selected' : ''}>${esc(v.nombre)}</option>`).join(''); })()}</select></td>
                 <td style="min-width: 210px"><div class="input-group input-group-sm">
                     <input type="number" class="form-control usr-rango usr-desde" value="${p.rango_desde ?? ''}" min="1" placeholder="desde" aria-label="Desde">
                     <span class="input-group-text">–</span>
@@ -1882,6 +1920,7 @@ function actualizarUsuario(el, cambio) {
         const r = ok(await sb.from('perfiles').update(cambio).eq('id', el.dataset.id).select());
         if (!r.length) throw new Error('No se pudo actualizar el usuario');
         if ('activo' in cambio) showAlert(cambio.activo ? 'Usuario activado' : 'Usuario desactivado: ya no puede entrar', 'success');
+        else if ('vendedor' in cambio) showAlert(cambio.vendedor ? `Usuario vinculado al vendedor ${cambio.vendedor}` : 'Vínculo con vendedor: automático por nombre', 'success');
         else showAlert(cambio.tienda ? `Usuario vinculado a ${cambio.tienda}` : 'Usuario sin tienda asignada', 'success');
         // Si el admin cambia su propia tienda, se aplica de inmediato
         if (r[0].id === perfil.id) { perfil = { ...perfil, ...r[0] }; mostrarTiendaUsuario(); aplicarTiendaUsuario(); }

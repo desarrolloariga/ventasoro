@@ -778,6 +778,31 @@
                 </div>
               </div>
               <div class="mt-3 solo-vendedor">
+                <!-- Comisión del vendedor: mes actual y meses anteriores -->
+                <div class="card mb-3" id="misComisionesBox">
+                  <div class="card-header card-header-custom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <span><i class="bi bi-percent me-2"></i> Mis comisiones <span class="fw-normal text-muted" id="misComVendedor"></span></span>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="misComActualizar"><i class="bi bi-arrow-clockwise"></i> Actualizar</button>
+                  </div>
+                  <div class="card-body">
+                    <div id="misComSinVinculo" class="alert alert-warning py-2 small d-none">Su usuario no está vinculado a un vendedor de Maestros, por eso no se puede calcular su comisión. Pida al administrador que lo vincule en Usuarios.</div>
+                    <div id="misComContenido">
+                      <div class="row g-3 mb-3">
+                        <div class="col-md-4"><div class="kpi"><div class="kpi-titulo"><i class="bi bi-cash-stack"></i> Comisión de <span id="misComMes"></span> (a hoy)</div>
+                          <div class="kpi-valor kpi-heroe" id="misComActual">—</div></div></div>
+                        <div class="col-md-4"><div class="kpi"><div class="kpi-titulo"><i class="bi bi-bullseye"></i> Cumplimiento de meta</div>
+                          <div class="kpi-valor" id="misComCumpl">—</div><div class="kpi-sub" id="misComCumplSub"></div></div></div>
+                        <div class="col-md-4"><div class="kpi"><div class="kpi-titulo"><i class="bi bi-percent"></i> Tramo aplicado</div>
+                          <div class="kpi-valor" id="misComTramo">—</div><div class="kpi-sub" id="misComTramoSub"></div></div></div>
+                      </div>
+                      <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+                        <thead class="table-light"><tr><th>Mes</th><th class="num">Ventas</th><th class="num">Meta</th><th class="num">Cumplimiento</th><th class="num">Tramo</th><th class="num">Comisión</th></tr></thead>
+                        <tbody id="misComBody"></tbody>
+                      </table></div>
+                      <div class="form-text">Se calcula con sus ventas al momento de consultar; la del mes en curso puede cambiar hasta el cierre.</div>
+                    </div>
+                  </div>
+                </div>
                 <div class="card mb-3">
                   <div class="card-body">
                     <div class="row g-3">
@@ -1252,7 +1277,7 @@
                     <div class="card-header card-header-custom">Usuarios de ARIGA</div>
                     <div class="card-body">
                       <div class="table-responsive"><table class="table table-sm table-bordered align-middle">
-                        <thead class="table-light"><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Tienda / Bodega</th><th>Códigos de cliente</th><th class="text-center">Activo</th><th class="num">Clientes</th><th></th></tr></thead>
+                        <thead class="table-light"><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Tienda / Bodega</th><th>Vendedor (ventas y comisión)</th><th>Códigos de cliente</th><th class="text-center">Activo</th><th class="num">Clientes</th><th></th></tr></thead>
                         <tbody id="usuariosTableBody"></tbody>
                       </table></div>
                       <div class="form-text">Un usuario inactivo no puede entrar. Sus clientes siguen visibles para los administradores, que pueden reasignarlos desde la ficha del cliente.</div>
