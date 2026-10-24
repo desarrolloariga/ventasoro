@@ -282,6 +282,40 @@
         </div>
     </div>
 
+    <!-- Verificación: revisar un pago y su comprobante -->
+    <div class="modal fade" id="verModal" tabindex="-1" aria-labelledby="verModalTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="verModalTitulo">Revisar pago</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-lg-7">
+                            <div class="comprobante-visor" id="verVisor"></div>
+                            <div class="d-flex gap-2 mt-2 flex-wrap">
+                                <a class="btn btn-outline-secondary btn-sm d-none" id="verAbrir" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Abrir en otra pestaña</a>
+                                <label class="btn btn-outline-secondary btn-sm mb-0"><i class="bi bi-paperclip"></i> <span id="verAdjuntarTxt">Adjuntar comprobante</span>
+                                    <input type="file" class="d-none" id="verAdjuntar" accept="image/*,application/pdf"></label>
+                            </div>
+                        </div>
+                        <div class="col-lg-5">
+                            <div id="verDetalle" class="small"></div>
+                            <label class="form-label mt-3" for="verNota">Nota de verificación</label>
+                            <textarea class="form-control" id="verNota" rows="2" placeholder="Ej. confirmado en estado de cuenta BI del 23/10"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary me-auto" id="verPendiente">Volver a pendiente</button>
+                    <button type="button" class="btn btn-outline-danger" id="verRechazar"><i class="bi bi-x-lg"></i> Rechazar</button>
+                    <button type="button" class="btn btn-gold" id="verValidar"><i class="bi bi-check2"></i> Validar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="appView" class="app d-none">
       <div class="menu-velo" id="menuVelo"></div>
 
@@ -306,7 +340,7 @@
               </div>
               <div class="menu-grupo">
                 <button type="button" class="menu-rotulo" aria-expanded="true" data-grupo="ADMINISTRACIÓN"><span>ADMINISTRACIÓN</span><i class="bi bi-chevron-down"></i></button>
-                <button class="nav-link menu-item" id="maestros-tab" data-bs-toggle="tab" data-bs-target="#maestros" type="button" role="tab" data-titulo="Maestros" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-sliders"></i><span class="menu-texto">Maestros</span></button><button class="nav-link menu-item solo-admin d-none" id="usuarios-tab" data-bs-toggle="tab" data-bs-target="#usuarios" type="button" role="tab" data-titulo="Usuarios" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-person-gear"></i><span class="menu-texto">Usuarios</span></button><button class="nav-link menu-item solo-admin d-none" id="jerarquias-tab" data-bs-toggle="tab" data-bs-target="#jerarquias" type="button" role="tab" data-titulo="Jerarquías" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-diagram-3"></i><span class="menu-texto">Jerarquías</span></button><button class="nav-link menu-item solo-admin d-none" id="datos-tab" data-bs-toggle="tab" data-bs-target="#datos" type="button" role="tab" data-titulo="Datos en bruto" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-database"></i><span class="menu-texto">Datos</span></button>
+                <button class="nav-link menu-item" id="maestros-tab" data-bs-toggle="tab" data-bs-target="#maestros" type="button" role="tab" data-titulo="Maestros" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-sliders"></i><span class="menu-texto">Maestros</span></button><button class="nav-link menu-item solo-admin d-none" id="usuarios-tab" data-bs-toggle="tab" data-bs-target="#usuarios" type="button" role="tab" data-titulo="Usuarios" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-person-gear"></i><span class="menu-texto">Usuarios</span></button><button class="nav-link menu-item solo-admin d-none" id="jerarquias-tab" data-bs-toggle="tab" data-bs-target="#jerarquias" type="button" role="tab" data-titulo="Jerarquías" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-diagram-3"></i><span class="menu-texto">Jerarquías</span></button><button class="nav-link menu-item solo-admin d-none" id="verificacion-tab" data-bs-toggle="tab" data-bs-target="#verificacion" type="button" role="tab" data-titulo="Verificación de pagos" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-patch-check"></i><span class="menu-texto">Verificación de pagos</span><span class="menu-insignia d-none" id="badgeVerificacion"></span></button><button class="nav-link menu-item solo-admin d-none" id="datos-tab" data-bs-toggle="tab" data-bs-target="#datos" type="button" role="tab" data-titulo="Datos en bruto" data-migaja="ADMINISTRACIÓN"><span class="rombo"></span><i class="bi bi-database"></i><span class="menu-texto">Datos</span></button>
               </div>
           </nav>
           <div class="usuario" id="userBox">
@@ -550,7 +584,7 @@
                                 <div class="small mt-2 d-none" id="pagoSaldoFavor"></div>
                                 <details class="mt-2" id="pagoHistorialBox"><summary class="small">Pagos registrados del cliente <span id="pagoHistorialCuenta"></span></summary>
                                     <div class="table-responsive mt-2"><table class="table table-sm align-middle mb-0">
-                                        <thead class="table-light"><tr><th>Fecha</th><th>Envío</th><th class="num">Valor</th><th>Método</th><th>Boleta</th><th>Observaciones</th><th></th></tr></thead>
+                                        <thead class="table-light"><tr><th>Fecha</th><th>Envío</th><th class="num">Valor</th><th>Método</th><th>Boleta</th><th>Observaciones</th><th>Verificación</th><th></th></tr></thead>
                                         <tbody id="pagoHistorialBody"></tbody></table></div>
                                     <div class="form-text">Si un pago quedó en un envío que no era, use <strong>Mover</strong> para pasarlo (completo o una parte) al envío correcto.</div>
                                 </details>
@@ -586,6 +620,9 @@
                                     <div class="col-md-3"><label class="form-label" for="metodoPago">Método de pago</label><select class="form-select" id="metodoPago" data-crear="metodos_pago" required></select></div>
                                     <div class="col-md-3"><label class="form-label" for="boleta">Boleta / Recibo</label><input type="text" class="form-control" id="boleta"></div>
                                     <div class="col-md-3"><label class="form-label" for="pagoObservaciones">Observaciones</label><input type="text" class="form-control" id="pagoObservaciones"></div>
+                                    <div class="col-md-6"><label class="form-label" for="pagoComprobante">Comprobante (foto o PDF de la boleta)</label>
+                                        <input type="file" class="form-control" id="pagoComprobante" accept="image/*,application/pdf">
+                                        <div class="form-text">El administrador lo revisa en Verificación de pagos. Máximo 10 MB.</div></div>
                                 </div>
                                 <div class="mt-3 d-flex justify-content-between align-items-center">
                                     <span class="text-muted small" id="pagoNuevoSaldo"></span>
@@ -1245,6 +1282,44 @@
                   <div class="card">
                     <div class="card-header card-header-custom d-flex justify-content-between align-items-center"><span><i class="bi bi-people me-2"></i> Vendedores sin supervisor</span><span class="small" id="jerSinCuenta"></span></div>
                     <div class="card-body" id="jerSinSupervisor"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pestaña: Verificación de pagos (solo administradores) -->
+            <div class="tab-pane fade" id="verificacion" role="tabpanel">
+              <div class="mt-3">
+                <div class="card mb-3">
+                  <div class="card-body py-3">
+                    <div class="row g-3 align-items-end">
+                      <div class="col-6 col-md-2"><label class="form-label" for="verEstado">Estado</label>
+                        <select class="form-select" id="verEstado"><option value="PENDIENTE">Pendientes</option><option value="VALIDADO">Validados</option><option value="RECHAZADO">Rechazados</option><option value="">Todos</option></select></div>
+                      <div class="col-6 col-md-2"><label class="form-label" for="verMetodo">Método</label><select class="form-select" id="verMetodo"></select></div>
+                      <div class="col-md-2"><label class="form-label" for="verVendedora">Registró</label><select class="form-select" id="verVendedora"><option value="">Todas</option></select></div>
+                      <div class="col-6 col-md-2"><label class="form-label" for="verDesde">Desde</label><input type="date" class="form-control" id="verDesde"></div>
+                      <div class="col-6 col-md-2"><label class="form-label" for="verHasta">Hasta</label><input type="date" class="form-control" id="verHasta"></div>
+                      <div class="col-md-2"><label class="form-label" for="verBuscar">Buscar</label><input type="search" class="form-control" id="verBuscar" placeholder="Cliente, boleta…"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="row g-3 mb-3">
+                  <div class="col-md-4"><div class="card kpi h-100"><div class="card-body"><div class="kpi-titulo"><i class="bi bi-hourglass-split"></i> Pendientes de verificar</div>
+                    <div class="kpi-valor" id="verKpiPend">—</div><div class="kpi-sub" id="verKpiPendSub"></div></div></div></div>
+                  <div class="col-md-4"><div class="card kpi h-100"><div class="card-body"><div class="kpi-titulo"><i class="bi bi-patch-check"></i> Validados (en la lista)</div>
+                    <div class="kpi-valor" id="verKpiVal">—</div><div class="kpi-sub" id="verKpiValSub"></div></div></div></div>
+                  <div class="col-md-4"><div class="card kpi h-100"><div class="card-body"><div class="kpi-titulo"><i class="bi bi-x-octagon"></i> Rechazados (en la lista)</div>
+                    <div class="kpi-valor" id="verKpiRech">—</div><div class="kpi-sub" id="verKpiRechSub"></div></div></div></div>
+                </div>
+                <div class="card">
+                  <div class="card-body">
+                    <div class="table-responsive" style="max-height: 620px; overflow-y: auto;">
+                      <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light sticky-top"><tr><th>Fecha pago</th><th>Registró</th><th>Cliente</th><th>Método</th><th>Boleta</th><th>Envíos</th><th class="num">Valor</th><th>Comprobante</th><th>Estado</th><th></th></tr></thead>
+                        <tbody id="verBody"></tbody>
+                      </table>
+                    </div>
+                    <div class="small text-muted mt-2" id="verInfo"></div>
                   </div>
                 </div>
               </div>

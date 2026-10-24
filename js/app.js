@@ -161,6 +161,7 @@ async function mostrarVista(session) {
     document.querySelectorAll('.solo-vendedor').forEach(e => e.classList.toggle('d-none', esAdmin()));
     document.querySelectorAll('.solo-equipo').forEach(e => e.classList.toggle('d-none', !veEquipo()));
     if (!datosIniciados) { datosIniciados = true; cargarDatosIniciales(); }
+    actualizarBadgeVerificacion().catch(() => {});
 }
 
 async function handleLogin(e) {
@@ -353,7 +354,10 @@ function registrarEventos() {
     });
     $('pagoRepartirBoton').addEventListener('click', repartirPago);
     moverPagoModal = new bootstrap.Modal($('moverPagoModal'));
-    $('pagoHistorialBody').addEventListener('click', e => { const b = e.target.closest('.mover-pago'); if (b) abrirMoverPago(Number(b.dataset.id)); });
+    $('pagoHistorialBody').addEventListener('click', e => {
+        const b = e.target.closest('.mover-pago'); if (b) abrirMoverPago(Number(b.dataset.id));
+        const c = e.target.closest('.ver-comprobante'); if (c) verComprobanteEnPestana(c.dataset.ruta);
+    });
     $('moverPagoEnvio').addEventListener('change', sugerirValorMover);
     $('moverPagoGuardar').addEventListener('click', guardarMoverPago);
     $('pagoVerPagados').addEventListener('change', renderEnviosPago);
@@ -482,6 +486,7 @@ function registrarEventos() {
     $('usuarios-tab').addEventListener('shown.bs.tab', loadUsuarios);
     registrarJerarquias();
     registrarCaja();
+    registrarVerificacion();
     registrarCuadre();
     $('usuarioForm').addEventListener('submit', agregarUsuario);
     $('usuariosTableBody').addEventListener('change', e => {
@@ -994,7 +999,7 @@ function seleccionarClientePago(c) {
         const [resumen, envios, pagosCliente] = await Promise.all([
             sb.from('cartera_clientes').select('*').eq('codigo', c.id).maybeSingle().then(ok),
             sb.rpc('envios_cliente', { p_cliente: c.id }).then(ok),
-            fetchAll(() => sb.from('pagos').select('id,fecha_pago,envio,valor_pagado,metodo_pago,boleta,observaciones')
+            fetchAll(() => sb.from('pagos').select('id,fecha_pago,envio,valor_pagado,metodo_pago,boleta,observaciones,comprobante,estado_verificacion,nota_verificacion,creado_por')
                 .eq('cliente_id', c.id).order('fecha_pago', { ascending: false }).order('id', { ascending: false })),
         ]);
         const pagosSinEnvio = pagosCliente.filter(p => !(p.envio || '').trim());
@@ -1031,8 +1036,11 @@ function renderPagosCliente(lista) {
     $('pagoHistorialBody').innerHTML = lista.map(p => `<tr><td>${fmtFecha(p.fecha_pago)}</td><td class="fw-semibold">${esc(p.envio || '(sin envío)')}</td>
         <td class="num">${fmtQ(p.valor_pagado)}</td><td>${esc(p.metodo_pago)}</td><td>${esc(p.boleta)}</td>
         <td class="small text-muted">${esc(p.observaciones)}</td>
+        <td>${(p.observaciones || '').startsWith('Venta en efectivo') ? '<span class="small text-muted">Efectivo</span>' : badgeVerif(p.estado_verificacion)}
+            ${p.nota_verificacion ? `<div class="small text-muted">${esc(p.nota_verificacion)}</div>` : ''}
+            ${p.comprobante && (esAdmin() || p.creado_por === perfil.id) ? `<button type="button" class="btn btn-link btn-sm p-0 ver-comprobante" data-ruta="${esc(p.comprobante)}"><i class="bi bi-paperclip"></i> Ver</button>` : ''}</td>
         <td class="text-end">${puedeMover && !(p.observaciones || '').startsWith('Venta en efectivo') ? `<button type="button" class="btn btn-outline-secondary btn-sm mover-pago" data-id="${p.id}">Mover</button>` : ''}</td></tr>`).join('')
-        || '<tr><td colspan="7" class="text-muted">El cliente no tiene pagos registrados.</td></tr>';
+        || '<tr><td colspan="8" class="text-muted">El cliente no tiene pagos registrados.</td></tr>';
 }
 
 function abrirMoverPago(id) {
@@ -1114,19 +1122,24 @@ function handlePaymentSubmit(e) {
     const excedido = abonos.find(a => a.valor > a.saldo + 0.005);
     if (excedido) { showAlert(`El abono al envío ${excedido.envio} (${fmtQ(excedido.valor)}) es mayor que su saldo (${fmtQ(excedido.saldo)}).`, 'warning'); return; }
     const valor = abonos.reduce((s, a) => s + a.valor, 0);
+    const archivo = $('pagoComprobante').files[0];
+    if (archivo && archivo.size > 10 * 1024 * 1024) { showAlert('El comprobante pesa más de 10 MB.', 'warning'); return; }
     const comun = {
         cliente_id: clientePago.id,
         fecha_pago: $('fechaPago').value,
         metodo_pago: $('metodoPago').value,
         boleta: $('boleta').value.trim() || null,
         observaciones: $('pagoObservaciones').value.trim() || null,
+        recibo: crypto.randomUUID(),   // agrupa las partes del mismo pago para verificarlo una vez
     };
-    // Un registro por envío (todos se guardan juntos o ninguno)
-    const filas = abonos.map(a => ({ ...comun, envio: a.envio, valor_pagado: a.valor }));
     run(async () => {
+        if (archivo) comun.comprobante = await subirComprobante(archivo);
+        // Un registro por envío (todos se guardan juntos o ninguno)
+        const filas = abonos.map(a => ({ ...comun, envio: a.envio, valor_pagado: a.valor }));
         ok(await sb.from('pagos').insert(filas));
         const detalle = abonos.map(a => `${a.envio}: ${fmtQ(a.valor)}`).join(' · ');
-        showAlert(`Pago de ${fmtQ(valor)} (${comun.metodo_pago}, ${fmtFecha(comun.fecha_pago)}) registrado a ${clientePago.nombre} → ${detalle}. Nuevo saldo: ${fmtQ(saldoClientePago - valor)}`, 'success');
+        showAlert(`Pago de ${fmtQ(valor)} (${comun.metodo_pago}, ${fmtFecha(comun.fecha_pago)}) registrado a ${clientePago.nombre} → ${detalle}. Nuevo saldo: ${fmtQ(saldoClientePago - valor)}${comun.comprobante ? ' · comprobante adjuntado' : ''}`, 'success');
+        actualizarBadgeVerificacion();
         $('paymentForm').reset();
         $('fechaPago').value = hoyISO();
         seleccionarClientePago(clientePago);
@@ -1970,6 +1983,184 @@ function agregarUsuario(e) {
         showAlert(`Vendedor creado${tienda ? ` en ${tienda}` : ''}. Entra con el usuario "${usuario}" y la contraseña que le asignó.`, 'success');
         loadUsuarios();
     });
+}
+
+// ---------------------------------------------------------------- comprobantes de pago (almacenamiento)
+const BUCKET_COMPROBANTES = 'comprobantes';
+const ESTADOS_VERIF = { PENDIENTE: ['Pendiente', 'text-bg-warning'], VALIDADO: ['Validado', 'text-bg-success'], RECHAZADO: ['Rechazado', 'text-bg-danger'] };
+const badgeVerif = e => { const [t, c] = ESTADOS_VERIF[e || 'PENDIENTE'] || ESTADOS_VERIF.PENDIENTE; return `<span class="badge ${c}">${t}</span>`; };
+
+// Sube el archivo y devuelve su ruta (pagos/AAAA-MM/<id>.<ext>)
+async function subirComprobante(archivo) {
+    if (archivo.size > 10 * 1024 * 1024) throw new Error('El comprobante pesa más de 10 MB.');
+    const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+    const ruta = `pagos/${hoyISO().slice(0, 7)}/${crypto.randomUUID()}.${ext}`;
+    const { error } = await sb.storage.from(BUCKET_COMPROBANTES).upload(ruta, archivo, { contentType: archivo.type || undefined, upsert: false });
+    if (error) throw new Error(`No se pudo subir el comprobante: ${error.message}`);
+    return ruta;
+}
+
+// Descarga el comprobante y devuelve una URL local para verlo
+const comprobantesCache = {};
+async function urlComprobante(ruta) {
+    if (comprobantesCache[ruta]) return comprobantesCache[ruta];
+    const { data, error } = await sb.storage.from(BUCKET_COMPROBANTES).download(ruta);
+    if (error) throw new Error(`No se pudo abrir el comprobante: ${error.message}`);
+    return (comprobantesCache[ruta] = { url: URL.createObjectURL(data), pdf: data.type === 'application/pdf' || /\.pdf$/i.test(ruta) });
+}
+
+function verComprobanteEnPestana(ruta) {
+    run(async () => {
+        const c = await urlComprobante(ruta);
+        window.open(c.url, '_blank', 'noopener');
+    });
+}
+
+// ---------------------------------------------------------------- verificación de pagos (administrador)
+let verFilas = [], verGrupos = [], verActual = null, verModal;
+
+function registrarVerificacion() {
+    verModal = new bootstrap.Modal($('verModal'));
+    const hoy = hoyISO(), [y, m] = hoy.split('-').map(Number);
+    $('verDesde').value = new Date(Date.UTC(y, m - 3, 1)).toISOString().slice(0, 10);
+    $('verificacion-tab').addEventListener('shown.bs.tab', cargarVerificacion);
+    ['verEstado', 'verDesde', 'verHasta'].forEach(id => $(id).addEventListener('change', cargarVerificacion));
+    ['verMetodo', 'verVendedora'].forEach(id => $(id).addEventListener('change', renderVerificacion));
+    $('verBuscar').addEventListener('input', renderVerificacion);
+    $('verBody').addEventListener('click', e => {
+        const b = e.target.closest('[data-ver]');
+        if (!b) return;
+        const g = verGrupos.find(x => x.clave === b.dataset.clave);
+        if (b.dataset.ver === 'revisar') abrirVerificacion(g);
+        if (b.dataset.ver === 'validar') verificarGrupo(g, 'VALIDADO', '');
+    });
+    $('verValidar').addEventListener('click', () => verificarGrupo(verActual, 'VALIDADO', $('verNota').value));
+    $('verRechazar').addEventListener('click', () => {
+        if (!$('verNota').value.trim()) { showAlert('Escriba en la nota por qué se rechaza el pago.', 'warning'); $('verNota').focus(); return; }
+        verificarGrupo(verActual, 'RECHAZADO', $('verNota').value);
+    });
+    $('verPendiente').addEventListener('click', () => verificarGrupo(verActual, 'PENDIENTE', $('verNota').value));
+    $('verAdjuntar').addEventListener('change', e => { if (e.target.files[0]) adjuntarComprobanteAdmin(e.target.files[0]); e.target.value = ''; });
+}
+
+function cargarVerificacion() {
+    const estado = $('verEstado').value, desde = $('verDesde').value, hasta = $('verHasta').value;
+    run(async () => {
+        verFilas = await fetchAll(() => {
+            let q = sb.from('pagos_detalle').select('*');
+            if (estado) q = q.eq('estado_verificacion', estado);
+            if (desde) q = q.gte('fecha_pago', desde);
+            if (hasta) q = q.lte('fecha_pago', hasta);
+            return q.order('fecha_pago', { ascending: false }).order('id', { ascending: false });
+        });
+        // Un pago aplicado a varios envíos se revisa una sola vez (mismo recibo)
+        const g = {};
+        verFilas.forEach(r => {
+            const k = r.recibo || `p${r.id}`;
+            const x = g[k] ??= { clave: k, ids: [], filas: [], fecha: r.fecha_pago, registro: r.registrado_por, cliente: r.cliente, cliente_id: r.cliente_id,
+                metodo: r.metodo_pago, boleta: r.boleta, comprobante: null, estado: r.estado_verificacion, valor: 0, obs: r.observaciones,
+                verificado: r.verificado_por_nombre, verificado_en: r.verificado_en, nota: r.nota_verificacion, creado: r.created_at };
+            x.ids.push(r.id); x.filas.push(r); x.valor += num(r.valor_pagado);
+            x.comprobante ||= r.comprobante;
+        });
+        verGrupos = Object.values(g);
+        const v = $('verMetodo').value, u = $('verVendedora').value;
+        const metodos = [...new Set(verGrupos.map(x => x.metodo).filter(Boolean))].sort();
+        $('verMetodo').innerHTML = `<option value="__noefectivo">Todos menos efectivo</option><option value="">Todos</option>` + metodos.map(mt => `<option>${esc(mt)}</option>`).join('');
+        $('verMetodo').value = [...$('verMetodo').options].some(o => o.value === v) && v ? v : '__noefectivo';
+        populateDropdown('verVendedora', [...new Set(verGrupos.map(x => x.registro).filter(Boolean))].sort(), 'Todas');
+        $('verVendedora').value = u;
+        renderVerificacion();
+        actualizarBadgeVerificacion();
+    });
+}
+
+function verificacionFiltrada() {
+    const mt = $('verMetodo').value, u = $('verVendedora').value, q = norm($('verBuscar').value);
+    return verGrupos.filter(g => (mt === '__noefectivo' ? norm(g.metodo) !== 'efectivo' : !mt || g.metodo === mt)
+        && (!u || g.registro === u)
+        && (!q || [g.cliente, g.boleta, g.registro, g.obs, cod(g.cliente_id), ...g.filas.map(f => f.envio)].some(x => norm(x).includes(q))));
+}
+
+function renderVerificacion() {
+    const d = verificacionFiltrada();
+    const kpi = (est, idV, idS) => {
+        const l = d.filter(g => g.estado === est);
+        $(idV).textContent = fmtQ(l.reduce((t, g) => t + g.valor, 0));
+        $(idS).textContent = `${l.length} pago(s)` + (est === 'PENDIENTE' ? ` · ${l.filter(g => !g.comprobante).length} sin comprobante` : '');
+    };
+    kpi('PENDIENTE', 'verKpiPend', 'verKpiPendSub'); kpi('VALIDADO', 'verKpiVal', 'verKpiValSub'); kpi('RECHAZADO', 'verKpiRech', 'verKpiRechSub');
+    $('verBody').innerHTML = d.map(g => `<tr>
+        <td>${fmtFecha(g.fecha)}</td><td>${esc(g.registro)}</td><td>${g.cliente_id ? `<span class="text-muted">${esc(cod(g.cliente_id))}</span> ` : ''}${esc(g.cliente)}</td>
+        <td>${esc(g.metodo)}</td><td>${esc(g.boleta)}</td><td class="small">${g.filas.map(f => esc(f.envio || '—')).join(', ')}</td>
+        <td class="num fw-semibold">${fmtQ(g.valor)}</td>
+        <td>${g.comprobante ? '<span class="text-success"><i class="bi bi-paperclip"></i> Adjunto</span>' : '<span class="text-muted small">Sin adjunto</span>'}</td>
+        <td>${badgeVerif(g.estado)}${g.verificado ? `<div class="small text-muted">${esc(g.verificado)}</div>` : ''}</td>
+        <td class="text-end text-nowrap"><button type="button" class="btn btn-outline-secondary btn-sm" data-ver="revisar" data-clave="${esc(g.clave)}">Revisar</button>
+          ${g.estado === 'PENDIENTE' ? `<button type="button" class="btn btn-gold btn-sm" data-ver="validar" data-clave="${esc(g.clave)}" title="Validar sin abrir"><i class="bi bi-check2"></i></button>` : ''}</td></tr>`).join('')
+        || '<tr><td colspan="10" class="text-muted">No hay pagos con estos filtros.</td></tr>';
+    $('verInfo').textContent = `${d.length} pago(s)`;
+}
+
+function abrirVerificacion(g) {
+    verActual = g;
+    $('verModalTitulo').textContent = `Revisar pago de ${fmtQ(g.valor)} · ${g.cliente || ''}`;
+    $('verNota').value = g.nota || '';
+    const fila = (a, b) => `<div class="d-flex justify-content-between gap-2 border-bottom py-1"><span class="text-muted">${a}</span><span class="text-end fw-semibold">${b}</span></div>`;
+    $('verDetalle').innerHTML = `<div class="mb-2">${badgeVerif(g.estado)}${g.verificado ? ` <span class="text-muted">por ${esc(g.verificado)} · ${new Date(g.verificado_en).toLocaleString('es-GT', { timeZone: CFG.ZONA_HORARIA, dateStyle: 'short', timeStyle: 'short' })}</span>` : ''}</div>`
+        + fila('Cliente', `${g.cliente_id ? esc(cod(g.cliente_id)) + ' · ' : ''}${esc(g.cliente)}`)
+        + fila('Registró', esc(g.registro)) + fila('Fecha de pago', fmtFecha(g.fecha)) + fila('Método', esc(g.metodo))
+        + fila('Boleta / recibo', esc(g.boleta) || '—') + fila('Valor total', fmtQ(g.valor))
+        + fila('Aplicado a', g.filas.map(f => `${esc(f.envio || '—')}: ${fmtQ(f.valor_pagado)}`).join('<br>'))
+        + (g.obs ? fila('Observaciones', esc(g.obs)) : '')
+        + fila('Registrado el', new Date(g.creado).toLocaleString('es-GT', { timeZone: CFG.ZONA_HORARIA, dateStyle: 'short', timeStyle: 'short' }));
+    $('verPendiente').classList.toggle('d-none', g.estado === 'PENDIENTE');
+    $('verValidar').classList.toggle('d-none', g.estado === 'VALIDADO');
+    $('verRechazar').classList.toggle('d-none', g.estado === 'RECHAZADO');
+    mostrarComprobanteVerificacion(g);
+    verModal.show();
+}
+
+function mostrarComprobanteVerificacion(g) {
+    $('verAdjuntarTxt').textContent = g.comprobante ? 'Reemplazar comprobante' : 'Adjuntar comprobante';
+    $('verAbrir').classList.add('d-none');
+    if (!g.comprobante) { $('verVisor').innerHTML = '<div class="comprobante-vacio"><i class="bi bi-file-earmark-x"></i><div>Este pago no tiene comprobante adjunto.</div></div>'; return; }
+    $('verVisor').innerHTML = '<div class="comprobante-vacio">Cargando comprobante…</div>';
+    urlComprobante(g.comprobante).then(c => {
+        if (verActual !== g) return;
+        $('verVisor').innerHTML = c.pdf ? `<iframe src="${c.url}" title="Comprobante"></iframe>` : `<img src="${c.url}" alt="Comprobante del pago">`;
+        $('verAbrir').href = c.url; $('verAbrir').classList.remove('d-none');
+    }).catch(err => { $('verVisor').innerHTML = `<div class="comprobante-vacio text-danger">${esc(err.message)}</div>`; });
+}
+
+function verificarGrupo(g, estado, nota) {
+    if (!g) return;
+    run(async () => {
+        const n = ok(await sb.rpc('verificar_pagos', { p_ids: g.ids, p_estado: estado, p_nota: (nota || '').trim() || null }));
+        verModal.hide();
+        showAlert(`Pago de ${fmtQ(g.valor)} (${g.cliente || 'sin cliente'}) ${estado === 'VALIDADO' ? 'validado' : estado === 'RECHAZADO' ? 'rechazado' : 'devuelto a pendiente'}${n > 1 ? ` · ${n} partes` : ''}`, estado === 'RECHAZADO' ? 'warning' : 'success');
+        cargarVerificacion();
+    });
+}
+
+function adjuntarComprobanteAdmin(archivo) {
+    const g = verActual;
+    run(async () => {
+        const ruta = await subirComprobante(archivo);
+        ok(await sb.from('pagos').update({ comprobante: ruta }).in('id', g.ids));
+        g.comprobante = ruta;
+        mostrarComprobanteVerificacion(g);
+        showAlert('Comprobante adjuntado', 'success');
+        cargarVerificacion();
+    });
+}
+
+async function actualizarBadgeVerificacion() {
+    if (!esAdmin()) return;
+    const { data } = await sb.from('pagos').select('recibo,id,metodo_pago').eq('estado_verificacion', 'PENDIENTE');
+    const n = new Set((data || []).filter(p => norm(p.metodo_pago) !== 'efectivo').map(p => p.recibo || p.id)).size;
+    $('badgeVerificacion').textContent = n;
+    $('badgeVerificacion').classList.toggle('d-none', !n);
 }
 
 // ---------------------------------------------------------------- jerarquías (supervisores y sus vendedores)

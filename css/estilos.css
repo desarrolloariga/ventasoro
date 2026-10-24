@@ -463,3 +463,10 @@ details > summary { color: var(--gold-dark); cursor: pointer; font-size: 12px; }
 /* ---------------------------------------------------------------- venta: listado de clientes */
 .lista-clientes { max-height: 60vh; overflow-y: auto; }
 .lista-clientes .list-group-item { padding: 10px 14px; }
+
+/* ---------------------------------------------------------------- verificación de pagos */
+.comprobante-visor { background: var(--ink-6, rgba(11, 11, 12, .06)); border-radius: var(--r-card); min-height: 420px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.comprobante-visor img { max-width: 100%; max-height: 70vh; object-fit: contain; }
+.comprobante-visor iframe { width: 100%; height: 70vh; border: 0; background: #fff; }
+.comprobante-vacio { color: var(--ink-42); text-align: center; padding: 40px 16px; }
+.comprobante-vacio .bi { font-size: 32px; display: block; margin-bottom: 6px; }
