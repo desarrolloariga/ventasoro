@@ -486,6 +486,7 @@ function registrarEventos() {
     $('usuarios-tab').addEventListener('shown.bs.tab', loadUsuarios);
     registrarJerarquias();
     registrarCaja();
+    registrarDevoluciones();
     registrarVerificacion();
     registrarCuadre();
     $('usuarioForm').addEventListener('submit', agregarUsuario);
@@ -909,6 +910,99 @@ function buscarPedidos() {
     });
 }
 
+// ---------------------------------------------------------------- devoluciones de un pedido
+let devolucionModal, devolucionClave = null, devolucionProductos = [];
+
+function registrarDevoluciones() {
+    devolucionModal = new bootstrap.Modal($('devolucionModal'));
+    $('devolucionButton').addEventListener('click', () => abrirDevolucion($('envioOriginal').value));
+    $('devolucionGuardar').addEventListener('click', guardarDevolucion);
+    $('devolucionLineas').addEventListener('input', e => {
+        // Al cambiar la cantidad se propone el valor proporcional (se puede ajustar)
+        if (e.target.classList.contains('dev-cant')) {
+            const p = devolucionProductos[Number(e.target.dataset.i)];
+            const v = e.target.closest('tr').querySelector('.dev-valor');
+            v.value = num(e.target.value) > 0 && p.cantidad > 0 ? Math.min(p.valorDisp, num(e.target.value) * p.valor / p.cantidad).toFixed(2) : '';
+        }
+        totalDevolucion();
+    });
+    $('devolucionAnteriores').addEventListener('click', e => {
+        const b = e.target.closest('.dev-eliminar');
+        if (b) eliminarDevolucion(Number(b.dataset.id));
+    });
+}
+
+function totalDevolucion() {
+    $('devolucionTotal').textContent = fmtQ([...document.querySelectorAll('#devolucionLineas .dev-valor')].reduce((t, i) => t + num(i.value), 0));
+}
+
+function abrirDevolucion(clave) {
+    if (!clave) return;
+    run(async () => {
+        const [lineas, previas] = await Promise.all([
+            lineasPedido(clave),
+            sb.from('devoluciones').select('*').eq('envio', clave).order('id').then(ok),
+        ]);
+        devolucionClave = clave;
+        const prod = {};
+        lineas.filter(l => (l.producto || '').toUpperCase() !== 'SALDO INICIAL').forEach(l => {
+            const x = prod[l.producto] ??= { producto: l.producto, cantidad: 0, valor: 0, devCant: 0, devValor: 0 };
+            x.cantidad += num(l.cantidad); x.valor += num(l.valor_total);
+        });
+        previas.forEach(d => { const x = prod[d.producto]; if (x) { x.devCant += num(d.gramos); x.devValor += num(d.valor); } });
+        devolucionProductos = Object.values(prod).map(x => ({ ...x, cantDisp: Math.max(0, x.cantidad - x.devCant), valorDisp: Math.max(0, x.valor - x.devValor) }));
+        const h = lineas[0] || {};
+        $('devolucionTitulo').textContent = `Devolución · pedido ${h.pedido_id || clave}`;
+        $('devolucionInfo').textContent = [h.envio && `Envío ${h.envio}`, h.cliente && `Cliente ${cod(h.cliente_id)} · ${h.cliente}`, h.tienda && `Tienda ${h.tienda}`,
+            `vendido el ${fmtFecha(h.fecha_venta)}`].filter(Boolean).join(' · ');
+        $('devolucionLineas').innerHTML = devolucionProductos.map((p, i) => `<tr>
+            <td class="fw-semibold">${esc(p.producto)}</td>
+            <td class="num">${fmt(p.cantidad)}<div class="small text-muted">${fmtQ(p.valor)}</div></td>
+            <td class="num">${p.devCant || p.devValor ? `${fmt(p.devCant)}<div class="small text-muted">${fmtQ(p.devValor)}</div>` : '—'}</td>
+            <td><input type="number" class="form-control form-control-sm text-end dev-cant" data-i="${i}" min="0" max="${p.cantDisp}" step="0.01" ${p.cantDisp <= 0 && p.valorDisp <= 0 ? 'disabled' : ''} aria-label="Cantidad a devolver de ${esc(p.producto)}"></td>
+            <td><input type="number" class="form-control form-control-sm text-end dev-valor" data-i="${i}" min="0" max="${p.valorDisp.toFixed(2)}" step="0.01" ${p.valorDisp <= 0 ? 'disabled' : ''} aria-label="Valor a devolver de ${esc(p.producto)}"></td></tr>`).join('')
+            || '<tr><td colspan="5" class="text-muted">El pedido no tiene productos para devolver.</td></tr>';
+        $('devolucionFecha').value = hoyISO();
+        $('devolucionMotivo').value = '';
+        $('devolucionAnterioresBox').classList.toggle('d-none', !previas.length);
+        $('devolucionAnteriores').innerHTML = previas.map(d => `<tr><td>${fmtFecha(d.fecha_devolucion)}</td><td>${esc(d.producto)}</td>
+            <td class="num">${fmt(d.gramos)}</td><td class="num">${fmtQ(d.valor)}</td><td class="small">${esc(d.motivo)}</td>
+            <td class="text-end">${esAdmin() || d.creado_por === perfil.id ? `<button type="button" class="btn btn-outline-danger btn-sm dev-eliminar" data-id="${d.id}" title="Eliminar devolución"><i class="bi bi-trash"></i></button>` : ''}</td></tr>`).join('');
+        totalDevolucion();
+        devolucionModal.show();
+    });
+}
+
+function guardarDevolucion() {
+    const lineas = devolucionProductos.map((p, i) => ({
+        producto: p.producto,
+        cantidad: num(document.querySelector(`#devolucionLineas .dev-cant[data-i="${i}"]`)?.value),
+        valor: num(document.querySelector(`#devolucionLineas .dev-valor[data-i="${i}"]`)?.value),
+    })).filter(l => l.cantidad > 0 || l.valor > 0);
+    if (!lineas.length) { showAlert('Escriba la cantidad o el valor a devolver de al menos un producto.', 'warning'); return; }
+    const excede = lineas.find((l, _) => { const p = devolucionProductos.find(x => x.producto === l.producto); return l.cantidad > p.cantDisp + 0.005 || l.valor > p.valorDisp + 0.005; });
+    if (excede) { showAlert(`De ${excede.producto} no se puede devolver más de lo vendido (menos lo ya devuelto).`, 'warning'); return; }
+    if (!$('devolucionMotivo').value.trim()) { showAlert('Escriba el motivo de la devolución.', 'warning'); $('devolucionMotivo').focus(); return; }
+    const total = lineas.reduce((t, l) => t + l.valor, 0);
+    if (!confirm(`¿Registrar la devolución por ${fmtQ(total)}?\n\n${lineas.map(l => `• ${l.producto}: ${fmt(l.cantidad)} · ${fmtQ(l.valor)}`).join('\n')}\n\nSe descuenta de lo que debe el cliente y la cantidad vuelve al inventario.`)) return;
+    run(async () => {
+        ok(await sb.rpc('registrar_devolucion', { p_clave: devolucionClave, p_fecha: $('devolucionFecha').value || null,
+                                                  p_motivo: $('devolucionMotivo').value.trim(), p_lineas: lineas }));
+        devolucionModal.hide();
+        showAlert(`Devolución registrada por ${fmtQ(total)}: se descontó de la cuenta del cliente y la cantidad volvió al inventario.`, 'success');
+    });
+}
+
+function eliminarDevolucion(id) {
+    if (!confirm('¿Eliminar esta devolución?\n\nEl cliente vuelve a deber ese valor y la cantidad sale otra vez del inventario.')) return;
+    run(async () => {
+        ok(await sb.rpc('eliminar_devolucion', { p_id: id }));
+        showAlert('Devolución eliminada', 'success');
+        devolucionModal.hide();
+        abrirDevolucion(devolucionClave);
+    });
+}
+
 function abrirPedido(clave) {
     run(async () => {
         const rows = await lineasPedido(clave);
@@ -933,6 +1027,7 @@ function abrirPedido(clave) {
         updateSubtotal();
         $('mainActionButton').textContent = 'Actualizar Venta';
         $('deleteOrderButton').classList.remove('d-none');
+        $('devolucionButton').classList.remove('d-none');
         $('newSaleButton').classList.remove('d-none');
         new bootstrap.Tab($('registro-tab')).show();
         showAlert(`Pedido ${h.pedido_id || clave} del ${fmtFecha(h.fecha_venta)} abierto para editar`, 'info');
@@ -975,6 +1070,7 @@ function resetForm() {
     $('productLines').innerHTML = '';
     $('mainActionButton').textContent = 'Registrar Venta';
     $('deleteOrderButton').classList.add('d-none');
+    $('devolucionButton').classList.add('d-none');
     $('newSaleButton').classList.add('d-none');
     updateSubtotal();
     aplicarTiendaUsuario();
@@ -1554,6 +1650,7 @@ function renderCargas() {
     const d = cargasFilas.filter(r => (!t || r.tienda === t) && (!p || r.producto === p));
     $('cargasTableBody').innerHTML = d.slice(0, 500).map(r => `<tr><td>${fmtFecha(r.fecha)}</td><td>${esc(r.tienda)}</td><td>${esc(r.producto)}</td><td>${esc(r.concepto)}</td><td class="num">${r.entrada ? fmt(r.entrada) : ''}</td><td class="num">${r.salida ? fmt(r.salida) : ''}</td><td>${esc(r.observaciones)}</td><td class="text-end">${r.traslado_id
         ? `<span class="badge text-bg-light" title="Se anula desde Inventario > Traslados">Traslado #${r.traslado_id}</span>`
+        : r.devolucion_id ? `<span class="badge text-bg-light" title="Se elimina desde el pedido (botón Devolución)">Devolución #${r.devolucion_id}</span>`
         : `<button type="button" class="btn btn-outline-danger btn-sm delete-carga" data-id="${r.id}"><i class="bi bi-trash"></i> Eliminar</button>`}</td></tr>`).join('')
         || '<tr><td colspan="8" class="text-muted">Sin cargas</td></tr>';
 }
@@ -3316,7 +3413,7 @@ function enriquecerFila(rep, r) {
         _tipo_cliente: c.tipo_cliente, _departamento: c.departamento, _cliente: c.nombre,
         _dueno: rep.fuente === 'clientes' ? nombreUsuario(r.creado_por) : (c.creado_por ? nombreUsuario(c.creado_por) : ''),
         _tipo: ref.tipo, _unidad: (ref.unidad || '').toLowerCase(),
-        _origen: rep.fuente === 'ingresos_inventario' ? (r.traslado_id ? 'TRASLADO' : 'CARGA') : undefined,
+        _origen: rep.fuente === 'ingresos_inventario' ? (r.traslado_id ? 'TRASLADO' : r.devolucion_id ? 'DEVOLUCIÓN DE CLIENTE' : 'CARGA') : undefined,
     };
 }
 

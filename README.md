@@ -138,6 +138,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `26_varios_esquemas.sql` | **Varios esquemas por vendedor** (tabla `vendedor_esquemas`): la comisión es la suma de cada esquema (p. ej. supervisora que también vende). Meta individual y meta grupal separadas. El cuadre y `mis_comisiones` traen el detalle por esquema. Pasa lo ya asignado en el 24 a la tabla nueva. |
 | `27_verificacion_pagos.sql` | **Verificación de pagos**: comprobante adjunto (almacenamiento privado `comprobantes`), recibo que agrupa las partes de un pago y estado PENDIENTE/VALIDADO/RECHAZADO con quién, cuándo y nota. Solo el admin verifica (`verificar_pagos`). |
 | `28_cobros_efectivo_caja.sql` | Los **cobros con método EFECTIVO** registrados en Pagos entran solos a la caja menor de quien los registró (origen PAGO) y se ajustan si el pago cambia o se elimina. Carga los cobros en efectivo desde el 18-oct-2026. |
+| `29_devoluciones_clientes.sql` | **Devoluciones de clientes** desde el pedido: `registrar_devolucion` (total o parcial, sin pasar de lo vendido) reduce la cuenta por cobrar del envío y regresa la cantidad al inventario de la tienda de la venta; `eliminar_devolucion` revierte ambas cosas. |
 
 ## Despliegue en Vercel
 
