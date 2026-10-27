@@ -2254,6 +2254,7 @@ function renderJerarquias() {
 // ---------------------------------------------------------------- caja menor (efectivo de cada usuario)
 // Entradas: ventas en efectivo (automáticas) y manuales. Salidas: liquidación / entrega a oficina, gastos...
 let cajaMovs = [], cajaSaldos = [];
+const ORIGEN_CAJA = { VENTA: 'venta en efectivo', PAGO: 'cobro en efectivo', MANUAL: 'manual' };
 const cajaUsuarioElegido = () => veEquipo() ? $('cajaUsuario').value : perfil.id;   // '' = todas las cajas
 const puedeMoverCaja = uid => !!uid && (esAdmin() || uid === perfil.id);
 const nombreCaja = uid => uid === perfil?.id ? (perfil.nombre || perfil.usuario) : (nombreUsuario(uid) || cajaSaldos.find(s => s.usuario_id === uid)?.usuario || '');
@@ -2344,8 +2345,10 @@ function renderCaja() {
     const suma = l => l.reduce((t, m) => t + num(m.valor), 0);
     $('cajaPeriodoTxt1').textContent = periodo; $('cajaPeriodoTxt2').textContent = periodo;
     $('cajaEntradas').textContent = fmtQ(suma(ent));
-    $('cajaEntradasSub').innerHTML = fila('Ventas en efectivo', `${ent.filter(m => m.origen === 'VENTA').length} · ${fmtQ(suma(ent.filter(m => m.origen === 'VENTA')))}`)
-        + fila('Entradas manuales', `${ent.filter(m => m.origen !== 'VENTA').length} · ${fmtQ(suma(ent.filter(m => m.origen !== 'VENTA')))}`);
+    const porOrigen = o => ent.filter(m => m.origen === o);
+    $('cajaEntradasSub').innerHTML = fila('Ventas en efectivo', `${porOrigen('VENTA').length} · ${fmtQ(suma(porOrigen('VENTA')))}`)
+        + fila('Cobros en efectivo', `${porOrigen('PAGO').length} · ${fmtQ(suma(porOrigen('PAGO')))}`)
+        + fila('Entradas manuales', `${porOrigen('MANUAL').length} · ${fmtQ(suma(porOrigen('MANUAL')))}`);
     $('cajaSalidas').textContent = fmtQ(suma(sal));
     $('cajaSalidasSub').innerHTML = fila('Movimientos', sal.length);
 
@@ -2374,7 +2377,7 @@ function renderCaja() {
         const borrable = m.origen === 'MANUAL' && (esAdmin() || (m.usuario_id === perfil.id && m.creado_por === perfil.id));
         return `<tr><td>${fmtFecha(m.fecha)}</td>${todas ? `<td>${esc(m.usuario)}</td>` : ''}
             <td><span class="badge ${m.tipo === 'ENTRADA' ? 'text-bg-success' : 'text-bg-secondary'}">${m.tipo === 'ENTRADA' ? 'Entrada' : 'Salida'}</span>
-                <span class="small text-muted ms-1">${m.origen === 'VENTA' ? 'venta en efectivo' : 'manual'}</span></td>
+                <span class="small text-muted ms-1">${ORIGEN_CAJA[m.origen] || 'manual'}</span></td>
             <td>${esc(m.concepto)}${m.pedido_id && m.origen === 'VENTA' ? '' : ''}</td><td class="small text-muted">${esc(m.observaciones)}</td>
             <td class="num">${m.tipo === 'ENTRADA' ? fmtQ(m.valor) : ''}</td><td class="num">${m.tipo === 'SALIDA' ? fmtQ(m.valor) : ''}</td>
             ${todas ? '' : `<td class="num fw-semibold ${m.saldo < -0.005 ? 'saldo-negativo' : ''}">${fmtQ(m.saldo)}</td>`}
@@ -2434,7 +2437,7 @@ function exportarCaja() {
     const todas = !cajaUsuarioElegido();
     exportarExcel('Caja_menor', 'Caja menor', movimientosCajaFiltrados().map(m => ({
         'Fecha': aFecha(m.fecha), 'Caja de': m.usuario, 'Tienda': m.tienda, 'Movimiento': m.tipo,
-        'Origen': m.origen === 'VENTA' ? 'VENTA EN EFECTIVO' : 'MANUAL', 'Concepto': m.concepto, 'Pedido': m.pedido_id,
+        'Origen': (ORIGEN_CAJA[m.origen] || 'manual').toUpperCase(), 'Concepto': m.concepto, 'Pedido': m.pedido_id,
         'Entrada': m.tipo === 'ENTRADA' ? num(m.valor) : null, 'Salida': m.tipo === 'SALIDA' ? num(m.valor) : null,
         ...(todas ? {} : { 'Saldo': m.saldo }), 'Observaciones': m.observaciones, 'Registró': m.registrado_por,
     })));

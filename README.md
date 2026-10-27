@@ -137,6 +137,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `25_mis_comisiones.sql` | **Cada vendedor ve su comisión**: `perfiles.vendedor` vincula el usuario con su vendedor de Maestros (si se deja vacío, por coincidencia de nombre) y `mis_comisiones` devuelve su comisión mes a mes. El cálculo del cuadre pasa a `cuadre_calculo` (interna). |
 | `26_varios_esquemas.sql` | **Varios esquemas por vendedor** (tabla `vendedor_esquemas`): la comisión es la suma de cada esquema (p. ej. supervisora que también vende). Meta individual y meta grupal separadas. El cuadre y `mis_comisiones` traen el detalle por esquema. Pasa lo ya asignado en el 24 a la tabla nueva. |
 | `27_verificacion_pagos.sql` | **Verificación de pagos**: comprobante adjunto (almacenamiento privado `comprobantes`), recibo que agrupa las partes de un pago y estado PENDIENTE/VALIDADO/RECHAZADO con quién, cuándo y nota. Solo el admin verifica (`verificar_pagos`). |
+| `28_cobros_efectivo_caja.sql` | Los **cobros con método EFECTIVO** registrados en Pagos entran solos a la caja menor de quien los registró (origen PAGO) y se ajustan si el pago cambia o se elimina. Carga los cobros en efectivo desde el 18-oct-2026. |
 
 ## Despliegue en Vercel
 
