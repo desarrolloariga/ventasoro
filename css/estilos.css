@@ -470,3 +470,7 @@ details > summary { color: var(--gold-dark); cursor: pointer; font-size: 12px; }
 .comprobante-visor iframe { width: 100%; height: 70vh; border: 0; background: #fff; }
 .comprobante-vacio { color: var(--ink-42); text-align: center; padding: 40px 16px; }
 .comprobante-vacio .bi { font-size: 32px; display: block; margin-bottom: 6px; }
+
+/* Tablas largas: altura máxima con barra vertical */
+.tabla-scroll { max-height: 60vh; overflow-y: auto; }
+.tabla-scroll thead.sticky-top { z-index: 2; }

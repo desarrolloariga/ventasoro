@@ -332,7 +332,8 @@ function registrarEventos() {
     $('exportGramosButton').addEventListener('click', exportGramos);
 
     // Búsqueda de pedidos
-    $('searchEnvioButton').addEventListener('click', buscarPedidos);
+    $('searchEnvioButton').addEventListener('click', () => buscarPedidos());
+    $('busqueda-tab').addEventListener('shown.bs.tab', () => buscarPedidos());
     $('searchEnvioInput').addEventListener('keydown', e => { if (e.key === 'Enter') buscarPedidos(); });
     $('searchPedidoCampo').addEventListener('change', () => { if ($('searchEnvioInput').value.trim()) buscarPedidos(); });
     $('pedidosTableBody').addEventListener('click', e => {
@@ -487,6 +488,7 @@ function registrarEventos() {
     registrarJerarquias();
     registrarCaja();
     registrarDevoluciones();
+    registrarModuloDevoluciones();
     registrarVerificacion();
     registrarCuadre();
     $('usuarioForm').addEventListener('submit', agregarUsuario);
@@ -895,19 +897,102 @@ async function lineasPedido(clave) {
     return ok(await sb.rpc('lineas_pedido', { p_clave: clave }));
 }
 
-function buscarPedidos() {
-    const q = $('searchEnvioInput').value.trim();
-    if (!q) return;
+// Listado paginado de pedidos (sin texto = todos; cada vendedor ve solo lo suyo)
+const POR_PAGINA = 1000;
+
+async function listarPedidos({ termino = '', campo = 'todo', desde = null, hasta = null, pagina = 1 }) {
+    const d = ok(await sb.rpc('listar_pedidos', { p_termino: termino, p_campo: campo, p_desde: desde || null, p_hasta: hasta || null,
+                                                  p_limite: POR_PAGINA, p_offset: (pagina - 1) * POR_PAGINA }));
+    return { filas: d, total: d.length ? Number(d[0].total_filas) : 0 };
+}
+
+// Botones de página (solo si hay más de una)
+function paginador(contenedor, total, pagina, alCambiar) {
+    const el = $(contenedor);
+    const paginas = Math.ceil(total / POR_PAGINA);
+    if (paginas <= 1) { el.innerHTML = ''; el.onclick = null; return; }
+    const desde = Math.max(1, Math.min(pagina - 2, paginas - 4)), hasta = Math.min(paginas, desde + 4);
+    const boton = (p, texto, activo = false, off = false) =>
+        `<li class="page-item ${activo ? 'active' : ''} ${off ? 'disabled' : ''}"><button type="button" class="page-link" data-pagina="${p}">${texto}</button></li>`;
+    let html = boton(pagina - 1, '‹', false, pagina === 1);
+    if (desde > 1) html += boton(1, '1') + (desde > 2 ? boton(0, '…', false, true) : '');
+    for (let p = desde; p <= hasta; p++) html += boton(p, p, p === pagina);
+    if (hasta < paginas) html += (hasta < paginas - 1 ? boton(0, '…', false, true) : '') + boton(paginas, paginas);
+    html += boton(pagina + 1, '›', false, pagina === paginas);
+    el.innerHTML = `<ul class="pagination pagination-sm mb-0">${html}</ul>`;
+    el.onclick = e => { const b = e.target.closest('[data-pagina]'); const p = Number(b?.dataset.pagina); if (p >= 1 && p <= paginas && p !== pagina) alCambiar(p); };
+}
+
+function rangoPagina(total, pagina, n, nombre = 'pedido') {
+    const ini = (pagina - 1) * POR_PAGINA + 1;
+    const e = v => num(v).toLocaleString('es-GT');
+    return total > POR_PAGINA ? `${e(total)} ${nombre}s · mostrando ${e(ini)}–${e(ini + n - 1)}` : `${e(total)} ${nombre}(s)`;
+}
+
+function buscarPedidos(pagina = 1) {
+    if (typeof pagina !== 'number') pagina = 1;
     run(async () => {
-        const d = ordenarPorCodigo(ok(await sb.rpc('buscar_pedidos', { p_termino: q, p_campo: $('searchPedidoCampo').value })), 'cliente_id');
+        const { filas: d, total } = await listarPedidos({ termino: $('searchEnvioInput').value.trim(), campo: $('searchPedidoCampo').value, pagina });
         $('pedidosTabla').classList.toggle('d-none', !d.length);
         $('pedidosTableBody').innerHTML = d.map(p => `<tr>
-            <td class="fw-semibold">${fmtFecha(p.fecha_venta)}</td><td>${esc(p.pedido_id)}</td><td>${esc(p.envio)}</td>
+            <td class="fw-semibold">${fmtFecha(p.fecha_venta)}</td><td>${esc(p.factura)}</td><td>${esc(p.pedido_id)}</td><td>${esc(p.envio)}</td>
             <td class="num">${esc(cod(p.cliente_id))}</td><td>${esc(p.cliente)}</td><td>${esc(p.tienda)}</td><td>${esc(p.vendedor)}</td>
             <td class="num">${fmtQ(p.total)}</td>
             <td><button type="button" class="btn btn-gold btn-sm abrir-pedido" data-clave="${esc(p.clave)}">Abrir</button></td></tr>`).join('');
-        $('pedidosInfo').textContent = d.length ? `${d.length} pedido(s)${d.length === 100 ? ' (se muestran los 100 más recientes)' : ''}` : 'No se encontraron pedidos.';
+        $('pedidosInfo').textContent = d.length ? rangoPagina(total, pagina, d.length) : 'No se encontraron pedidos.';
+        paginador('pedidosPaginas', total, pagina, buscarPedidos);
+        $('pedidosTabla').closest('.tabla-scroll').scrollTop = 0;
     });
+}
+
+// ---------------------------------------------------------------- módulo de devoluciones
+function registrarModuloDevoluciones() {
+    $('devoluciones-tab').addEventListener('shown.bs.tab', () => cargarDevoluciones());
+    $('devBuscarBtn').addEventListener('click', () => cargarDevoluciones());
+    $('devBuscar').addEventListener('keydown', e => { if (e.key === 'Enter') cargarDevoluciones(); });
+    ['devCampo', 'devDesde', 'devHasta'].forEach(id => $(id).addEventListener('change', () => cargarDevoluciones()));
+    $('devFacturasBody').addEventListener('click', e => {
+        const b = e.target.closest('.dev-marcar');
+        if (b) abrirDevolucion(b.dataset.clave);
+    });
+    $('devRegistradasBody').addEventListener('click', e => {
+        const b = e.target.closest('.dev-borrar');
+        if (b) eliminarDevolucion(Number(b.dataset.id), false);
+    });
+}
+
+function cargarDevoluciones(pagina = 1) {
+    const desde = $('devDesde').value || null, hasta = $('devHasta').value || null;
+    run(async () => {
+        const [{ filas, total }, regs] = await Promise.all([
+            listarPedidos({ termino: $('devBuscar').value.trim(), campo: $('devCampo').value, desde, hasta, pagina }),
+            sb.rpc('listar_devoluciones', { p_desde: desde, p_hasta: hasta }).then(ok),
+        ]);
+        $('devFacturasBody').innerHTML = filas.map(p => {
+            const dev = num(p.devuelto), todo = dev > 0 && dev >= num(p.total) - 0.005;
+            return `<tr>
+            <td>${fmtFecha(p.fecha_venta)}</td><td class="fw-semibold">${p.factura ? esc(p.factura) : '<span class="text-muted">—</span>'}</td><td>${esc(p.pedido_id)}</td><td>${esc(p.envio)}</td>
+            <td class="num">${esc(cod(p.cliente_id))}</td><td>${esc(p.cliente)}</td><td>${esc(p.vendedor)}</td>
+            <td class="num">${fmtQ(p.total)}</td>
+            <td class="num">${dev > 0 ? `<span class="badge ${todo ? 'bg-danger' : 'bg-warning text-dark'}">${fmtQ(dev)}</span>` : '—'}</td>
+            <td class="text-nowrap"><button type="button" class="btn btn-outline-secondary btn-sm dev-marcar" data-clave="${esc(p.clave)}"><i class="bi bi-arrow-counterclockwise me-1"></i>${dev > 0 ? 'Ver / devolver' : 'Marcar devolución'}</button></td></tr>`;
+        }).join('') || '<tr><td colspan="10" class="text-muted">No se encontraron facturas.</td></tr>';
+        $('devFacturasInfo').textContent = filas.length ? rangoPagina(total, pagina, filas.length, 'factura') : '';
+        paginador('devFacturasPaginas', total, pagina, cargarDevoluciones);
+        $('devFacturasBody').closest('.tabla-scroll').scrollTop = 0;
+
+        $('devRegistradasBody').innerHTML = regs.map(d => `<tr>
+            <td>${fmtFecha(d.fecha_devolucion)}</td><td>${esc(d.factura)}</td><td>${esc([d.pedido_id, d.clave !== d.pedido_id ? d.clave : ''].filter(Boolean).join(' / '))}</td>
+            <td>${d.cliente_id ? `${esc(cod(d.cliente_id))} · ` : ''}${esc(d.cliente)}</td><td>${esc(d.vendedor)}</td><td>${esc(d.producto)}</td>
+            <td class="num">${fmt(d.cantidad)}</td><td class="num">${fmtQ(d.valor)}</td><td class="small">${esc(d.motivo)}</td><td class="small">${esc(d.registrado_por)}</td>
+            <td class="text-end">${esAdmin() || d.creado_por === perfil.id ? `<button type="button" class="btn btn-outline-danger btn-sm dev-borrar" data-id="${d.id}" title="Eliminar devolución" aria-label="Eliminar devolución"><i class="bi bi-trash"></i></button>` : ''}</td></tr>`).join('')
+            || '<tr><td colspan="11" class="text-muted">No hay devoluciones registradas.</td></tr>';
+        $('devRegistradasTotal').textContent = regs.length ? `${regs.length} · ${fmtQ(regs.reduce((t, d) => t + num(d.valor), 0))}` : '';
+    });
+}
+
+function refrescarDevoluciones() {
+    if ($('devoluciones').classList.contains('active')) cargarDevoluciones();
 }
 
 // ---------------------------------------------------------------- devoluciones de un pedido
@@ -990,16 +1075,18 @@ function guardarDevolucion() {
                                                   p_motivo: $('devolucionMotivo').value.trim(), p_lineas: lineas }));
         devolucionModal.hide();
         showAlert(`Devolución registrada por ${fmtQ(total)}: se descontó de la cuenta del cliente y la cantidad volvió al inventario.`, 'success');
+        refrescarDevoluciones();
     });
 }
 
-function eliminarDevolucion(id) {
+function eliminarDevolucion(id, reabrir = true) {
     if (!confirm('¿Eliminar esta devolución?\n\nEl cliente vuelve a deber ese valor y la cantidad sale otra vez del inventario.')) return;
     run(async () => {
         ok(await sb.rpc('eliminar_devolucion', { p_id: id }));
         showAlert('Devolución eliminada', 'success');
         devolucionModal.hide();
-        abrirDevolucion(devolucionClave);
+        refrescarDevoluciones();
+        if (reabrir) abrirDevolucion(devolucionClave);
     });
 }
 
