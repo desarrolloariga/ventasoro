@@ -15,14 +15,15 @@ alter table tiendaariga.caja_menor drop constraint if exists caja_menor_origen_c
 alter table tiendaariga.caja_menor add constraint caja_menor_origen_check check (origen in ('VENTA', 'MANUAL', 'PAGO'));
 
 -- ¿El pago es un cobro en efectivo que debe ir a la caja? (no los de ventas en efectivo)
-create or replace function tiendaariga.es_cobro_efectivo(p pagos)
+drop function if exists tiendaariga.es_cobro_efectivo(tiendaariga.pagos);
+create or replace function tiendaariga.es_cobro_efectivo(p_metodo text, p_valor numeric, p_creado_por uuid, p_observaciones text)
 returns boolean
 language sql immutable
 as $$
-  select upper(trim(coalesce(p.metodo_pago, ''))) = 'EFECTIVO'
-     and coalesce(p.valor_pagado, 0) > 0
-     and p.creado_por is not null
-     and coalesce(p.observaciones, '') not like 'Venta en efectivo%'
+  select upper(trim(coalesce(p_metodo, ''))) = 'EFECTIVO'
+     and coalesce(p_valor, 0) > 0
+     and p_creado_por is not null
+     and coalesce(p_observaciones, '') not like 'Venta en efectivo%'
 $$;
 
 create or replace function tiendaariga.sincronizar_cobro_efectivo()
@@ -40,7 +41,7 @@ begin
     return old;
   end if;
 
-  if not es_cobro_efectivo(new) then
+  if not es_cobro_efectivo(new.metodo_pago, new.valor_pagado, new.creado_por, new.observaciones) then
     delete from caja_menor where pago_id = new.id and origen = 'PAGO';
     return new;
   end if;
@@ -83,7 +84,7 @@ begin
   from tiendaariga.pagos p
   left join tiendaariga.clientes c on c.id = p.cliente_id
   join tiendaariga.perfiles u on u.id = p.creado_por
-  where tiendaariga.es_cobro_efectivo(p)
+  where tiendaariga.es_cobro_efectivo(p.metodo_pago, p.valor_pagado, p.creado_por, p.observaciones)
     and p.created_at >= '2026-10-18'
     and not exists (select 1 from tiendaariga.caja_menor m where m.pago_id = p.id);
   get diagnostics n = row_count;
