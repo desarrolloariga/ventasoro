@@ -489,6 +489,7 @@ function registrarEventos() {
     registrarCaja();
     registrarDevoluciones();
     registrarModuloDevoluciones();
+    registrarProductos();
     registrarVerificacion();
     registrarCuadre();
     $('usuarioForm').addEventListener('submit', agregarUsuario);
@@ -3736,6 +3737,78 @@ async function cargarMaestros() {
     aplicarTiendaUsuario();
 
     Object.keys(MAESTROS).forEach(renderMaestro);
+    if ($('productos')?.classList.contains('active')) renderProductos();
+}
+
+// ---------------------------------------------------------------- módulo de productos (configuración)
+let productosSaldo = [];
+const CATEGORIA_PRODUCTO = { GRAMOS: ['Oro · gramos', 'text-bg-warning'], UNIDADES: ['Producto · unidades', 'text-bg-secondary'], SIN: ['Servicio', 'text-bg-info'] };
+
+function registrarProductos() {
+    $('productos-tab').addEventListener('shown.bs.tab', cargarProductos);
+    $('prodBuscar').addEventListener('input', renderProductos);
+    ['prodCategoria', 'prodEstado'].forEach(id => $(id).addEventListener('change', renderProductos));
+    $('prodExcel').addEventListener('click', exportarProductos);
+    $('prodBody').addEventListener('change', e => {
+        if (e.target.classList.contains('maestro-unidad')) cambiarUnidadTipo(e.target);
+        else if (e.target.classList.contains('maestro-activo')) cambiarActivoMaestro(e.target);
+    });
+}
+
+function cargarProductos() {
+    run(async () => {
+        const [, inv] = await Promise.all([cargarMaestros(), sb.from('inventario').select('producto,tienda,saldo').then(ok)]);
+        productosSaldo = inv;
+        renderProductos();
+    });
+}
+
+function filasProductos() {
+    return (maestros.tipos || []).map(x => {
+        const cat = unidadDeTipo(x);
+        const inv = productosSaldo.filter(i => norm(i.producto) === norm(x.nombre));
+        return { nombre: x.nombre, cat, unidad: cat === 'SIN' ? '—' : (x.unidad || 'GRAMOS'), inventario: cat !== 'SIN', promedio: cat === 'GRAMOS',
+                 saldo: cat === 'SIN' ? null : inv.reduce((t, i) => t + num(i.saldo), 0),
+                 tiendas: cat === 'SIN' ? null : inv.filter(i => Math.abs(num(i.saldo)) > 0.005).length, activo: x.activo !== false };
+    });
+}
+
+function renderProductos() {
+    const q = norm($('prodBuscar').value), c = $('prodCategoria').value, est = $('prodEstado').value, admin = esAdmin();
+    const todas = filasProductos();
+    const n = f => todas.filter(f).length;
+    const tarjeta = (titulo, valor, sub, icono) => `<div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body py-3">
+        <div class="small text-muted"><i class="bi bi-${icono} me-1"></i>${titulo}</div><div class="fs-4 fw-semibold">${valor}</div><div class="small text-muted">${sub}</div></div></div></div>`;
+    $('prodResumen').innerHTML = tarjeta('Productos y servicios', n(() => true), `${n(p => !p.activo)} inactivo(s)`, 'gem')
+        + tarjeta('Oro · gramos', n(p => p.cat === 'GRAMOS'), 'inventario y promedio por gramo', 'coin')
+        + tarjeta('Productos por unidades', n(p => p.cat === 'UNIDADES'), 'descuentan inventario', 'box-seam')
+        + tarjeta('Servicios', n(p => p.cat === 'SIN'), 'sin inventario ni promedio', 'tools');
+    const lista = todas.filter(p => (!q || norm(p.nombre).includes(q)) && (!c || p.cat === c) && (!est || (est === 'activo') === p.activo));
+    const si = v => v ? '<i class="bi bi-check-circle-fill text-success" title="Sí"></i>' : '<i class="bi bi-dash-circle text-muted" title="No"></i>';
+    $('prodBody').innerHTML = lista.map(p => {
+        const nombre = esc(p.nombre), [txt, clase] = CATEGORIA_PRODUCTO[p.cat];
+        return `<tr class="${p.activo ? '' : 'text-muted'}">
+          <td class="fw-semibold">${nombre}</td>
+          <td>${admin ? `<select class="form-select form-select-sm maestro-unidad" data-nombre="${nombre}" aria-label="Categoría de ${nombre}">
+                ${OPCIONES_UNIDAD.map(([v, t]) => `<option value="${v}" ${p.cat === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`
+              : `<span class="badge ${clase}">${txt}</span>`}</td>
+          <td>${p.unidad === '—' ? '—' : p.unidad.charAt(0) + p.unidad.slice(1).toLowerCase()}</td>
+          <td class="text-center">${si(p.inventario)}</td><td class="text-center">${si(p.promedio)}</td>
+          <td class="num">${p.saldo === null ? '—' : p.cat === 'GRAMOS' ? fmtG(p.saldo) : fmt(p.saldo)}</td>
+          <td class="num">${p.tiendas === null ? '—' : p.tiendas}</td>
+          <td class="text-center">${admin ? `<div class="form-check form-switch d-inline-block m-0"><input class="form-check-input maestro-activo" type="checkbox" role="switch" data-maestro="tipos" data-nombre="${nombre}" ${p.activo ? 'checked' : ''} aria-label="Activo ${nombre}"></div>`
+              : (p.activo ? 'Sí' : 'No')}</td></tr>`;
+    }).join('') || `<tr><td colspan="8" class="text-muted">${todas.length ? 'Sin coincidencias' : 'No hay productos creados.'}</td></tr>`;
+    $('prodCuenta').textContent = `${lista.length} de ${todas.length}`;
+}
+
+function exportarProductos() {
+    const filas = filasProductos().map(p => ({ Producto: p.nombre, 'Categoría': CATEGORIA_PRODUCTO[p.cat][0], Unidad: p.unidad,
+        'Descuenta inventario': p.inventario ? 'Sí' : 'No', 'Cuenta en promedio por gramo': p.promedio ? 'Sí' : 'No',
+        'Saldo en inventario': p.saldo ?? '', 'Tiendas con saldo': p.tiendas ?? '', Activo: p.activo ? 'Sí' : 'No' }));
+    const ws = XLSX.utils.json_to_sheet(filas), wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Productos');
+    XLSX.writeFile(wb, `productos_${hoyISO()}.xlsx`);
 }
 
 const normalizarNombre = v => v.trim().toUpperCase().replace(/\s+/g, ' ');
