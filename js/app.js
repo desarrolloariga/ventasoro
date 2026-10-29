@@ -3599,7 +3599,8 @@ const MAESTROS = {
 let maestroEditando = null;   // { m, nombre } del que se está renombrando
 // Unidad de un tipo: gramos o unidades, con o sin inventario
 // Categoría de cada producto: con inventario (en gramos o unidades) o servicio (se vende sin descontar inventario)
-const OPCIONES_UNIDAD = [['GRAMOS', 'Producto · gramos'], ['UNIDADES', 'Producto · unidades'], ['SIN', 'Servicio']];
+// Solo lo que va en gramos (el oro) lleva inventario en gramos y cuenta en el promedio por gramo
+const OPCIONES_UNIDAD = [['GRAMOS', 'Oro · gramos (inventario y promedio por gramo)'], ['UNIDADES', 'Producto · unidades (inventario)'], ['SIN', 'Servicio / sin inventario']];
 const unidadDeTipo = x => x.controla_inventario === false ? 'SIN' : (x.unidad || 'GRAMOS');
 const datosUnidad = v => v === 'SIN' ? { unidad: 'UNIDADES', controla_inventario: false } : { unidad: v || 'GRAMOS', controla_inventario: true };
 
@@ -3615,11 +3616,15 @@ function construirMaestros() {
           <div class="row g-2 mb-3">
             <div class="col-lg-7"><form class="input-group maestro-form" data-maestro="${m}">
               ${m === 'tiendas' ? `<select class="form-select flex-grow-0 w-auto maestro-clase-nueva" aria-label="Tipo"><option value="TIENDA">Tienda</option><option value="BODEGA">Bodega</option></select>` : ''}
-              ${m === 'tipos' ? `<select class="form-select flex-grow-0 w-auto maestro-clase-nueva" aria-label="Unidad">${OPCIONES_UNIDAD.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>` : ''}
+              ${m === 'tipos' ? `<select class="form-select flex-grow-0 w-auto maestro-clase-nueva" aria-label="Categoría del artículo">${OPCIONES_UNIDAD.map(([v, t]) => `<option value="${v}" ${v === 'SIN' ? 'selected' : ''}>${t}</option>`).join('')}</select>` : ''}
               <input type="text" class="form-control" placeholder="${MAESTROS[m].ayuda}" aria-label="${MAESTROS[m].nuevo}" required>
               <button class="btn btn-gold" type="submit"><i class="bi bi-plus-lg"></i> Agregar</button></form></div>
             <div class="col-lg-5"><input type="search" class="form-control maestro-buscar" data-maestro="${m}" placeholder="Buscar en ${MAESTROS[m].grupo}…" aria-label="Buscar"></div>
           </div>
+          ${m === 'tipos' ? `<div class="alert alert-light border small py-2 mb-3"><i class="bi bi-info-circle me-1"></i>
+            Marque como <b>Oro · gramos</b> solo el oro: es lo único que descuenta inventario en gramos y lo que se usa para el
+            <b>promedio de venta por gramo</b>. Broqueles, empaques, mensajería, reparaciones y demás se marcan como
+            <b>Servicio / sin inventario</b>: se venden en la misma factura pero no mueven inventario ni afectan el promedio.</div>` : ''}
           <ul class="list-group maestro-lista" id="maestro-${m}"></ul>
         </div></div></div>`).join('');
     $('maestrosPestanas').insertAdjacentHTML('beforeend', `<li class="nav-item solo-admin d-none"><button class="nav-link" id="maestro-tab-comisiones"
@@ -3642,8 +3647,10 @@ function renderMaestro(m) {
                 <button type="button" class="btn btn-outline-secondary btn-sm maestro-cancelar">Cancelar</button></form></li>`;
         const detalle = m === 'tiendas' ? `<small>Usuarios: ${esc(usuariosPorTienda[x.nombre]?.join(', ') || '—')}</small>`
             : m === 'tipos' ? (x.controla_inventario === false
-                ? `<small><span class="badge text-bg-info me-1">Servicio</span>se vende sin descontar inventario</small>`
-                : `<small>Producto · inventario en ${(x.unidad || 'GRAMOS').toLowerCase()}</small>`)
+                ? `<small><span class="badge text-bg-info me-1">Servicio</span>no descuenta inventario ni cuenta en el promedio por gramo</small>`
+                : (x.unidad || 'GRAMOS') === 'GRAMOS'
+                ? `<small><span class="badge text-bg-warning me-1">Oro</span>inventario en gramos · cuenta en el promedio por gramo</small>`
+                : `<small>Producto · inventario en unidades · no cuenta en el promedio por gramo</small>`)
             : m === 'vendedores' ? `<small>${esc(esquemasDe(x.nombre).map(e => e.nombre).join(' + ') || `Comisión fija ${fmtPct(x.comision_pct)}`)}
                 · Meta ${fmtQ(x.meta_mensual)}${num(x.meta_grupal) > 0 ? ` · Meta grupal ${fmtQ(x.meta_grupal)}` : ''}${x.supervisor ? ` · a cargo de ${esc(x.supervisor)}` : ''}</small>` : '';
         return `<li class="list-group-item ${x.activo === false ? 'inactivo' : ''}">
