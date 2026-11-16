@@ -507,7 +507,7 @@
             <!-- Pestaña: Inteligencia Comercial -->
             <div class="tab-pane fade" id="inteligencia" role="tabpanel">
               <div class="d-flex flex-wrap gap-2 align-items-end mt-3 mb-3">
-                <div><label class="form-label small mb-1" for="intBodega">Bodega</label>
+                <div id="intBodegaBox"><label class="form-label small mb-1" for="intBodega">Bodega</label>
                   <select class="form-select" id="intBodega"><option value="">Todas las bodegas</option></select></div>
                 <div class="solo-equipo d-none"><label class="form-label small mb-1" for="intVendedor">Vendedor</label>
                   <select class="form-select" id="intVendedor"><option value="">Todos</option></select></div>
@@ -527,7 +527,41 @@
                 <span class="small text-muted ms-auto" id="intAlcance"></span>
               </div>
 
-              <div class="row g-3 mb-3">
+              <!-- Vista del vendedor: solo lo suyo -->
+              <div class="d-none" id="intMio">
+                <div class="alert alert-warning d-none" id="mioSinVinculo"><i class="bi bi-exclamation-triangle me-1"></i>
+                  Su usuario no está vinculado a un vendedor de Maestros, por eso no hay datos. Pida al administrador que lo vincule en <b>Usuarios → Vendedor</b>.</div>
+                <div class="small text-muted mb-2" id="mioTitulo"></div>
+                <div class="row g-3 mb-3">
+                  <div class="col-md-4"><div class="card kpi h-100"><div class="card-body">
+                    <div class="kpi-titulo"><i class="bi bi-bag-check"></i> Vendido</div>
+                    <div class="kpi-valor kpi-heroe" id="mioVendido">—</div>
+                    <div class="kpi-sub" id="mioVendidoSub"></div>
+                  </div></div></div>
+                  <div class="col-md-4"><div class="card kpi h-100"><div class="card-body">
+                    <div class="kpi-titulo"><i class="bi bi-cash-coin"></i> Cobrado (abonos)</div>
+                    <div class="kpi-valor" id="mioCobrado">—</div>
+                    <div class="kpi-sub" id="mioCobradoSub"></div>
+                  </div></div></div>
+                  <div class="col-md-4"><div class="card kpi h-100"><div class="card-body">
+                    <div class="kpi-titulo"><i class="bi bi-percent"></i> Mi comisión</div>
+                    <div class="kpi-valor" id="mioComision">—</div>
+                    <div class="kpi-sub" id="mioComisionSub"></div>
+                  </div></div></div>
+                </div>
+                <div class="card">
+                  <div class="card-header card-header-custom"><i class="bi bi-list-check me-2"></i> Detalle de mi comisión</div>
+                  <div class="card-body">
+                    <div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0">
+                      <thead class="table-light"><tr><th>Mes</th><th>Esquema</th><th class="num">Ventas evaluadas</th><th class="num">Meta</th><th class="num">Cumplimiento</th><th class="num">Tramo</th><th class="num">Comisión</th></tr></thead>
+                      <tbody id="mioDetalleBody"></tbody>
+                    </table></div>
+                    <div class="form-text">Vendido: sus ventas del periodo. Cobrado: abonos recibidos en el periodo a los envíos de sus ventas. La comisión se calcula por mes según sus esquemas; en esquemas grupales se evalúan las ventas y la meta del grupo.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="row g-3 mb-3" id="intKpis">
                 <div class="col-sm-6 col-xl-3"><div class="card kpi h-100"><div class="card-body">
                   <div class="kpi-titulo"><i class="bi bi-cash-stack"></i> Cartera por cobrar</div>
                   <div class="kpi-valor kpi-heroe" id="kpiCartera">—</div>
@@ -602,7 +636,7 @@
                 </div>
               </div>
 
-              <div class="row g-3">
+              <div class="row g-3" id="intGramosFila">
                 <div class="col-lg-5">
                   <div class="card h-100">
                     <div class="card-header card-header-custom d-flex justify-content-between align-items-center">

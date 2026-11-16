@@ -4286,6 +4286,17 @@ let bodegaInteligenciaLista = false;
 function loadInteligencia() {
     run(async () => {
         const [desde, hasta] = rangoPeriodo();
+        // Vendedor: solo su resumen (lo vendido, cobrado y su comisión)
+        const mio = soloMio();
+        ['intBodegaBox', 'intKpis', 'intGramosFila'].forEach(id => $(id).classList.toggle('d-none', mio));
+        $('intMio').classList.toggle('d-none', !mio);
+        if (mio) {
+            $('intAlcance').textContent = 'Solo sus ventas, cobros y comisión';
+            const { data, error } = await sb.rpc('mi_resumen', { p_desde: desde, p_hasta: hasta });
+            if (error) throw new Error(/mi_resumen/.test(error.message) ? 'Falta ejecutar el script 34 en Supabase.' : error.message);
+            renderMiResumen(data);
+            return;
+        }
         if (!bodegaInteligenciaLista) {   // la primera vez, el vendedor ve su bodega
             bodegaInteligenciaLista = true;
             repoblar('intBodega', maestros.tiendas.map(t => t.nombre), 'Todas las bodegas');
@@ -4380,6 +4391,34 @@ function exportarCuadreInventario() {
         'Bodega': x.tienda, 'Producto': x.producto, 'Inventario inicial': num(x.inicial), 'Ingresos': num(x.ingresos),
         'Traslados recibidos': num(x.traslados_recibidos), 'Traslados enviados': num(x.traslados_enviados), 'Ventas': num(x.ventas),
         'Otras salidas': num(x.otras_salidas), 'Inventario final': num(x.final), 'Desde': aFecha(resumenInt.desde), 'Hasta': aFecha(resumenInt.hasta) })));
+}
+
+// ---- Vista del vendedor: solo lo vendido, cobrado y su comisión
+const soloMio = () => !veEquipo();
+
+function renderMiResumen(r) {
+    const fila = (a, b) => `<div class="fila"><span>${a}</span><b>${b}</b></div>`;
+    const sin = !r || !r.vendedor;
+    $('mioSinVinculo').classList.toggle('d-none', !sin);
+    $('mioTitulo').textContent = sin ? '' : `Vendedor: ${r.vendedor} · del ${fmtFecha(r.desde)} al ${fmtFecha(r.hasta)}`;
+    if (sin) { ['mioVendido', 'mioCobrado', 'mioComision'].forEach(id => $(id).textContent = '—'); ['mioVendidoSub', 'mioCobradoSub', 'mioComisionSub', 'mioDetalleBody'].forEach(id => $(id).innerHTML = ''); return; }
+    $('mioVendido').textContent = fmtQ(r.ventas_q);
+    $('mioVendidoSub').innerHTML = fila('Gramos vendidos', fmtG(r.ventas_gr)) + fila('Pedidos', r.pedidos) + fila('Clientes', r.clientes);
+    $('mioCobrado').textContent = fmtQ(r.cobrado);
+    $('mioCobradoSub').innerHTML = fila('Pagos recibidos', r.pagos) + (r.cobro_por_metodo || []).map(m => fila(esc(m.metodo), fmtQ(m.valor))).join('')
+        + (num(r.contado) ? fila('Ventas de contado (aparte)', fmtQ(r.contado)) : '');
+    $('mioComision').textContent = fmtQ(r.comision);
+    const cumpl = r.cumplimiento === null || r.cumplimiento === undefined ? null : num(r.cumplimiento);
+    $('mioComisionSub').innerHTML = (num(r.meta) ? fila('Meta', fmtQ(r.meta)) : fila('Meta', 'sin meta'))
+        + (cumpl !== null ? fila('Cumplimiento', fmtPct(cumpl))
+            + `<div class="progress mt-1" style="height: 6px" role="progressbar" aria-label="Cumplimiento de meta" aria-valuenow="${Math.round(cumpl)}" aria-valuemin="0" aria-valuemax="100">
+                 <div class="progress-bar ${cumpl >= 100 ? 'bg-success' : 'bg-warning'}" style="width: ${Math.min(100, cumpl)}%"></div></div>` : '')
+        + (!(r.detalle_comision || []).length ? '<div class="small text-muted mt-1">No tiene esquema ni % de comisión configurado.</div>' : '');
+    $('mioDetalleBody').innerHTML = (r.detalle_comision || []).map(x => `<tr><td>${nombreMes(String(x.mes).slice(0, 10))}</td><td>${esc(x.esquema)}</td>
+        <td class="num">${fmtQ(x.ventas_q)}</td><td class="num">${x.meta === null ? '—' : fmtQ(x.meta)}</td>
+        <td class="num">${x.cumplimiento === null ? '—' : fmtPct(x.cumplimiento)}</td><td class="num">${x.pct === null ? '—' : fmtPct(x.pct)}</td>
+        <td class="num fw-semibold">${fmtQ(x.comision)}</td></tr>`).join('')
+        || '<tr><td colspan="7" class="text-muted">Sin comisión en el periodo.</td></tr>';
 }
 
 function renderInteligencia() {
