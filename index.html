@@ -352,6 +352,32 @@
         </div>
     </div>
 
+    <!-- Caja menor: cuadre (arqueo) -->
+    <div class="modal fade" id="cuadreCajaModal" tabindex="-1" aria-labelledby="cuadreCajaTitulo" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="cuadreCajaTitulo">Cuadrar caja</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted mb-3">Cuente el efectivo que entrega el vendedor. Se registra la entrega y, si no cuadra, el faltante o sobrante. La caja queda en <b>Q 0.00</b> y empieza de nuevo.</p>
+                    <div class="d-flex justify-content-between border-bottom py-2"><span>Efectivo según el sistema</span><b id="cuadreSistema">—</b></div>
+                    <div class="row g-3 mt-1">
+                        <div class="col-7"><label class="form-label" for="cuadreContado">Efectivo contado (Q)</label><input type="number" class="form-control text-end" id="cuadreContado" step="0.01" min="0" inputmode="decimal"></div>
+                        <div class="col-5"><label class="form-label" for="cuadreFecha">Fecha</label><input type="date" class="form-control" id="cuadreFecha"></div>
+                    </div>
+                    <div class="d-flex justify-content-between border-bottom py-2 mt-2"><span>Diferencia</span><b id="cuadreDif">—</b></div>
+                    <div class="mt-3"><label class="form-label" for="cuadreObs">Observaciones</label><input type="text" class="form-control" id="cuadreObs" placeholder="Opcional"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-gold" id="cuadreGuardar"><i class="bi bi-check2-circle me-1"></i> Registrar cuadre</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="appView" class="app d-none">
       <div class="menu-velo" id="menuVelo"></div>
 
@@ -485,10 +511,11 @@
                   <select class="form-select" id="intBodega"><option value="">Todas las bodegas</option></select></div>
                 <div class="solo-equipo d-none"><label class="form-label small mb-1" for="intVendedor">Vendedor</label>
                   <select class="form-select" id="intVendedor"><option value="">Todos</option></select></div>
-                <div><label class="form-label small mb-1" for="intPeriodo">Periodo del precio promedio</label>
+                <div><label class="form-label small mb-1" for="intPeriodo">Periodo</label>
                   <select class="form-select" id="intPeriodo">
+                    <option value="mes" selected>Este mes</option>
+                    <option value="mesant">Mes anterior</option>
                     <option value="todo">Todo el historial</option>
-                    <option value="mes">Este mes</option>
                     <option value="3m">Últimos 3 meses</option>
                     <option value="12m">Últimos 12 meses</option>
                     <option value="anio">Este año</option>
@@ -501,21 +528,78 @@
               </div>
 
               <div class="row g-3 mb-3">
-                <div class="col-lg-4"><div class="card kpi h-100"><div class="card-body">
+                <div class="col-sm-6 col-xl-3"><div class="card kpi h-100"><div class="card-body">
                   <div class="kpi-titulo"><i class="bi bi-cash-stack"></i> Cartera por cobrar</div>
                   <div class="kpi-valor kpi-heroe" id="kpiCartera">—</div>
                   <div class="kpi-sub" id="kpiCarteraSub"></div>
                 </div></div></div>
-                <div class="col-lg-4"><div class="card kpi h-100"><div class="card-body">
+                <div class="col-sm-6 col-xl-3"><div class="card kpi h-100"><div class="card-body">
+                  <div class="kpi-titulo"><i class="bi bi-cash-coin"></i> Abonos recibidos <span id="kpiAbonosPeriodo"></span></div>
+                  <div class="kpi-valor" id="kpiAbonos">—</div>
+                  <div class="kpi-sub" id="kpiAbonosSub"></div>
+                </div></div></div>
+                <div class="col-sm-6 col-xl-3"><div class="card kpi h-100"><div class="card-body">
                   <div class="kpi-titulo"><i class="bi bi-boxes"></i> Gramos disponibles <span id="kpiGramosAlcance">(todas las bodegas)</span></div>
                   <div class="kpi-valor" id="kpiGramos">—</div>
                   <div class="kpi-sub" id="kpiGramosSub"></div>
                 </div></div></div>
-                <div class="col-lg-4"><div class="card kpi h-100"><div class="card-body">
+                <div class="col-sm-6 col-xl-3"><div class="card kpi h-100"><div class="card-body">
                   <div class="kpi-titulo"><i class="bi bi-gem"></i> Precio promedio del gramo vendido</div>
                   <div class="kpi-valor" id="kpiPromedio">—</div>
                   <div class="kpi-sub" id="kpiPromedioSub"></div>
                 </div></div></div>
+              </div>
+
+              <!-- Resumen del periodo (solo administradores) -->
+              <div class="solo-admin d-none mb-3" id="intAdmin">
+                <div class="card mb-3">
+                  <div class="card-header card-header-custom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <span><i class="bi bi-people me-2"></i> Vendedores <span class="fw-normal small" id="intAdminPeriodo"></span></span>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="intVendExcel"><i class="bi bi-file-earmark-excel"></i></button>
+                  </div>
+                  <div class="card-body">
+                    <div class="table-responsive tabla-scroll">
+                      <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light sticky-top"><tr><th>Vendedor</th><th class="num">Ventas Q</th><th class="num">Gramos vendidos</th><th class="num">Cobrado (abonos)</th><th class="num">Ventas de contado</th><th class="num">Comisión</th><th class="num">Meta</th><th class="num">Cumplimiento</th><th class="num">Efectivo en caja</th></tr></thead>
+                        <tbody id="intVendBody"></tbody>
+                        <tfoot class="fw-semibold" id="intVendFoot"></tfoot>
+                      </table>
+                    </div>
+                    <div class="form-text">Cobrado: abonos recibidos en el periodo a las ventas de cada vendedor. Comisión según su esquema (Maestros → Comisiones). Efectivo en caja: lo que tiene hoy en su caja menor.</div>
+                  </div>
+                </div>
+                <div class="card mb-3">
+                  <div class="card-header card-header-custom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <span><i class="bi bi-boxes me-2"></i> Cuadre de inventario en gramos <span class="fw-normal small" id="intInvPeriodo"></span></span>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="intInvExcel"><i class="bi bi-file-earmark-excel"></i></button>
+                  </div>
+                  <div class="card-body">
+                    <div class="table-responsive tabla-scroll">
+                      <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light sticky-top"><tr><th>Bodega</th><th class="num">Inventario inicial</th><th class="num">+ Ingresos</th><th class="num">+ Traslados recibidos</th><th class="num">− Traslados enviados</th><th class="num">− Ventas</th><th class="num">− Otras salidas</th><th class="num">= Inventario final</th></tr></thead>
+                        <tbody id="intInvBody"></tbody>
+                        <tfoot class="fw-semibold" id="intInvFoot"></tfoot>
+                      </table>
+                    </div>
+                    <div class="form-text">Inventario inicial: saldo al empezar el periodo (incluye las cargas de "inventario inicial"). Ingresos: compras, cargas, devoluciones de clientes y sobrantes. Otras salidas: ajustes por faltante, salidas manuales y devoluciones a oficina. El final es el mismo saldo que muestra Inventario.</div>
+                  </div>
+                </div>
+                <div class="card">
+                  <div class="card-header card-header-custom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <span><i class="bi bi-safe2 me-2"></i> Arqueo de cajas <span class="fw-normal small" id="intCajaPeriodo"></span></span>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="intIrCaja"><i class="bi bi-box-arrow-up-right me-1"></i> Ir a Caja menor</button>
+                  </div>
+                  <div class="card-body">
+                    <div class="table-responsive tabla-scroll">
+                      <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light sticky-top"><tr><th>Caja de</th><th>Tienda / Bodega</th><th>Último cuadre</th><th class="num">Entradas del periodo</th><th class="num">Salidas del periodo</th><th class="num">Efectivo en caja hoy</th></tr></thead>
+                        <tbody id="intCajaBody"></tbody>
+                        <tfoot class="fw-semibold" id="intCajaFoot"></tfoot>
+                      </table>
+                    </div>
+                    <div class="form-text">Para dejar una caja en cero al recibir el efectivo, use <b>Caja menor → Cuadrar caja (arqueo)</b>.</div>
+                  </div>
+                </div>
               </div>
 
               <div class="row g-3">
@@ -801,7 +885,7 @@
                       <div class="col-md-4 solo-equipo d-none"><label class="form-label" for="cajaUsuario">Caja de</label><select class="form-select" id="cajaUsuario"></select></div>
                       <div class="col-6 col-md-2"><label class="form-label" for="cajaDesde">Desde</label><input type="date" class="form-control" id="cajaDesde"></div>
                       <div class="col-6 col-md-2"><label class="form-label" for="cajaHasta">Hasta</label><input type="date" class="form-control" id="cajaHasta"></div>
-                      <div class="col-md-4 small text-muted" id="cajaNota">Las fechas filtran la lista de movimientos; el efectivo en caja es el saldo total.</div>
+                      <div class="col-md-4 small text-muted" id="cajaNota">Por defecto se ven los movimientos de este mes. El efectivo en caja es el saldo total y vuelve a cero al cuadrar la caja con el vendedor.</div>
                     </div>
                   </div>
                 </div>
@@ -826,16 +910,28 @@
                   <div class="card-header card-header-custom"><i class="bi bi-people me-2"></i> Caja por usuario</div>
                   <div class="card-body">
                     <div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0">
-                      <thead class="table-light"><tr><th>Usuario</th><th>Tienda / Bodega</th><th class="num">Entradas</th><th class="num">Salidas</th><th class="num">Efectivo en caja</th><th>Último movimiento</th></tr></thead>
+                      <thead class="table-light"><tr><th>Usuario</th><th>Tienda / Bodega</th><th>Último cuadre</th><th class="num">Entradas desde el cuadre</th><th class="num">Salidas desde el cuadre</th><th class="num">Efectivo en caja</th><th>Último movimiento</th></tr></thead>
                       <tbody id="cajaResumenBody"></tbody>
                     </table></div>
                     <div class="form-text">Haga clic en un usuario para ver su caja y registrarle movimientos.</div>
                   </div>
                 </div>
+                <div class="card mb-3 d-none" id="cajaCuadresBox">
+                  <div class="card-header card-header-custom"><i class="bi bi-clipboard-check me-2"></i> Cuadres de caja (arqueos)</div>
+                  <div class="card-body">
+                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;"><table class="table table-sm table-hover align-middle mb-0">
+                      <thead class="table-light sticky-top"><tr><th>N°</th><th>Fecha</th><th>Caja de</th><th class="num">Según sistema</th><th class="num">Contado</th><th class="num">Diferencia</th><th>Observaciones</th><th>Registró</th><th></th></tr></thead>
+                      <tbody id="cajaCuadresBody"></tbody>
+                    </table></div>
+                  </div>
+                </div>
                 <form class="card mb-3" id="cajaForm">
                   <div class="card-header card-header-custom d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <span><i class="bi bi-pencil-square me-2"></i> Registrar movimiento <span class="fw-normal text-muted" id="cajaFormDe"></span></span>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="cajaLiquidar"><i class="bi bi-box-arrow-right me-1"></i> Liquidar caja (entregar todo)</button>
+                    <div class="d-flex flex-wrap gap-2">
+                      <button type="button" class="btn btn-gold btn-sm solo-admin d-none" id="cajaCuadrar"><i class="bi bi-clipboard-check me-1"></i> Cuadrar caja (arqueo)</button>
+                      <button type="button" class="btn btn-outline-secondary btn-sm" id="cajaLiquidar"><i class="bi bi-box-arrow-right me-1"></i> Liquidar caja (entregar todo)</button>
+                    </div>
                   </div>
                   <div class="card-body">
                     <div class="alert alert-warning py-2 small d-none" id="cajaSoloLectura"></div>

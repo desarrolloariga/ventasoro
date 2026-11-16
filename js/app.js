@@ -2440,13 +2440,15 @@ function renderJerarquias() {
 // ---------------------------------------------------------------- caja menor (efectivo de cada usuario)
 // Entradas: ventas en efectivo (automáticas) y manuales. Salidas: liquidación / entrega a oficina, gastos...
 let cajaMovs = [], cajaSaldos = [];
-const ORIGEN_CAJA = { VENTA: 'venta en efectivo', PAGO: 'cobro en efectivo', MANUAL: 'manual' };
+const ORIGEN_CAJA = { VENTA: 'venta en efectivo', PAGO: 'cobro en efectivo', MANUAL: 'manual', CUADRE: 'cuadre de caja' };
 const cajaUsuarioElegido = () => veEquipo() ? $('cajaUsuario').value : perfil.id;   // '' = todas las cajas
 const puedeMoverCaja = uid => !!uid && (esAdmin() || uid === perfil.id);
 const nombreCaja = uid => uid === perfil?.id ? (perfil.nombre || perfil.usuario) : (nombreUsuario(uid) || cajaSaldos.find(s => s.usuario_id === uid)?.usuario || '');
 
 function registrarCaja() {
     $('caja-tab').addEventListener('shown.bs.tab', loadCaja);
+    $('cajaDesde').value = hoyISO().slice(0, 8) + '01';   // por defecto, el mes actual
+    registrarCuadreCaja();
     $('cajaUsuario').addEventListener('change', loadCaja);
     ['cajaDesde', 'cajaHasta'].forEach(id => $(id).addEventListener('change', renderCaja));
     $('cajaForm').addEventListener('submit', guardarMovimientoCaja);
@@ -2489,7 +2491,8 @@ function loadCaja() {
         const [saldos, movs] = await Promise.all([
             sb.from('caja_menor_saldos').select('*').then(ok),
             fetchAll(() => { let q = sb.from('caja_menor_detalle').select('*'); if (uid) q = q.eq('usuario_id', uid); return q.order('fecha').order('id'); }),
-        ]);
+            sb.from('cuadres_caja').select('*').order('created_at', { ascending: false }).then(r => r.error ? [] : r.data),
+        ]).then(([s, m, c]) => { cajaCuadres = c; return [s, m]; });
         // Cajas que le corresponden a quien mira (las demás salen en 0 por los permisos)
         cajaSaldos = saldos.filter(s => esAdmin() ? (num(s.movimientos) > 0 || s.usuario_id === perfil.id)
             : esSupervisor() ? (s.usuario_id === perfil.id || perfiles.some(p => p.id === s.usuario_id && p.supervisor_id === perfil.id))
@@ -2541,11 +2544,12 @@ function renderCaja() {
     // Resumen por usuario (cuando se ven todas)
     $('cajaResumenBox').classList.toggle('d-none', !(todas && veEquipo()));
     if (todas && veEquipo()) {
-        $('cajaResumenBody').innerHTML = cajaSaldos.map(s => `<tr data-id="${s.usuario_id}" style="cursor:pointer">
+        $('cajaResumenBody').innerHTML = cajaSaldos.map(s => { const dc = desdeCuadre(s.usuario_id); return `<tr data-id="${s.usuario_id}" style="cursor:pointer">
             <td class="fw-semibold">${esc(s.usuario)}${s.usuario_id === perfil.id ? ' <span class="badge text-bg-light">mi caja</span>' : ''}</td><td>${esc(s.tienda)}</td>
-            <td class="num">${fmtQ(s.entradas)}</td><td class="num">${fmtQ(s.salidas)}</td>
-            <td class="num fw-semibold ${num(s.saldo) < -0.005 ? 'saldo-negativo' : ''}">${fmtQ(s.saldo)}</td><td>${fmtFecha(s.ultimo_movimiento)}</td></tr>`).join('')
-            || '<tr><td colspan="6" class="text-muted">Todavía no hay movimientos de caja.</td></tr>';
+            <td>${dc.ult ? fmtFecha(dc.ult.fecha) : '<span class="text-muted">Nunca</span>'}</td>
+            <td class="num">${fmtQ(dc.entradas)}</td><td class="num">${fmtQ(dc.salidas)}</td>
+            <td class="num fw-semibold ${num(s.saldo) < -0.005 ? 'saldo-negativo' : ''}">${fmtQ(s.saldo)}</td><td>${fmtFecha(s.ultimo_movimiento)}</td></tr>`; }).join('')
+            || '<tr><td colspan="7" class="text-muted">Todavía no hay movimientos de caja.</td></tr>';
     }
 
     // Formulario: solo en la caja propia (o cualquiera, el admin)
@@ -2571,6 +2575,8 @@ function renderCaja() {
             <td class="text-end">${borrable ? `<button type="button" class="btn btn-outline-danger btn-sm caja-borrar" data-id="${m.id}" title="Eliminar"><i class="bi bi-trash"></i></button>` : ''}</td></tr>`;
     }).join('') || `<tr><td colspan="10" class="text-muted">Sin movimientos${desde || hasta ? ' en esas fechas' : ''}.</td></tr>`;
     $('cajaInfo').textContent = `${d.length} movimiento(s)`;
+    $('cajaCuadrar').disabled = !uid;
+    renderCuadresCaja();
 }
 
 function guardarMovimientoCaja(e) {
@@ -2592,6 +2598,82 @@ function guardarMovimientoCaja(e) {
         ['cajaValor', 'cajaObs', 'cajaConcepto'].forEach(id => $(id).value = '');
         loadCaja();
     });
+}
+
+// ---- Cuadre (arqueo) de caja: el admin cuenta el efectivo; la caja queda en cero
+let cajaCuadres = [], cuadreModal;
+
+function registrarCuadreCaja() {
+    cuadreModal = new bootstrap.Modal($('cuadreCajaModal'));
+    $('cajaCuadrar').addEventListener('click', abrirCuadreCaja);
+    $('cuadreContado').addEventListener('input', difCuadre);
+    $('cuadreGuardar').addEventListener('click', guardarCuadreCaja);
+    $('cajaCuadresBody').addEventListener('click', e => { const b = e.target.closest('.cuadre-anular'); if (b) anularCuadreCaja(Number(b.dataset.id)); });
+    $('intVendExcel').addEventListener('click', exportarResumenVendedores);
+    $('intInvExcel').addEventListener('click', exportarCuadreInventario);
+    $('intIrCaja').addEventListener('click', () => bootstrap.Tab.getOrCreateInstance($('caja-tab')).show());
+}
+
+function difCuadre() {
+    const sis = saldoCaja(cajaUsuarioElegido()), cont = $('cuadreContado').value === '' ? null : num($('cuadreContado').value);
+    if (cont === null) { $('cuadreDif').textContent = '—'; $('cuadreDif').className = ''; return; }
+    const d = Math.round((cont - sis) * 100) / 100;
+    $('cuadreDif').textContent = Math.abs(d) < 0.005 ? 'Cuadra' : `${d > 0 ? 'Sobrante' : 'Faltante'} ${fmtQ(Math.abs(d))}`;
+    $('cuadreDif').className = Math.abs(d) < 0.005 ? 'text-success' : d > 0 ? 'text-primary' : 'text-danger';
+}
+
+function abrirCuadreCaja() {
+    const uid = cajaUsuarioElegido();
+    if (!esAdmin()) return;
+    if (!uid) { showAlert('Elija la caja de un usuario (arriba o en la tabla "Caja por usuario") para cuadrarla.', 'warning'); return; }
+    $('cuadreCajaTitulo').textContent = `Cuadrar caja de ${nombreCaja(uid)}`;
+    $('cuadreSistema').textContent = fmtQ(saldoCaja(uid));
+    $('cuadreContado').value = ''; $('cuadreObs').value = ''; $('cuadreFecha').value = hoyISO();
+    difCuadre();
+    cuadreModal.show();
+    setTimeout(() => $('cuadreContado').focus(), 300);
+}
+
+function guardarCuadreCaja() {
+    const uid = cajaUsuarioElegido();
+    if ($('cuadreContado').value === '' || num($('cuadreContado').value) < 0) { showAlert('Escriba el efectivo contado (puede ser 0).', 'warning'); $('cuadreContado').focus(); return; }
+    const cont = Math.round(num($('cuadreContado').value) * 100) / 100, sis = saldoCaja(uid), d = Math.round((cont - sis) * 100) / 100;
+    if (!confirm(`¿Registrar el cuadre de la caja de ${nombreCaja(uid)}?\n\nSegún sistema: ${fmtQ(sis)}\nContado: ${fmtQ(cont)}\n${Math.abs(d) < 0.005 ? 'Cuadra.' : `${d > 0 ? 'Sobrante' : 'Faltante'}: ${fmtQ(Math.abs(d))}`}\n\nLa caja queda en Q 0.00.`)) return;
+    run(async () => {
+        ok(await sb.rpc('cuadrar_caja', { p_usuario: uid, p_contado: cont, p_fecha: $('cuadreFecha').value || null, p_observaciones: $('cuadreObs').value.trim() || null }));
+        cuadreModal.hide();
+        showAlert(`Caja de ${nombreCaja(uid)} cuadrada${Math.abs(d) < 0.005 ? '' : ` con ${d > 0 ? 'sobrante' : 'faltante'} de ${fmtQ(Math.abs(d))}`}. Queda en Q 0.00.`, 'success');
+        loadCaja();
+    });
+}
+
+function anularCuadreCaja(id) {
+    const c = cajaCuadres.find(x => x.id === id);
+    if (!c || !confirm(`¿Anular el cuadre N° ${id} (${fmtFecha(c.fecha)}, contado ${fmtQ(c.contado)})?\n\nSe borran su entrega y su diferencia: la caja vuelve a tener ese efectivo.`)) return;
+    run(async () => {
+        ok(await sb.rpc('anular_cuadre_caja', { p_id: id }));
+        showAlert(`Cuadre N° ${id} anulado`, 'success');
+        loadCaja();
+    });
+}
+
+// Último cuadre de una caja y lo que se movió desde entonces
+function desdeCuadre(uid) {
+    const ult = cajaCuadres.find(c => c.usuario_id === uid);   // vienen del más reciente al más antiguo
+    const movs = cajaMovs.filter(m => m.usuario_id === uid && m.origen !== 'CUADRE' && (!ult || m.created_at > ult.created_at));
+    const s = t => movs.filter(m => m.tipo === t).reduce((a, m) => a + num(m.valor), 0);
+    return { ult, entradas: s('ENTRADA'), salidas: s('SALIDA') };
+}
+
+function renderCuadresCaja() {
+    const uid = cajaUsuarioElegido();
+    const lista = cajaCuadres.filter(c => !uid || c.usuario_id === uid);
+    $('cajaCuadresBox').classList.toggle('d-none', !veEquipo() || !lista.length);
+    $('cajaCuadresBody').innerHTML = lista.map(c => `<tr><td>${c.id}</td><td>${fmtFecha(c.fecha)}</td><td>${esc(nombreCaja(c.usuario_id))}</td>
+        <td class="num">${fmtQ(c.saldo_sistema)}</td><td class="num">${fmtQ(c.contado)}</td>
+        <td class="num ${num(c.diferencia) < -0.005 ? 'text-danger fw-semibold' : num(c.diferencia) > 0.005 ? 'text-primary fw-semibold' : ''}">${Math.abs(num(c.diferencia)) < 0.005 ? 'Cuadra' : (num(c.diferencia) > 0 ? '+' : '') + fmtQ(c.diferencia)}</td>
+        <td class="small">${esc(c.observaciones)}</td><td class="small">${esc(nombreUsuario(c.creado_por) || '')}</td>
+        <td class="text-end">${esAdmin() ? `<button type="button" class="btn btn-outline-danger btn-sm cuadre-anular" data-id="${c.id}" title="Anular cuadre" aria-label="Anular cuadre ${c.id}"><i class="bi bi-x-circle"></i></button>` : ''}</td></tr>`).join('');
 }
 
 // Liquidar: salida por todo el efectivo de la caja (se confirma al guardar)
@@ -3330,13 +3412,15 @@ const REPORTES = [
             const hoy = hoyISO();
             const ini = desde || new Date(Date.UTC(Number(hoy.slice(0, 4)), Number(hoy.slice(5, 7)) - 12, 1)).toISOString().slice(0, 10);
             const filas = ok(await sb.rpc('cuadre_tiendas', { p_desde: ini, p_hasta: hasta || hoy, p_tienda: tienda || null }));
+            const gr = {};
+            filas.filter(r => r.dimension === 'vendedor').forEach(r => gr[`${String(r.mes).slice(0, 10)}|${r.clave}`] = r.ventas_gr);
             return filas.filter(r => r.dimension === 'comision')
-                .map(r => ({ ...r, mes: String(r.mes).slice(0, 10), _mes: nombreMes(String(r.mes).slice(0, 10)) }))
+                .map(r => ({ ...r, ventas_gr: gr[`${String(r.mes).slice(0, 10)}|${r.clave}`] ?? null, mes: String(r.mes).slice(0, 10), _mes: nombreMes(String(r.mes).slice(0, 10)) }))
                 .sort((a, b) => b.mes.localeCompare(a.mes) || a.clave.localeCompare(b.clave) || String(a.esquema).localeCompare(String(b.esquema)));
         },
         columnas: [
             ['_mes', 'Mes', 'texto', 1], ['clave', 'Vendedor', 'texto', 1], ['esquema', 'Esquema', 'texto', 1],
-            ['ventas_q', 'Ventas evaluadas', 'dinero', 1], ['meta', 'Meta evaluada', 'dinero', 1],
+            ['ventas_gr', 'Gramos vendidos', 'num', 1], ['ventas_q', 'Ventas evaluadas', 'dinero', 1], ['meta', 'Meta evaluada', 'dinero', 1],
             ['cumplimiento', 'Cumplimiento', 'pct', 1], ['comision_pct', 'Tramo aplicado', 'pct', 1], ['comision', 'Comisión', 'dinero', 1],
         ],
     },
@@ -4189,6 +4273,7 @@ function rangoPeriodo() {
     const hace = meses => { const d = new Date(Date.UTC(y, m - 1 - meses, 1)); return d.toISOString().slice(0, 10); };
     switch ($('intPeriodo').value) {
         case 'mes': return [hace(0), hoy];
+        case 'mesant': return [hace(1), new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10)];
         case '3m': return [hace(2), hoy];
         case '12m': return [hace(11), hoy];
         case 'anio': return [`${y}-01-01`, hoy];
@@ -4214,11 +4299,87 @@ function loadInteligencia() {
             }
         }
         const vendedor = veEquipo() ? $('intVendedor').value : '';
-        indicadores = ok(await sb.rpc('indicadores_comerciales', {
-            p_desde: desde, p_hasta: hasta, p_tienda: $('intBodega').value || null, ...(vendedor ? { p_vendedor: vendedor } : {}),
-        }));
+        const tienda = $('intBodega').value || null;
+        [indicadores, abonosInt, resumenInt] = await Promise.all([
+            sb.rpc('indicadores_comerciales', { p_desde: desde, p_hasta: hasta, p_tienda: tienda, ...(vendedor ? { p_vendedor: vendedor } : {}) }).then(ok),
+            sb.rpc('abonos_periodo', { p_desde: desde, p_hasta: hasta, p_tienda: tienda, p_vendedor: vendedor || null }).then(r => r.error ? null : r.data),
+            esAdmin() ? sb.rpc('resumen_admin', { p_desde: desde, p_hasta: hasta, p_tienda: tienda }).then(r => r.error ? null : r.data) : null,
+        ]);
         renderInteligencia();
+        renderResumenAdmin();
     });
+}
+
+// ---- Abonos recibidos y resumen del administrador (vendedores, cuadre de inventario, arqueo de cajas)
+let abonosInt = null, resumenInt = null;
+const textoPeriodoInt = () => {
+    const [d, h] = rangoPeriodo();
+    return d || h ? `· ${d ? fmtFecha(d) : 'inicio'} al ${fmtFecha(h || hoyISO())}` : '· todo el historial';
+};
+
+function renderResumenAdmin() {
+    const fila = (a, b) => `<div class="fila"><span>${a}</span><b>${b}</b></div>`;
+    const a = abonosInt;
+    $('kpiAbonosPeriodo').textContent = textoPeriodoInt().replace('· ', '(') + ')';
+    $('kpiAbonos').textContent = a ? fmtQ(a.total) : '—';
+    $('kpiAbonosSub').innerHTML = a ? fila('Pagos recibidos', `${a.pagos} · ${a.clientes} cliente(s)`)
+        + (a.por_metodo || []).map(m => fila(esc(m.metodo), fmtQ(m.valor))).join('')
+        + (num(a.contado) ? fila('Ventas de contado (aparte)', fmtQ(a.contado)) : '')
+        : '<span class="small text-muted">Ejecute el script 32 en Supabase para ver los abonos.</span>';
+
+    const r = resumenInt;
+    if (!esAdmin()) return;
+    if (!r) { $('intVendBody').innerHTML = '<tr><td colspan="9" class="text-muted">Ejecute el script 32 en Supabase para ver el resumen.</td></tr>'; return; }
+    const per = `· ${fmtFecha(r.desde)} al ${fmtFecha(r.hasta)}`;
+    ['intAdminPeriodo', 'intInvPeriodo', 'intCajaPeriodo'].forEach(id => $(id).textContent = per);
+    const suma = (l, k) => l.reduce((t, x) => t + num(x[k]), 0);
+    const neg = v => num(v) < -0.005 ? 'saldo-negativo' : '';
+
+    const v = r.vendedores || [];
+    $('intVendBody').innerHTML = v.map(x => `<tr><td class="fw-semibold">${esc(x.vendedor)}${x.esquema ? `<div class="small text-muted">${esc(x.esquema)}</div>` : ''}</td>
+        <td class="num">${fmtQ(x.ventas_q)}</td><td class="num">${fmtG(x.ventas_gr)}</td><td class="num">${fmtQ(x.cobrado)}</td>
+        <td class="num">${num(x.contado) ? fmtQ(x.contado) : '—'}</td><td class="num fw-semibold">${fmtQ(x.comision)}</td>
+        <td class="num">${num(x.meta) ? fmtQ(x.meta) : '—'}</td><td class="num">${x.cumplimiento === null || x.cumplimiento === undefined ? '—' : fmtPct(x.cumplimiento)}</td>
+        <td class="num ${neg(x.caja)}">${x.caja === null || x.caja === undefined ? '—' : fmtQ(x.caja)}</td></tr>`).join('')
+        || '<tr><td colspan="9" class="text-muted">Sin ventas ni cobros en el periodo.</td></tr>';
+    $('intVendFoot').innerHTML = v.length ? `<tr><td>Total</td><td class="num">${fmtQ(suma(v, 'ventas_q'))}</td><td class="num">${fmtG(suma(v, 'ventas_gr'))}</td>
+        <td class="num">${fmtQ(suma(v, 'cobrado'))}</td><td class="num">${fmtQ(suma(v, 'contado'))}</td><td class="num">${fmtQ(suma(v, 'comision'))}</td>
+        <td class="num">${fmtQ(suma(v, 'meta'))}</td><td></td><td class="num">${fmtQ(suma(v, 'caja'))}</td></tr>` : '';
+
+    const inv = r.inventario || [];
+    const varios = new Set(inv.map(x => x.producto)).size > 1;
+    const c = x => `<td class="num ${neg(x)}">${fmt(x)}</td>`;
+    $('intInvBody').innerHTML = inv.map(x => `<tr><td class="fw-semibold">${esc(x.tienda)}${varios ? ` <span class="small text-muted">${esc(x.producto)}</span>` : ''}</td>
+        ${c(x.inicial)}${c(x.ingresos)}${c(x.traslados_recibidos)}${c(x.traslados_enviados)}${c(x.ventas)}${c(x.otras_salidas)}
+        <td class="num fw-semibold ${neg(x.final)}">${fmtG(x.final)}</td></tr>`).join('')
+        || '<tr><td colspan="8" class="text-muted">No hay inventario en gramos.</td></tr>';
+    $('intInvFoot').innerHTML = inv.length ? `<tr><td>Total general</td>${['inicial', 'ingresos', 'traslados_recibidos', 'traslados_enviados', 'ventas', 'otras_salidas'].map(k => c(suma(inv, k))).join('')}
+        <td class="num ${neg(suma(inv, 'final'))}">${fmtG(suma(inv, 'final'))}</td></tr>` : '';
+
+    const cj = r.cajas || [];
+    $('intCajaBody').innerHTML = cj.map(x => `<tr><td class="fw-semibold">${esc(x.usuario)}</td><td>${esc(x.tienda)}</td>
+        <td>${x.ultimo_cuadre ? fmtFecha(x.ultimo_cuadre) : '<span class="text-muted">Nunca</span>'}</td>
+        <td class="num">${fmtQ(x.entradas)}</td><td class="num">${fmtQ(x.salidas)}</td><td class="num fw-semibold ${neg(x.saldo)}">${fmtQ(x.saldo)}</td></tr>`).join('')
+        || '<tr><td colspan="6" class="text-muted">Sin movimientos de caja.</td></tr>';
+    $('intCajaFoot').innerHTML = cj.length ? `<tr><td colspan="3">Total</td><td class="num">${fmtQ(suma(cj, 'entradas'))}</td><td class="num">${fmtQ(suma(cj, 'salidas'))}</td>
+        <td class="num">${fmtQ(suma(cj, 'saldo'))}</td></tr>` : '';
+}
+
+function exportarResumenVendedores() {
+    if (!resumenInt) return;
+    exportarExcel('Vendedores', 'Vendedores', (resumenInt.vendedores || []).map(x => ({
+        'Vendedor': x.vendedor, 'Esquema': x.esquema, 'Ventas Q': num(x.ventas_q), 'Gramos vendidos': num(x.ventas_gr),
+        'Cobrado (abonos)': num(x.cobrado), 'Ventas de contado': num(x.contado), 'Comisión': num(x.comision), 'Meta': num(x.meta),
+        'Cumplimiento %': x.cumplimiento === null ? null : num(x.cumplimiento), 'Efectivo en caja': x.caja === null ? null : num(x.caja),
+        'Desde': aFecha(resumenInt.desde), 'Hasta': aFecha(resumenInt.hasta) })));
+}
+
+function exportarCuadreInventario() {
+    if (!resumenInt) return;
+    exportarExcel('Cuadre_inventario', 'Inventario', (resumenInt.inventario || []).map(x => ({
+        'Bodega': x.tienda, 'Producto': x.producto, 'Inventario inicial': num(x.inicial), 'Ingresos': num(x.ingresos),
+        'Traslados recibidos': num(x.traslados_recibidos), 'Traslados enviados': num(x.traslados_enviados), 'Ventas': num(x.ventas),
+        'Otras salidas': num(x.otras_salidas), 'Inventario final': num(x.final), 'Desde': aFecha(resumenInt.desde), 'Hasta': aFecha(resumenInt.hasta) })));
 }
 
 function renderInteligencia() {

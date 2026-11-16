@@ -141,6 +141,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `29_devoluciones_clientes.sql` | **Devoluciones de clientes** desde el pedido: `registrar_devolucion` (total o parcial, sin pasar de lo vendido) reduce la cuenta por cobrar del envío y regresa la cantidad al inventario de la tienda de la venta; `eliminar_devolucion` revierte ambas cosas. |
 | `30_listado_pedidos_devoluciones.sql` | **Listado de pedidos y módulo de Devoluciones**: `listar_pedidos` (todos los pedidos/facturas, paginado de a 1000, filtro por texto, factura y fechas, con lo ya devuelto; cada vendedor ve solo lo suyo) y `listar_devoluciones`. |
 | `31_inventario_fisico.sql` | **Inventario físico** (solo administrador): conteo pieza por pieza por bodega y producto en gramos; al cerrar guarda el saldo del sistema y la diferencia; al aprobar registra el ajuste (entrada si sobra, salida si falta). Estados EN_CONTEO → CERRADO → APROBADO / ANULADO. |
+| `32_resumen_admin_y_cuadre_caja.sql` | **Resumen del administrador y cuadre de caja**: `abonos_periodo` (abonos recibidos, con permisos), `resumen_admin` (por vendedor: ventas Q/gramos, cobrado, comisión, meta, caja; cuadre de inventario en gramos inicial + ingresos ± traslados − ventas − otras salidas = final; arqueo de cajas) y `cuadrar_caja` / `anular_cuadre_caja` (arqueo: registra entrega y faltante/sobrante; la caja queda en cero). |
 
 ## Despliegue en Vercel
 
