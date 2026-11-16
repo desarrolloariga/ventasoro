@@ -140,6 +140,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `28_cobros_efectivo_caja.sql` | Los **cobros con método EFECTIVO** registrados en Pagos entran solos a la caja menor de quien los registró (origen PAGO) y se ajustan si el pago cambia o se elimina. Carga los cobros en efectivo desde el 18-oct-2026. |
 | `29_devoluciones_clientes.sql` | **Devoluciones de clientes** desde el pedido: `registrar_devolucion` (total o parcial, sin pasar de lo vendido) reduce la cuenta por cobrar del envío y regresa la cantidad al inventario de la tienda de la venta; `eliminar_devolucion` revierte ambas cosas. |
 | `30_listado_pedidos_devoluciones.sql` | **Listado de pedidos y módulo de Devoluciones**: `listar_pedidos` (todos los pedidos/facturas, paginado de a 1000, filtro por texto, factura y fechas, con lo ya devuelto; cada vendedor ve solo lo suyo) y `listar_devoluciones`. |
+| `31_inventario_fisico.sql` | **Inventario físico** (solo administrador): conteo pieza por pieza por bodega y producto en gramos; al cerrar guarda el saldo del sistema y la diferencia; al aprobar registra el ajuste (entrada si sobra, salida si falta). Estados EN_CONTEO → CERRADO → APROBADO / ANULADO. |
 
 ## Despliegue en Vercel
 

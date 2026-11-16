@@ -372,7 +372,7 @@
               </div>
               <div class="menu-grupo">
                 <button type="button" class="menu-rotulo" aria-expanded="true" data-grupo="INVENTARIO"><span>INVENTARIO</span><i class="bi bi-chevron-down"></i></button>
-                <button class="nav-link menu-item" id="inventario-tab" data-bs-toggle="tab" data-bs-target="#inventario" type="button" role="tab" data-titulo="Inventario" data-migaja="INVENTARIO"><span class="rombo"></span><i class="bi bi-box-seam"></i><span class="menu-texto">Inventario</span><span class="menu-insignia d-none" id="badgeTrasladosMenu"></span></button>
+                <button class="nav-link menu-item" id="inventario-tab" data-bs-toggle="tab" data-bs-target="#inventario" type="button" role="tab" data-titulo="Inventario" data-migaja="INVENTARIO"><span class="rombo"></span><i class="bi bi-box-seam"></i><span class="menu-texto">Inventario</span><span class="menu-insignia d-none" id="badgeTrasladosMenu"></span></button><button class="nav-link menu-item solo-admin d-none" id="invfisico-tab" data-bs-toggle="tab" data-bs-target="#invfisico" type="button" role="tab" data-titulo="Inventario físico" data-migaja="INVENTARIO"><span class="rombo"></span><i class="bi bi-clipboard-check"></i><span class="menu-texto">Inventario físico</span></button>
               </div>
               <div class="menu-grupo">
                 <button type="button" class="menu-rotulo" aria-expanded="true" data-grupo="ADMINISTRACIÓN"><span>ADMINISTRACIÓN</span><i class="bi bi-chevron-down"></i></button>
@@ -1357,6 +1357,74 @@
                       </table>
                     </div>
                     <div class="form-text">Solo el <b>oro (gramos)</b> descuenta inventario en gramos y entra en el promedio de venta por gramo. Los productos y servicios nuevos se crean en <b>Maestros → Productos y servicios</b>.<span class="solo-admin d-none"> Aquí puede cambiar la categoría y activar o desactivar cada uno.</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pestaña: Inventario físico (solo administradores) -->
+            <div class="tab-pane fade" id="invfisico" role="tabpanel">
+              <div class="mt-3" id="ifListaVista">
+                <div class="card mb-3">
+                  <div class="card-header card-header-custom"><i class="bi bi-clipboard-plus me-2"></i> Nuevo inventario físico</div>
+                  <div class="card-body">
+                    <form class="row g-2 align-items-end" id="ifNuevoForm">
+                      <div class="col-12 col-md-4"><label class="form-label" for="ifTienda">Bodega</label><select class="form-select" id="ifTienda" required></select></div>
+                      <div class="col-6 col-md-3"><label class="form-label" for="ifProducto">Producto (gramos)</label><select class="form-select" id="ifProducto" required></select></div>
+                      <div class="col-6 col-md-2"><label class="form-label" for="ifFecha">Fecha del conteo</label><input type="date" class="form-control" id="ifFecha" required></div>
+                      <div class="col-12 col-md-3"><button type="submit" class="btn btn-gold w-100"><i class="bi bi-play-fill me-1"></i> Iniciar conteo</button></div>
+                    </form>
+                    <div class="form-text">Se cuenta pieza por pieza con su gramaje. El sistema compara el total contado con el saldo del sistema de esa bodega; el ajuste solo se hace cuando el administrador aprueba el cierre.</div>
+                  </div>
+                </div>
+                <div class="card">
+                  <div class="card-header card-header-custom d-flex justify-content-between align-items-center"><span><i class="bi bi-clipboard-data me-2"></i> Inventarios físicos</span>
+                    <select class="form-select form-select-sm w-auto" id="ifFiltroEstado" aria-label="Estado"><option value="">Todos</option><option value="EN_CONTEO">En conteo</option><option value="CERRADO">Por aprobar</option><option value="APROBADO">Aprobados</option><option value="ANULADO">Anulados</option></select></div>
+                  <div class="card-body">
+                    <div class="table-responsive tabla-scroll">
+                      <table class="table table-sm table-hover table-bordered align-middle mb-0">
+                        <thead class="table-light sticky-top"><tr><th>N°</th><th>Fecha</th><th>Bodega</th><th>Producto</th><th>Estado</th><th class="num">Piezas</th><th class="num">Físico</th><th class="num">Sistema</th><th class="num">Diferencia</th><th></th></tr></thead>
+                        <tbody id="ifListaBody"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-3 d-none" id="ifDetalleVista">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                  <div><button type="button" class="btn btn-outline-secondary btn-sm me-2" id="ifVolver"><i class="bi bi-arrow-left"></i> Volver</button>
+                    <span class="fs-5 fw-semibold" id="ifTitulo"></span> <span id="ifEstado"></span></div>
+                  <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="ifAnular"><i class="bi bi-x-circle me-1"></i> Anular</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="ifReabrir"><i class="bi bi-unlock me-1"></i> Reabrir conteo</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="ifPdf"><i class="bi bi-file-earmark-pdf me-1"></i> PDF del cierre</button>
+                    <button type="button" class="btn btn-gold btn-sm" id="ifCerrar"><i class="bi bi-lock me-1"></i> Cerrar conteo</button>
+                    <button type="button" class="btn btn-success btn-sm" id="ifAprobar"><i class="bi bi-check2-circle me-1"></i> Aprobar y ajustar inventario</button>
+                  </div>
+                </div>
+                <div class="small text-muted mb-3" id="ifInfo"></div>
+                <div class="row g-3 mb-3" id="ifResumen"></div>
+                <div class="card mb-3" id="ifCaptura">
+                  <div class="card-body py-3">
+                    <form class="row g-2 align-items-end" id="ifPiezaForm">
+                      <div class="col-12 col-md-6"><label class="form-label" for="ifPiezaDesc">Pieza (descripción, opcional)</label><input type="text" class="form-control" id="ifPiezaDesc" placeholder="Ej. cadena cartier 50 cm" autocomplete="off"></div>
+                      <div class="col-7 col-md-3"><label class="form-label" for="ifPiezaGramos">Gramos</label><input type="number" class="form-control text-end" id="ifPiezaGramos" step="0.01" min="0.01" required inputmode="decimal"></div>
+                      <div class="col-5 col-md-3"><button type="submit" class="btn btn-gold w-100"><i class="bi bi-plus-lg me-1"></i> Agregar pieza</button></div>
+                    </form>
+                    <div class="form-text">Escriba el gramaje y presione Enter para agregar la pieza; el cursor queda listo para la siguiente.</div>
+                  </div>
+                </div>
+                <div class="card">
+                  <div class="card-header card-header-custom d-flex justify-content-between align-items-center"><span><i class="bi bi-list-ol me-2"></i> Piezas contadas</span><span class="small" id="ifPiezasTotal"></span></div>
+                  <div class="card-body">
+                    <div class="table-responsive tabla-scroll">
+                      <table class="table table-sm table-hover table-bordered align-middle mb-0">
+                        <thead class="table-light sticky-top"><tr><th class="num" style="width: 70px">#</th><th>Descripción</th><th class="num" style="width: 160px">Gramos</th><th style="width: 60px"></th></tr></thead>
+                        <tbody id="ifPiezasBody"></tbody>
+                      </table>
+                    </div>
+                    <div class="mt-3"><label class="form-label" for="ifObs">Observaciones del cierre</label><textarea class="form-control" id="ifObs" rows="2" placeholder="Opcional: aparece en el PDF"></textarea></div>
                   </div>
                 </div>
               </div>

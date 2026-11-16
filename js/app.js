@@ -490,6 +490,7 @@ function registrarEventos() {
     registrarDevoluciones();
     registrarModuloDevoluciones();
     registrarProductos();
+    registrarInventarioFisico();
     registrarVerificacion();
     registrarCuadre();
     $('usuarioForm').addEventListener('submit', agregarUsuario);
@@ -3738,6 +3739,245 @@ async function cargarMaestros() {
 
     Object.keys(MAESTROS).forEach(renderMaestro);
     if ($('productos')?.classList.contains('active')) renderProductos();
+}
+
+// ---------------------------------------------------------------- inventario físico (solo administradores)
+let ifConteo = null, ifPiezas = [], ifTeoricoActual = 0;
+const IF_ESTADOS = { EN_CONTEO: ['En conteo', 'text-bg-primary'], CERRADO: ['Por aprobar', 'text-bg-warning'], APROBADO: ['Aprobado', 'text-bg-success'], ANULADO: ['Anulado', 'text-bg-secondary'] };
+const ifBadge = e => `<span class="badge ${IF_ESTADOS[e]?.[1] || ''}">${IF_ESTADOS[e]?.[0] || esc(e)}</span>`;
+const fmtGr = v => `${fmt(v)} g`;
+const fmtFechaHora = t => t ? new Date(t).toLocaleString('es-GT', { timeZone: CFG.ZONA_HORARIA, dateStyle: 'short', timeStyle: 'short' }) : '';
+
+function registrarInventarioFisico() {
+    $('invfisico-tab').addEventListener('shown.bs.tab', () => { if ($('ifDetalleVista').classList.contains('d-none')) cargarInventariosFisicos(); else abrirInventarioFisico(ifConteo.id); });
+    $('ifFiltroEstado').addEventListener('change', () => cargarInventariosFisicos());
+    $('ifNuevoForm').addEventListener('submit', e => { e.preventDefault(); nuevoInventarioFisico(); });
+    $('ifListaBody').addEventListener('click', e => { const b = e.target.closest('.if-abrir'); if (b) abrirInventarioFisico(Number(b.dataset.id)); });
+    $('ifVolver').addEventListener('click', () => { $('ifDetalleVista').classList.add('d-none'); $('ifListaVista').classList.remove('d-none'); ifConteo = null; cargarInventariosFisicos(); });
+    $('ifPiezaForm').addEventListener('submit', e => { e.preventDefault(); agregarPieza(); });
+    $('ifPiezasBody').addEventListener('click', e => { const b = e.target.closest('.if-quitar'); if (b) quitarPieza(Number(b.dataset.id)); });
+    $('ifObs').addEventListener('change', () => { if (ifConteo && ifConteo.estado !== 'APROBADO' && ifConteo.estado !== 'ANULADO')
+        run(async () => { ok(await sb.from('inventarios_fisicos').update({ observaciones: $('ifObs').value.trim() || null }).eq('id', ifConteo.id)); ifConteo.observaciones = $('ifObs').value.trim(); }); });
+    $('ifCerrar').addEventListener('click', cerrarInventarioFisico);
+    $('ifReabrir').addEventListener('click', () => accionInventarioFisico('reabrir_inventario_fisico', '¿Reabrir el conteo para corregir piezas?\n\nSe borra el saldo del sistema guardado; se vuelve a tomar al cerrar.', 'Conteo reabierto'));
+    $('ifAnular').addEventListener('click', () => accionInventarioFisico('anular_inventario_fisico', '¿Anular este inventario físico?\n\nNo se hace ningún ajuste.', 'Inventario físico anulado'));
+    $('ifAprobar').addEventListener('click', aprobarInventarioFisico);
+    $('ifPdf').addEventListener('click', () => run(pdfInventarioFisico));
+}
+
+function cargarInventariosFisicos() {
+    run(async () => {
+        if (!maestros.tiendas?.length) await cargarMaestros();
+        const gramos = (maestros.tipos || []).filter(t => t.activo !== false && unidadDeTipo(t) === 'GRAMOS').map(t => t.nombre);
+        const ant = { t: $('ifTienda').value, p: $('ifProducto').value };
+        $('ifTienda').innerHTML = '<option value="">Seleccione bodega...</option>' + maestros.tiendas.filter(t => t.activo !== false)
+            .map(t => `<option value="${esc(t.nombre)}">${esc(t.nombre)}</option>`).join('');
+        $('ifProducto').innerHTML = gramos.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('') || '<option value="">(no hay productos en gramos)</option>';
+        if (ant.t) $('ifTienda').value = ant.t;
+        if (ant.p && gramos.includes(ant.p)) $('ifProducto').value = ant.p;
+        if (!$('ifFecha').value) $('ifFecha').value = hoyISO();
+        let qy = sb.from('inventarios_fisicos_lista').select('*').order('id', { ascending: false });
+        if ($('ifFiltroEstado').value) qy = qy.eq('estado', $('ifFiltroEstado').value);
+        const d = ok(await qy);
+        $('ifListaBody').innerHTML = d.map(c => {
+            const cerrado = c.estado === 'CERRADO' || c.estado === 'APROBADO';
+            const fis = cerrado ? num(c.fisico) : num(c.gramos_actuales), dif = cerrado ? num(c.fisico) - num(c.teorico) : null;
+            return `<tr><td class="fw-semibold">${c.id}</td><td>${fmtFecha(c.fecha)}</td><td>${esc(c.tienda)}</td><td>${esc(c.producto)}</td><td>${ifBadge(c.estado)}</td>
+              <td class="num">${cerrado ? c.piezas : c.piezas_actuales}</td><td class="num">${fmtGr(fis)}</td><td class="num">${cerrado ? fmtGr(c.teorico) : '—'}</td>
+              <td class="num ${dif === null ? '' : dif < -0.005 ? 'text-danger fw-semibold' : dif > 0.005 ? 'text-success fw-semibold' : ''}">${dif === null ? '—' : (dif > 0 ? '+' : '') + fmtGr(dif)}</td>
+              <td><button type="button" class="btn btn-gold btn-sm if-abrir" data-id="${c.id}">${c.estado === 'EN_CONTEO' ? 'Continuar' : 'Ver'}</button></td></tr>`;
+        }).join('') || '<tr><td colspan="10" class="text-muted">No hay inventarios físicos.</td></tr>';
+    });
+}
+
+function nuevoInventarioFisico() {
+    const tienda = $('ifTienda').value, producto = $('ifProducto').value;
+    if (!tienda || !producto) { showAlert('Elija la bodega y el producto.', 'warning'); return; }
+    run(async () => {
+        const { data, error } = await sb.from('inventarios_fisicos').insert({ tienda, producto, fecha: $('ifFecha').value || hoyISO() }).select().single();
+        if (error) throw new Error(/inventarios_fisicos_abierto|duplicate/.test(error.message)
+            ? `Ya hay un inventario físico abierto o por aprobar de ${producto} en ${tienda}. Termínelo o anúlelo antes de iniciar otro.` : error.message);
+        showAlert(`Inventario físico N° ${data.id} iniciado en ${tienda}`, 'success');
+        await abrirInventarioFisico(data.id);
+    });
+}
+
+function abrirInventarioFisico(id) {
+    return run(async () => {
+        const [c, piezas] = await Promise.all([
+            sb.from('inventarios_fisicos_lista').select('*').eq('id', id).single().then(ok),
+            fetchAll(() => sb.from('inventario_fisico_piezas').select('*').eq('conteo_id', id).order('id')),
+        ]);
+        ifConteo = c; ifPiezas = piezas;
+        ifTeoricoActual = num(ok(await sb.rpc('saldo_teorico', { p_tienda: c.tienda, p_producto: c.producto })));
+        $('ifListaVista').classList.add('d-none'); $('ifDetalleVista').classList.remove('d-none');
+        renderInventarioFisico();
+        if (c.estado === 'EN_CONTEO') $('ifPiezaGramos').focus();
+    });
+}
+
+function renderInventarioFisico() {
+    const c = ifConteo, abierto = c.estado === 'EN_CONTEO', cerrado = c.estado === 'CERRADO' || c.estado === 'APROBADO';
+    const fisico = cerrado ? num(c.fisico) : ifPiezas.reduce((t, p) => t + num(p.gramos), 0);
+    const teorico = cerrado ? num(c.teorico) : ifTeoricoActual, dif = fisico - teorico;
+    $('ifTitulo').textContent = `Inventario físico N° ${c.id} · ${c.tienda} · ${c.producto}`;
+    $('ifEstado').innerHTML = ifBadge(c.estado);
+    $('ifInfo').innerHTML = [`Fecha del conteo ${fmtFecha(c.fecha)}`, c.creado_nombre && `iniciado por ${esc(c.creado_nombre)}`,
+        c.cerrado_at && `cerrado ${fmtFechaHora(c.cerrado_at)}${c.cerrado_nombre ? ' por ' + esc(c.cerrado_nombre) : ''}`,
+        c.aprobado_at && `aprobado ${fmtFechaHora(c.aprobado_at)}${c.aprobado_nombre ? ' por ' + esc(c.aprobado_nombre) : ''}`].filter(Boolean).join(' · ');
+    const tarjeta = (t, v, sub, clase = '') => `<div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body py-3">
+        <div class="small text-muted">${t}</div><div class="fs-4 fw-semibold ${clase}">${v}</div><div class="small text-muted">${sub}</div></div></div></div>`;
+    const tipoDif = Math.abs(dif) < 0.005 ? 'cuadra' : dif > 0 ? 'sobrante' : 'faltante';
+    $('ifResumen').innerHTML = tarjeta('Inventario del sistema', fmtGr(teorico), cerrado ? 'guardado al cerrar el conteo' : 'saldo actual de la bodega')
+        + tarjeta('Inventario físico', fmtGr(fisico), `${cerrado ? c.piezas : ifPiezas.length} pieza(s)`)
+        + tarjeta('Diferencia', `${dif > 0.005 ? '+' : ''}${fmtGr(dif)}`, tipoDif, tipoDif === 'faltante' ? 'text-danger' : tipoDif === 'sobrante' ? 'text-success' : '')
+        + tarjeta(c.estado === 'APROBADO' ? 'Ajuste aplicado' : 'Ajuste al aprobar', tipoDif === 'cuadra' ? 'Sin ajuste' : `${tipoDif === 'sobrante' ? 'Entrada' : 'Salida'} ${fmtGr(Math.abs(dif))}`,
+            c.estado === 'APROBADO' ? 'ya registrado en el inventario' : 'solo cuando el administrador apruebe');
+    $('ifCaptura').classList.toggle('d-none', !abierto);
+    $('ifPiezasBody').innerHTML = ifPiezas.map((p, i) => `<tr><td class="num text-muted">${i + 1}</td><td>${esc(p.descripcion) || '<span class="text-muted">—</span>'}</td>
+        <td class="num">${fmt(p.gramos)}</td><td class="text-end">${abierto ? `<button type="button" class="btn btn-outline-danger btn-sm if-quitar" data-id="${p.id}" title="Quitar pieza" aria-label="Quitar pieza ${i + 1}"><i class="bi bi-trash"></i></button>` : ''}</td></tr>`).join('')
+        || '<tr><td colspan="4" class="text-muted">Todavía no hay piezas contadas.</td></tr>';
+    $('ifPiezasTotal').textContent = `${ifPiezas.length} pieza(s) · ${fmtGr(ifPiezas.reduce((t, p) => t + num(p.gramos), 0))}`;
+    $('ifObs').value = c.observaciones || '';
+    $('ifObs').disabled = c.estado === 'APROBADO' || c.estado === 'ANULADO';
+    $('ifCerrar').classList.toggle('d-none', !abierto);
+    $('ifReabrir').classList.toggle('d-none', c.estado !== 'CERRADO');
+    $('ifAprobar').classList.toggle('d-none', c.estado !== 'CERRADO');
+    $('ifAnular').classList.toggle('d-none', !(abierto || c.estado === 'CERRADO'));
+    $('ifPdf').classList.toggle('d-none', !cerrado);
+}
+
+function agregarPieza() {
+    const gramos = Math.round(num($('ifPiezaGramos').value) * 100) / 100;
+    if (!(gramos > 0)) { showAlert('Escriba el gramaje de la pieza (mayor que 0).', 'warning'); $('ifPiezaGramos').focus(); return; }
+    run(async () => {
+        const p = ok(await sb.from('inventario_fisico_piezas').insert({ conteo_id: ifConteo.id, descripcion: $('ifPiezaDesc').value.trim() || null, gramos }).select().single());
+        ifPiezas.push(p);
+        $('ifPiezaGramos').value = ''; $('ifPiezaDesc').value = '';
+        renderInventarioFisico();
+        const caja = $('ifPiezasBody').closest('.tabla-scroll'); caja.scrollTop = caja.scrollHeight;
+        $('ifPiezaGramos').focus();
+    });
+}
+
+function quitarPieza(id) {
+    const i = ifPiezas.findIndex(p => p.id === id);
+    if (i < 0 || !confirm(`¿Quitar la pieza ${i + 1} (${fmtGr(ifPiezas[i].gramos)})?`)) return;
+    run(async () => {
+        ok(await sb.from('inventario_fisico_piezas').delete().eq('id', id));
+        ifPiezas.splice(i, 1);
+        renderInventarioFisico();
+    });
+}
+
+function cerrarInventarioFisico() {
+    const fisico = ifPiezas.reduce((t, p) => t + num(p.gramos), 0);
+    if (!confirm(`¿Cerrar el conteo con ${ifPiezas.length} pieza(s) y ${fmtGr(fisico)}?\n\nSe guarda el saldo del sistema de este momento para compararlo. Después podrá descargar el PDF y aprobar el ajuste.`)) return;
+    run(async () => {
+        ok(await sb.rpc('cerrar_inventario_fisico', { p_id: ifConteo.id }));
+        showAlert('Conteo cerrado. Revise el PDF y apruebe para ajustar el inventario.', 'success');
+        await abrirInventarioFisico(ifConteo.id);
+    });
+}
+
+function accionInventarioFisico(fn, pregunta, aviso) {
+    if (!confirm(pregunta)) return;
+    run(async () => {
+        ok(await sb.rpc(fn, { p_id: ifConteo.id }));
+        showAlert(aviso, 'success');
+        await abrirInventarioFisico(ifConteo.id);
+    });
+}
+
+function aprobarInventarioFisico() {
+    const c = ifConteo, dif = num(c.fisico) - num(c.teorico);
+    const ajuste = Math.abs(dif) < 0.005 ? 'El conteo cuadra con el sistema: no se hace ajuste.'
+        : `Se registrará una ${dif > 0 ? 'ENTRADA (sobrante)' : 'SALIDA (faltante)'} de ${fmtGr(Math.abs(dif))} en ${c.tienda}.`;
+    const cambio = Math.abs(ifTeoricoActual - num(c.teorico)) > 0.005
+        ? `\n\nOjo: desde el cierre el saldo del sistema cambió de ${fmtGr(c.teorico)} a ${fmtGr(ifTeoricoActual)} (ventas o movimientos posteriores). El ajuste usa la diferencia del momento del cierre.` : '';
+    if (!confirm(`¿Aprobar el inventario físico N° ${c.id}?\n\nSistema: ${fmtGr(c.teorico)}\nFísico: ${fmtGr(c.fisico)}\n\n${ajuste}${cambio}`)) return;
+    run(async () => {
+        ok(await sb.rpc('aprobar_inventario_fisico', { p_id: c.id, p_observaciones: $('ifObs').value.trim() || null }));
+        showAlert(`Inventario físico N° ${c.id} aprobado. ${Math.abs(dif) < 0.005 ? 'Sin ajuste.' : 'El inventario quedó ajustado al conteo.'}`, 'success');
+        await abrirInventarioFisico(c.id);
+    });
+}
+
+// ---- PDF del cierre (jsPDF se carga solo cuando se necesita)
+function cargarScript(src) {
+    return new Promise((res, rej) => {
+        if (document.querySelector(`script[src="${src}"]`)) return res();
+        const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('No se pudo cargar el generador de PDF. Revise la conexión.'));
+        document.head.appendChild(s);
+    });
+}
+
+async function imagenDataUrl(url) {
+    try {
+        const b = await (await fetch(url)).blob();
+        return await new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.onerror = () => r(null); f.readAsDataURL(b); });
+    } catch { return null; }
+}
+
+async function pdfInventarioFisico() {
+    await cargarScript('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+    await cargarScript('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js');
+    const c = ifConteo, dif = num(c.fisico) - num(c.teorico), cuadra = Math.abs(dif) < 0.005;
+    const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'letter' });
+    const W = doc.internal.pageSize.getWidth(), M = 15, oro = [176, 141, 87];
+    const logo = await imagenDataUrl('img/ariga-logo.png');
+    if (logo) { try { const pr = doc.getImageProperties(logo); doc.addImage(logo, 'PNG', M, 12, 18 * pr.width / pr.height, 18); } catch { /* sin logo */ } }
+    doc.setFont('helvetica', 'bold').setFontSize(15).text('CIERRE DE INVENTARIO FÍSICO', W / 2, 20, { align: 'center' });
+    doc.setFont('helvetica', 'normal').setFontSize(10).text('Joyería ARIGA', W / 2, 26, { align: 'center' });
+    doc.setFont('helvetica', 'bold').setFontSize(12).text(`N° ${c.id}`, W - M, 20, { align: 'right' });
+    doc.setFont('helvetica', 'normal').setFontSize(9).text(c.estado === 'APROBADO' ? 'APROBADO' : 'PENDIENTE DE APROBACIÓN', W - M, 26, { align: 'right' });
+    doc.setDrawColor(...oro).setLineWidth(0.6).line(M, 33, W - M, 33);
+
+    doc.autoTable({ startY: 37, theme: 'plain', styles: { fontSize: 9.5, cellPadding: 1.2 }, columnStyles: { 0: { fontStyle: 'bold', cellWidth: 42 }, 2: { fontStyle: 'bold', cellWidth: 36 } },
+        body: [['Bodega', c.tienda, 'Producto', c.producto],
+               ['Fecha del conteo', fmtFecha(c.fecha), 'Iniciado por', c.creado_nombre || ''],
+               ['Cierre del conteo', fmtFechaHora(c.cerrado_at), 'Cerrado por', c.cerrado_nombre || ''],
+               ['Aprobación', c.aprobado_at ? fmtFechaHora(c.aprobado_at) : 'Pendiente', 'Aprobado por', c.aprobado_nombre || '']] });
+
+    doc.autoTable({ startY: doc.lastAutoTable.finalY + 4, theme: 'grid', headStyles: { fillColor: oro, textColor: 255 }, styles: { fontSize: 10 },
+        columnStyles: { 1: { halign: 'right', cellWidth: 45 } },
+        head: [['Resumen', 'Gramos']],
+        body: [['Inventario del sistema (al cerrar el conteo)', fmtGr(c.teorico)],
+               [`Inventario físico contado (${c.piezas} pieza${c.piezas === 1 ? '' : 's'})`, fmtGr(c.fisico)],
+               [{ content: `Diferencia (${cuadra ? 'cuadra' : dif > 0 ? 'sobrante' : 'faltante'})`, styles: { fontStyle: 'bold' } },
+                { content: `${dif > 0.005 ? '+' : ''}${fmtGr(dif)}`, styles: { fontStyle: 'bold', textColor: cuadra ? 0 : dif > 0 ? [25, 135, 84] : [220, 53, 69] } }],
+               [c.estado === 'APROBADO' ? 'Ajuste aplicado al inventario' : 'Ajuste que se aplicará al aprobar',
+                cuadra ? 'Sin ajuste' : `${dif > 0 ? 'Entrada' : 'Salida'} ${fmtGr(Math.abs(dif))}`]] });
+
+    doc.setFont('helvetica', 'bold').setFontSize(11).text('Detalle de piezas contadas', M, doc.lastAutoTable.finalY + 9);
+    doc.autoTable({ startY: doc.lastAutoTable.finalY + 12, theme: 'striped', headStyles: { fillColor: oro, textColor: 255 }, styles: { fontSize: 9 },
+        columnStyles: { 0: { halign: 'right', cellWidth: 15 }, 2: { halign: 'right', cellWidth: 35 } },
+        head: [['#', 'Descripción', 'Gramos']],
+        body: ifPiezas.length ? ifPiezas.map((p, i) => [i + 1, p.descripcion || '', fmt(p.gramos)]) : [['', 'Sin piezas contadas', '']],
+        foot: [['', `Total ${ifPiezas.length} pieza(s)`, fmt(ifPiezas.reduce((t, p) => t + num(p.gramos), 0))]],
+        footStyles: { fillColor: [240, 240, 240], textColor: 0, fontStyle: 'bold', halign: 'right' } });
+
+    let y = doc.lastAutoTable.finalY + 8;
+    const H = doc.internal.pageSize.getHeight();
+    if (c.observaciones) {
+        const lineas = doc.setFont('helvetica', 'normal').setFontSize(9.5).splitTextToSize(`Observaciones: ${c.observaciones}`, W - 2 * M);
+        if (y + lineas.length * 5 > H - 45) { doc.addPage(); y = 20; }
+        doc.text(lineas, M, y); y += lineas.length * 5 + 4;
+    }
+    if (y > H - 45) { doc.addPage(); y = 30; }
+    y = Math.max(y + 20, H - 40);
+    const col = (W - 2 * M - 20) / 2;
+    doc.setDrawColor(0).setLineWidth(0.3).line(M, y, M + col, y).line(W - M - col, y, W - M, y);
+    doc.setFont('helvetica', 'normal').setFontSize(9)
+       .text(['Responsable del conteo', c.creado_nombre || ''], M + col / 2, y + 5, { align: 'center' })
+       .text(['Aprobado por (Administrador)', c.aprobado_nombre || ''], W - M - col / 2, y + 5, { align: 'center' });
+    const n = doc.getNumberOfPages();
+    for (let i = 1; i <= n; i++) {
+        doc.setPage(i).setFontSize(8).setTextColor(120)
+           .text(`Generado el ${fmtFechaHora(new Date())}`, M, H - 8)
+           .text(`Página ${i} de ${n}`, W - M, H - 8, { align: 'right' }).setTextColor(0);
+    }
+    doc.save(`Inventario_fisico_${c.id}_${String(c.tienda).replace(/[^\w]+/g, '_')}_${String(c.fecha).slice(0, 10)}.pdf`);
 }
 
 // ---------------------------------------------------------------- módulo de productos (configuración)
