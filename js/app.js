@@ -1427,16 +1427,16 @@ function cargarMisComisiones() {
         $('misComActual').textContent = fmtQ(actual?.comision);
         $('misComCumpl').textContent = actual?.cumplimiento != null ? fmtPct(actual.cumplimiento) : '—';
         $('misComCumplSub').textContent = actual
-            ? (actual.esquema && actual.esquema !== 'FIJO' && num(actual.meta) === 0 ? `Ventas ${fmtQ(actual.ventas_q)} (meta de grupo)` : `Ventas ${fmtQ(actual.ventas_q)} de una meta de ${fmtQ(actual.meta)}`) : 'Sin ventas este mes';
+            ? (actual.esquema && actual.esquema !== 'FIJO' && num(actual.meta) === 0 ? `Cobrado ${fmtQ(actual.cobrado ?? actual.ventas_q)} (meta de grupo)` : `Cobrado ${fmtQ(actual.cobrado ?? actual.ventas_q)} de una meta de ${fmtQ(actual.meta)}`) : 'Sin cobros este mes';
         const det = actual?.detalle || [];
         $('misComTramo').textContent = det.length > 1 ? det.map(d => fmtPct(d.pct)).join(' + ') : actual?.comision_pct != null ? fmtPct(actual.comision_pct) : '—';
         $('misComTramoSub').innerHTML = det.length > 1
             ? det.map(d => `${esc(d.esquema)}: cumplimiento ${d.cumplimiento != null ? fmtPct(d.cumplimiento) : '—'} → ${fmtQ(d.comision)}`).join('<br>')
             : actual?.esquema ? esc(actual.esquema === 'FIJO' ? 'Comisión fija' : `Esquema ${actual.esquema}`) : '';
-        const conDatos = lista.filter(r => num(r.ventas_q) > 0 || num(r.comision) > 0 || r.mes === hoy.slice(0, 7) + '-01');
+        const conDatos = lista.filter(r => num(r.ventas_q) > 0 || num(r.cobrado) > 0 || num(r.comision) > 0 || r.mes === hoy.slice(0, 7) + '-01');
         $('misComBody').innerHTML = conDatos.map(r => `<tr${r === actual ? ' class="fw-semibold"' : ''}>
             <td>${nombreMes(r.mes)}${r === actual ? ' <span class="badge text-bg-warning">en curso</span>' : ''}</td>
-            <td class="num">${fmtQ(r.ventas_q)}</td><td class="num">${num(r.meta) > 0 ? fmtQ(r.meta) : '—'}</td>
+            <td class="num">${fmtQ(r.cobrado ?? r.ventas_q)}</td><td class="num">${num(r.meta) > 0 ? fmtQ(r.meta) : '—'}</td>
             <td class="num">${r.cumplimiento != null ? fmtPct(r.cumplimiento) : '—'}</td><td class="num">${r.comision_pct != null ? fmtPct(r.comision_pct) : '—'}</td>
             <td class="num fw-semibold">${fmtQ(r.comision)}</td></tr>`
             + ((r.detalle || []).length > 1 ? r.detalle.map(d => `<tr class="small text-muted"><td class="ps-4">↳ ${esc(d.esquema)}</td>
@@ -2611,6 +2611,7 @@ function registrarCuadreCaja() {
     $('cajaCuadresBody').addEventListener('click', e => { const b = e.target.closest('.cuadre-anular'); if (b) anularCuadreCaja(Number(b.dataset.id)); });
     $('intVendExcel').addEventListener('click', exportarResumenVendedores);
     $('intInvExcel').addEventListener('click', exportarCuadreInventario);
+    $('cxcExcel').addEventListener('click', exportarCuentasPorCobrar);
     $('intIrCaja').addEventListener('click', () => bootstrap.Tab.getOrCreateInstance($('caja-tab')).show());
 }
 
@@ -2719,8 +2720,8 @@ const PANEL_COMISIONES = `<div class="tab-pane fade" id="maestro-panel-comisione
         <button type="button" class="btn btn-gold btn-sm" id="esqNuevo"><i class="bi bi-plus-lg"></i> Nuevo esquema</button>
       </div>
       <div class="card-body">
-        <p class="small text-muted">Cada tramo dice: desde qué % de cumplimiento de la meta se paga qué % sobre la venta. <strong>Individual</strong>: sobre las ventas y la meta de la persona.
-          <strong>Grupal</strong>: sobre las ventas de su grupo (ella y quienes la tienen como supervisora) y la <strong>meta grupal</strong> de la supervisora (si es 0, la suma de las metas individuales del grupo). Una persona puede tener varios esquemas: su comisión es la suma.
+        <p class="small text-muted">Cada tramo dice: desde qué % de cumplimiento de la meta se paga qué % sobre lo <strong>cobrado</strong> (abonos recibidos a sus ventas). <strong>Individual</strong>: sobre lo cobrado y la meta de la persona.
+          <strong>Grupal</strong>: sobre lo cobrado por su grupo (ella y quienes la tienen como supervisora) y la <strong>meta grupal</strong> de la supervisora (si es 0, la suma de las metas individuales del grupo). Una persona puede tener varios esquemas: su comisión es la suma.
           Las ventas a clientes <strong>mayoristas</strong> pagan el % de mayoreo y cuentan para el cumplimiento.</p>
         <div class="row g-3" id="esqLista"></div>
       </div>
@@ -2936,7 +2937,7 @@ function valorCuadre(ind, mes, dim = null, clave = null) {
     if (ind.meta) {
         const conMeta = filas.filter(r => num(r.meta) > 0);
         const metaTotal = conMeta.reduce((t, r) => t + num(r.meta), 0);
-        const ventas = conMeta.reduce((t, r) => t + num(r.ventas_q), 0);
+        const ventas = conMeta.reduce((t, r) => t + num(r.recaudo), 0);   // lo cobrado (base de la comisión)
         return metaTotal > 0 ? { valor: ventas / metaTotal * 100, ventas, meta: metaTotal } : null;
     }
     const suma = c => filas.reduce((t, r) => t + num(r[c]), 0);
@@ -3420,7 +3421,7 @@ const REPORTES = [
         },
         columnas: [
             ['_mes', 'Mes', 'texto', 1], ['clave', 'Vendedor', 'texto', 1], ['esquema', 'Esquema', 'texto', 1],
-            ['ventas_gr', 'Gramos vendidos', 'num', 1], ['ventas_q', 'Ventas evaluadas', 'dinero', 1], ['meta', 'Meta evaluada', 'dinero', 1],
+            ['ventas_gr', 'Gramos vendidos', 'num', 1], ['ventas_q', 'Cobrado evaluado', 'dinero', 1], ['meta', 'Meta evaluada', 'dinero', 1],
             ['cumplimiento', 'Cumplimiento', 'pct', 1], ['comision_pct', 'Tramo aplicado', 'pct', 1], ['comision', 'Comisión', 'dinero', 1],
         ],
     },
@@ -4286,17 +4287,13 @@ let bodegaInteligenciaLista = false;
 function loadInteligencia() {
     run(async () => {
         const [desde, hasta] = rangoPeriodo();
-        // Vendedor: solo su resumen (lo vendido, cobrado y su comisión)
+        // Vendedor: todo el tablero, pero solo con sus datos (su bodega, sus clientes, sus ventas)
         const mio = soloMio();
-        ['intBodegaBox', 'intKpis', 'intGramosFila'].forEach(id => $(id).classList.toggle('d-none', mio));
         $('intMio').classList.toggle('d-none', !mio);
-        if (mio) {
-            $('intAlcance').textContent = 'Solo sus ventas, cobros y comisión';
-            const { data, error } = await sb.rpc('mi_resumen', { p_desde: desde, p_hasta: hasta });
-            if (error) throw new Error(/mi_resumen/.test(error.message) ? 'Falta ejecutar el script 34 en Supabase.' : error.message);
-            renderMiResumen(data);
-            return;
-        }
+        $('kpiAbonosCard').classList.toggle('d-none', mio);   // su "Cobrado" ya está arriba
+        $('intBodega').disabled = mio && !!perfil?.tienda;
+        const pMio = mio ? sb.rpc('mi_resumen', { p_desde: desde, p_hasta: hasta }).then(r => r.error ? null : r.data) : null;
+        const pCxc = cargarCuentasPorCobrar();
         if (!bodegaInteligenciaLista) {   // la primera vez, el vendedor ve su bodega
             bodegaInteligenciaLista = true;
             repoblar('intBodega', maestros.tiendas.map(t => t.nombre), 'Todas las bodegas');
@@ -4309,15 +4306,17 @@ function loadInteligencia() {
                     + lista.map(p => `<option value="${p.id}">${esc(p.nombre || p.usuario)}${p.id === perfil.id ? ' (yo)' : ''}</option>`).join('');
             }
         }
-        const vendedor = veEquipo() ? $('intVendedor').value : '';
+        const vendedor = veEquipo() ? $('intVendedor').value : (perfil?.id || '');
         const tienda = $('intBodega').value || null;
         [indicadores, abonosInt, resumenInt] = await Promise.all([
             sb.rpc('indicadores_comerciales', { p_desde: desde, p_hasta: hasta, p_tienda: tienda, ...(vendedor ? { p_vendedor: vendedor } : {}) }).then(ok),
-            sb.rpc('abonos_periodo', { p_desde: desde, p_hasta: hasta, p_tienda: tienda, p_vendedor: vendedor || null }).then(r => r.error ? null : r.data),
+            mio ? null : sb.rpc('abonos_periodo', { p_desde: desde, p_hasta: hasta, p_tienda: tienda, p_vendedor: vendedor || null }).then(r => r.error ? null : r.data),
             esAdmin() ? sb.rpc('resumen_admin', { p_desde: desde, p_hasta: hasta, p_tienda: tienda }).then(r => r.error ? null : r.data) : null,
         ]);
         renderInteligencia();
         renderResumenAdmin();
+        if (mio) renderMiResumen(await pMio);
+        await pCxc;
     });
 }
 
@@ -4419,6 +4418,55 @@ function renderMiResumen(r) {
         <td class="num">${x.cumplimiento === null ? '—' : fmtPct(x.cumplimiento)}</td><td class="num">${x.pct === null ? '—' : fmtPct(x.pct)}</td>
         <td class="num fw-semibold">${fmtQ(x.comision)}</td></tr>`).join('')
         || '<tr><td colspan="7" class="text-muted">Sin comisión en el periodo.</td></tr>';
+}
+
+// ---- Cuentas por cobrar: saldo pendiente por cliente y por antigüedad
+let cxcFilas = [];
+async function cargarCuentasPorCobrar() {
+    const env = await fetchAll(() => sb.from('cartera_detalle').select('cliente_id,cliente,envio,fecha_venta,tienda,vendedor,cartera').gt('cartera', 0.005));
+    const bodega = $('intBodega').value;
+    const vend = veEquipo() && $('intVendedor').value ? perfiles.find(p => p.id === $('intVendedor').value) : null;
+    const nomVend = vend ? norm(vend.nombre || vend.usuario) : null;
+    const hoy = new Date(hoyISO() + 'T00:00:00');
+    const porCliente = {};
+    env.filter(e => (!bodega || norm(e.tienda) === norm(bodega)) && (!nomVend || norm(e.vendedor) === nomVend)).forEach(e => {
+        const k = e.cliente_id ?? `s/c ${e.cliente}`;
+        const c = porCliente[k] ??= { cliente_id: e.cliente_id, cliente: e.cliente, vendedor: e.vendedor, envios: 0, saldo: 0, antigua: null, edades: [0, 0, 0, 0] };
+        const dias = e.fecha_venta ? Math.max(0, Math.round((hoy - new Date(String(e.fecha_venta).slice(0, 10) + 'T00:00:00')) / 86400000)) : 0;
+        c.envios++; c.saldo += num(e.cartera);
+        c.edades[dias <= 30 ? 0 : dias <= 60 ? 1 : dias <= 90 ? 2 : 3] += num(e.cartera);
+        if (e.fecha_venta && (!c.antigua || e.fecha_venta < c.antigua)) c.antigua = String(e.fecha_venta).slice(0, 10);
+    });
+    cxcFilas = Object.values(porCliente).map(c => ({ ...c, dias: c.antigua ? Math.round((hoy - new Date(c.antigua + 'T00:00:00')) / 86400000) : null }))
+        .sort((a, b) => b.saldo - a.saldo);
+    renderCuentasPorCobrar();
+}
+
+function renderCuentasPorCobrar() {
+    const total = cxcFilas.reduce((t, c) => t + c.saldo, 0);
+    const edad = i => cxcFilas.reduce((t, c) => t + c.edades[i], 0);
+    const rotulos = ['0 a 30 días', '31 a 60 días', '61 a 90 días', 'Más de 90 días'];
+    const colores = ['', '', 'text-warning', 'text-danger'];
+    $('cxcAlcance').textContent = `· ${cxcFilas.length} cliente(s) · ${fmtQ(total)}`;
+    $('cxcEdades').innerHTML = rotulos.map((r, i) => `<div class="col-6 col-md-3"><div class="border rounded p-2 h-100">
+        <div class="small text-muted">${r}</div><div class="fw-semibold ${colores[i]}">${fmtQ(edad(i))}</div>
+        <div class="small text-muted">${total > 0 ? fmtPct(edad(i) / total * 100) : '—'}</div></div></div>`).join('');
+    const conVend = veEquipo();
+    $('cxcHead').innerHTML = `<tr><th class="num">Código</th><th>Cliente</th>${conVend ? '<th>Vendedor</th>' : ''}<th class="num">Envíos pendientes</th>
+        <th>Venta más antigua</th><th class="num">Días</th><th class="num">Saldo</th></tr>`;
+    $('cxcBody').innerHTML = cxcFilas.map(c => `<tr><td class="num">${c.cliente_id ? esc(cod(c.cliente_id)) : '—'}</td><td class="fw-semibold">${esc(c.cliente)}</td>
+        ${conVend ? `<td class="small">${esc(c.vendedor)}</td>` : ''}<td class="num">${c.envios}</td><td>${fmtFecha(c.antigua)}</td>
+        <td class="num ${c.dias > 90 ? 'text-danger fw-semibold' : c.dias > 60 ? 'text-warning' : ''}">${c.dias ?? '—'}</td>
+        <td class="num fw-semibold">${fmtQ(c.saldo)}</td></tr>`).join('')
+        || `<tr><td colspan="${conVend ? 7 : 6}" class="text-muted">No hay cuentas por cobrar.</td></tr>`;
+    $('cxcFoot').innerHTML = cxcFilas.length ? `<tr><td colspan="${conVend ? 3 : 2}">Total</td><td class="num">${cxcFilas.reduce((t, c) => t + c.envios, 0)}</td><td></td><td></td><td class="num">${fmtQ(total)}</td></tr>` : '';
+}
+
+function exportarCuentasPorCobrar() {
+    exportarExcel('Cuentas_por_cobrar', 'Cuentas por cobrar', cxcFilas.map(c => ({
+        'Código': c.cliente_id ? cod(c.cliente_id) : '', 'Cliente': c.cliente, 'Vendedor': c.vendedor, 'Envíos pendientes': c.envios,
+        'Venta más antigua': aFecha(c.antigua), 'Días': c.dias, '0 a 30 días': c.edades[0], '31 a 60 días': c.edades[1],
+        '61 a 90 días': c.edades[2], 'Más de 90 días': c.edades[3], 'Saldo': c.saldo })));
 }
 
 function renderInteligencia() {

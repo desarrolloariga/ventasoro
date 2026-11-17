@@ -144,6 +144,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `32_resumen_admin_y_cuadre_caja.sql` | **Resumen del administrador y cuadre de caja**: `abonos_periodo` (abonos recibidos, con permisos), `resumen_admin` (por vendedor: ventas Q/gramos, cobrado, comisión, meta, caja; cuadre de inventario en gramos inicial + ingresos ± traslados − ventas − otras salidas = final; arqueo de cajas) y `cuadrar_caja` / `anular_cuadre_caja` (arqueo: registra entrega y faltante/sobrante; la caja queda en cero). |
 | `33_pagos_siguen_al_envio.sql` | **Los pagos siguen al envío**: al editar un pedido y ponerle o cambiarle el envío, sus pagos y devoluciones pasan al número nuevo (`mover_clave_pedido`). Corrige los pagos que habían quedado apuntando al N° de pedido o a un envío mal digitado, y lista los que quedan para revisar. |
 | `34_mi_resumen_vendedor.sql` | **Inteligencia para vendedores**: `mi_resumen` devuelve solo lo vendido (Q y gramos), lo cobrado (abonos a sus envíos, por método) y la comisión (con detalle por esquema) del vendedor vinculado al usuario que consulta. |
+| `35_comision_sobre_cobrado.sql` | **Comisión sobre lo cobrado**: `cuadre_calculo` usa como base lo cobrado en el mes (abonos a los envíos de las ventas de cada vendedor) para el cumplimiento de meta, el tramo y la comisión; mayoreo y esquemas grupales igual, con lo cobrado. `mis_comisiones` devuelve el cobrado. |
 
 ## Despliegue en Vercel
 
