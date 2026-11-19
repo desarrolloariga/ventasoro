@@ -491,6 +491,7 @@ function registrarEventos() {
     registrarModuloDevoluciones();
     registrarProductos();
     registrarInventarioFisico();
+    registrarPlanes();
     registrarVerificacion();
     registrarCuadre();
     $('usuarioForm').addEventListener('submit', agregarUsuario);
@@ -2730,10 +2731,10 @@ const PANEL_COMISIONES = `<div class="tab-pane fade" id="maestro-panel-comisione
       <div class="card-header card-header-custom"><i class="bi bi-person-vcard me-2"></i> Asignación por vendedor</div>
       <div class="card-body">
         <div class="table-responsive"><table class="table table-sm align-middle mb-0">
-          <thead class="table-light"><tr><th>Vendedor</th><th>Esquemas</th><th>Supervisor(a)</th><th class="num">Meta individual Q</th><th class="num">Meta grupal Q</th><th class="num">% fijo (sin esquema)</th></tr></thead>
+          <thead class="table-light"><tr><th>Vendedor</th><th>Plan individual</th><th>Esquemas</th><th>Supervisor(a)</th><th class="num">Meta individual Q</th><th class="num">Meta grupal Q</th><th class="num">% fijo (sin esquema)</th></tr></thead>
           <tbody id="asigComisiones"></tbody>
         </table></div>
-        <div class="form-text">Los cambios se guardan al salir de cada campo. Con varios esquemas la comisión es la suma de cada uno (p. ej. una supervisora que también vende: SUPERVISORA RS + EJECUTIVA DE VENTA). La meta grupal aplica a los esquemas grupales; en 0 se usa la suma de las metas individuales del grupo. Sin esquemas se paga el % fijo.</div>
+        <div class="form-text"><b>Plan individual</b>: meta y rangos propios de cada vendedor, programados por mes; si lo tiene, reemplaza su % fijo y los esquemas individuales (los grupales se suman). Los cambios se guardan al salir de cada campo. Con varios esquemas la comisión es la suma de cada uno (p. ej. una supervisora que también vende: SUPERVISORA RS + EJECUTIVA DE VENTA). La meta grupal aplica a los esquemas grupales; en 0 se usa la suma de las metas individuales del grupo. Sin esquemas se paga el % fijo.</div>
       </div>
     </div>
   </div>`;
@@ -2834,25 +2835,138 @@ function eliminarEsquema(id) {
     });
 }
 
+// ---- Plan de comisión individual: meta sobre lo cobrado y rangos de cumplimiento, programado por mes
+let planesComision = [], planModal, planVendedor = null;
+const mesActualISO = () => hoyISO().slice(0, 7) + '-01';
+const planesDe = nombre => planesComision.filter(p => p.vendedor === nombre).sort((a, b) => String(a.desde).localeCompare(String(b.desde)));
+const planVigente = (nombre, mes = mesActualISO()) => planesDe(nombre).filter(p => String(p.desde).slice(0, 10) <= mes).pop() || null;
+const textoTramos = tramos => (tramos || []).map(t => `${fmtPct(t.desde)}→${fmtPct(t.pct)}`).join(' · ');
+
+function registrarPlanes() {
+    planModal = new bootstrap.Modal($('planModal'));
+    document.addEventListener('click', e => { const b = e.target.closest('[data-plan]'); if (b) abrirPlan(b.dataset.plan); });
+    $('planAgregarTramo').addEventListener('click', () => { $('planTramos').insertAdjacentHTML('beforeend', filaTramoPlan({})); vistaPlan(); });
+    $('planTramos').addEventListener('click', e => { if (e.target.closest('.plan-quitar')) { e.target.closest('tr').remove(); vistaPlan(); } });
+    $('planTramos').addEventListener('input', vistaPlan);
+    $('planMeta').addEventListener('input', vistaPlan);
+    $('planGuardar').addEventListener('click', guardarPlan);
+    $('planProgramados').addEventListener('click', e => {
+        const ed = e.target.closest('.plan-editar'), del = e.target.closest('.plan-eliminar');
+        if (ed) cargarPlanEnForm(planesComision.find(p => p.id === Number(ed.dataset.id)));
+        if (del) eliminarPlan(Number(del.dataset.id));
+    });
+}
+
+const filaTramoPlan = t => `<tr>
+    <td><div class="input-group input-group-sm"><input type="number" class="form-control text-end plan-desde" min="0" step="0.01" value="${t.desde ?? ''}" aria-label="Desde % de cumplimiento"><span class="input-group-text">%</span></div></td>
+    <td><div class="input-group input-group-sm"><input type="number" class="form-control text-end plan-pct" min="0" max="100" step="0.01" value="${t.pct ?? ''}" aria-label="% de comisión"><span class="input-group-text">%</span></div></td>
+    <td class="small text-muted plan-equiv"></td>
+    <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm plan-quitar" title="Quitar rango" aria-label="Quitar rango"><i class="bi bi-x-lg"></i></button></td></tr>`;
+
+function tramosForm() {
+    return [...$('planTramos').querySelectorAll('tr')].map(tr => ({ desde: tr.querySelector('.plan-desde').value, pct: tr.querySelector('.plan-pct').value }))
+        .filter(t => t.desde !== '' || t.pct !== '').map(t => ({ desde: num(t.desde), pct: num(t.pct) }));
+}
+
+function vistaPlan() {
+    const meta = num($('planMeta').value);
+    $('planTramos').querySelectorAll('tr').forEach(tr => {
+        const d = tr.querySelector('.plan-desde').value;
+        tr.querySelector('.plan-equiv').textContent = d !== '' && meta > 0 ? fmtQ(meta * num(d) / 100) : '';
+    });
+    const t = tramosForm().sort((a, b) => a.desde - b.desde);
+    if (!t.length) { $('planVista').innerHTML = '<span class="text-muted">Agregue los rangos (por ejemplo: desde 0 % gana 1 %, desde 80 % gana 2 %, desde 100 % gana 3 %).</span>'; return; }
+    const filas = t.map((x, i) => {
+        const hasta = t[i + 1] ? `menos de ${fmtPct(t[i + 1].desde)}` : 'en adelante';
+        return `<li>Cumplimiento <b>desde ${fmtPct(x.desde)}</b> ${t[i + 1] ? `y ${hasta}` : hasta}${meta > 0 ? ` (cobrar ${fmtQ(meta * x.desde / 100)}${t[i + 1] ? ` a ${fmtQ(meta * t[i + 1].desde / 100)}` : ' o más'})` : ''} → gana <b>${fmtPct(x.pct)}</b> de lo cobrado</li>`;
+    }).join('');
+    const ej = meta > 0 ? (() => { const c = meta * 0.9, cu = 90, tr = [...t].reverse().find(x => x.desde <= cu); return `<div class="mt-1">Ejemplo: si cobra ${fmtQ(c)} (90 % de la meta) gana ${tr ? `${fmtPct(tr.pct)} = <b>${fmtQ(c * tr.pct / 100)}</b>` : '<b>Q 0.00</b> (no alcanza el primer rango)'}.</div>`; })() : '';
+    $('planVista').innerHTML = `<div class="fw-semibold">Así queda:</div><ul class="mb-0">${filas}</ul>${t[0].desde > 0 ? `<div class="text-warning">Con menos de ${fmtPct(t[0].desde)} de cumplimiento no gana comisión.</div>` : ''}${ej}`;
+}
+
+function cargarPlanEnForm(p) {
+    $('planFormTitulo').textContent = p ? `Editar plan vigente desde ${nombreMes(String(p.desde).slice(0, 10))}` : 'Programar plan';
+    $('planDesde').value = p ? String(p.desde).slice(0, 7) : hoyISO().slice(0, 7);
+    $('planMeta').value = p ? num(p.meta) : (planVigente(planVendedor)?.meta ?? (maestros.vendedores.find(v => v.nombre === planVendedor)?.meta_mensual || ''));
+    const base = p?.tramos?.length ? p.tramos : planVigente(planVendedor)?.tramos?.length ? planVigente(planVendedor).tramos : [{ desde: 0, pct: '' }];
+    $('planTramos').innerHTML = base.map(filaTramoPlan).join('');
+    vistaPlan();
+}
+
+function renderPlanesProgramados() {
+    const lista = planesDe(planVendedor), vig = planVigente(planVendedor);
+    $('planProgramados').innerHTML = lista.length ? `<div class="fw-semibold mb-1">Planes programados</div>
+        <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead class="table-light"><tr><th>Vigente desde</th><th class="num">Meta cobrada</th><th>Rangos (cumplimiento → comisión)</th><th></th></tr></thead><tbody>
+        ${lista.map(p => `<tr${p === vig ? ' class="table-warning"' : ''}><td>${nombreMes(String(p.desde).slice(0, 10))}${p === vig ? ' <span class="badge text-bg-warning">vigente</span>' : String(p.desde).slice(0, 10) > mesActualISO() ? ' <span class="badge text-bg-info">programado</span>' : ''}</td>
+            <td class="num">${fmtQ(p.meta)}</td><td class="small">${esc(textoTramos(p.tramos))}</td>
+            <td class="text-end text-nowrap"><button type="button" class="btn btn-outline-secondary btn-sm plan-editar" data-id="${p.id}" title="Editar" aria-label="Editar plan"><i class="bi bi-pencil"></i></button>
+              <button type="button" class="btn btn-outline-danger btn-sm plan-eliminar" data-id="${p.id}" title="Eliminar" aria-label="Eliminar plan"><i class="bi bi-trash"></i></button></td></tr>`).join('')}
+        </tbody></table></div>` : '<div class="alert alert-light border small py-2">Todavía no tiene plan individual: se le paga con sus esquemas o su % fijo.</div>';
+}
+
+function abrirPlan(nombre) {
+    if (!esAdmin()) return;
+    planVendedor = nombre;
+    $('planTitulo').textContent = `Plan de comisión · ${nombre}`;
+    renderPlanesProgramados();
+    cargarPlanEnForm(null);
+    planModal.show();
+}
+
+function guardarPlan() {
+    const mes = $('planDesde').value, meta = num($('planMeta').value), tramos = tramosForm();
+    if (!mes) { showAlert('Indique desde qué mes aplica el plan.', 'warning'); $('planDesde').focus(); return; }
+    if (!(meta > 0)) { showAlert('Escriba la meta mensual (sobre lo cobrado).', 'warning'); $('planMeta').focus(); return; }
+    if (!tramos.length) { showAlert('Agregue al menos un rango.', 'warning'); return; }
+    if (tramos.some(t => t.pct < 0 || t.pct > 100 || t.desde < 0)) { showAlert('Revise los rangos: el cumplimiento no puede ser negativo y la comisión va de 0 a 100 %.', 'warning'); return; }
+    const existe = planesDe(planVendedor).find(p => String(p.desde).slice(0, 7) === mes);
+    if (existe && !confirm(`Ya hay un plan desde ${nombreMes(mes + '-01')}. ¿Reemplazarlo?`)) return;
+    run(async () => {
+        ok(await sb.rpc('guardar_plan_comision', { p_vendedor: planVendedor, p_desde: mes + '-01', p_meta: meta, p_tramos: tramos }));
+        planesComision = ok(await sb.from('planes_comision').select('*').order('desde'));
+        renderPlanesProgramados(); cargarPlanEnForm(null);
+        if ($('asigComisiones')) renderAsignaciones();
+        renderMaestro('vendedores');
+        showAlert(`Plan de ${planVendedor} guardado: desde ${nombreMes(mes + '-01')}, meta ${fmtQ(meta)} cobrada, ${tramos.length} rango(s).`, 'success');
+    });
+}
+
+function eliminarPlan(id) {
+    const p = planesComision.find(x => x.id === id);
+    if (!p || !confirm(`¿Eliminar el plan vigente desde ${nombreMes(String(p.desde).slice(0, 10))}?\n\nLos meses que usaban este plan se recalculan con el plan anterior (o con sus esquemas / % fijo si no hay otro).`)) return;
+    run(async () => {
+        ok(await sb.rpc('eliminar_plan_comision', { p_id: id }));
+        planesComision = planesComision.filter(x => x.id !== id);
+        renderPlanesProgramados(); cargarPlanEnForm(null);
+        if ($('asigComisiones')) renderAsignaciones();
+        renderMaestro('vendedores');
+        showAlert('Plan eliminado', 'success');
+    });
+}
+
 function renderAsignaciones() {
     const vendedores = maestros.vendedores.filter(v => v.activo !== false);
     $('asigComisiones').innerHTML = vendedores.map(v => {
         const datos = `data-nombre="${esc(v.nombre)}"`;
         const suyos = esquemasDe(v.nombre).map(e => e.id);
         const tieneGrupal = esquemasDe(v.nombre).some(e => e.tipo === 'GRUPAL');
+        const plan = planVigente(v.nombre), prox = planesDe(v.nombre).find(p => String(p.desde).slice(0, 10) > mesActualISO());
         return `<tr><td class="fw-semibold">${esc(v.nombre)}</td>
+          <td style="min-width: 170px">${plan ? `<div class="small"><b>Meta ${fmtQ(plan.meta)}</b> cobrada</div><div class="small text-muted">${esc(textoTramos(plan.tramos))}</div>` : '<span class="small text-muted">Sin plan</span>'}
+            ${prox ? `<div class="small text-info">Programado desde ${nombreMes(String(prox.desde).slice(0, 10))}</div>` : ''}
+            <button type="button" class="btn btn-gold btn-sm mt-1" data-plan="${esc(v.nombre)}"><i class="bi bi-sliders me-1"></i>${plan || prox ? 'Ver / cambiar' : 'Configurar'}</button></td>
           <td>${esquemasComision.map(e => `<div class="form-check form-check-inline m-0 me-2">
               <input class="form-check-input" type="checkbox" id="asig-${esc(v.nombre)}-${e.id}" data-asig="esquema" data-esquema="${e.id}" ${datos} ${suyos.includes(e.id) ? 'checked' : ''}>
               <label class="form-check-label small" for="asig-${esc(v.nombre)}-${e.id}">${esc(e.nombre)}${e.tipo === 'GRUPAL' ? ' <span class="text-muted">(grupal)</span>' : ''}</label></div>`).join('')
               || '<span class="text-muted small">Cree un esquema arriba</span>'}</td>
           <td><select class="form-select form-select-sm" data-asig="supervisor" ${datos} aria-label="Supervisor">
             <option value="">(ninguno)</option>${vendedores.filter(x => x.nombre !== v.nombre).map(x => `<option value="${esc(x.nombre)}" ${v.supervisor === x.nombre ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select></td>
-          <td><input type="number" class="form-control form-control-sm text-end" style="min-width: 105px" data-asig="meta_mensual" ${datos} value="${num(v.meta_mensual)}" min="0" step="0.01" aria-label="Meta individual"></td>
+          <td><input type="number" class="form-control form-control-sm text-end" style="min-width: 105px" data-asig="meta_mensual" ${datos} value="${num(v.meta_mensual)}" min="0" step="0.01" ${plan ? 'disabled title="Usa la meta de su plan individual"' : ''} aria-label="Meta individual"></td>
           <td><input type="number" class="form-control form-control-sm text-end" style="min-width: 105px" data-asig="meta_grupal" ${datos} value="${num(v.meta_grupal)}" min="0" step="0.01"
               ${tieneGrupal ? '' : 'disabled title="Solo aplica con un esquema grupal"'} aria-label="Meta grupal"></td>
           <td><input type="number" class="form-control form-control-sm text-end" style="min-width: 75px" data-asig="comision_pct" ${datos} value="${num(v.comision_pct)}" min="0" max="100" step="0.01"
-              ${suyos.length ? 'disabled title="Tiene esquemas asignados"' : ''} aria-label="Porcentaje fijo"></td></tr>`;
-    }).join('') || '<tr><td colspan="6" class="text-muted">No hay vendedores activos.</td></tr>';
+              ${suyos.length || plan ? `disabled title="${plan ? 'Tiene plan individual' : 'Tiene esquemas asignados'}"` : ''} aria-label="Porcentaje fijo"></td></tr>`;
+    }).join('') || '<tr><td colspan="7" class="text-muted">No hay vendedores activos.</td></tr>';
 }
 
 function guardarAsignacion(el) {
@@ -3738,8 +3852,9 @@ function renderMaestro(m) {
                 : (x.unidad || 'GRAMOS') === 'GRAMOS'
                 ? `<small><span class="badge text-bg-warning me-1">Oro</span>inventario en gramos · cuenta en el promedio por gramo</small>`
                 : `<small>Producto · inventario en unidades · no cuenta en el promedio por gramo</small>`)
-            : m === 'vendedores' ? `<small>${esc(esquemasDe(x.nombre).map(e => e.nombre).join(' + ') || `Comisión fija ${fmtPct(x.comision_pct)}`)}
-                · Meta ${fmtQ(x.meta_mensual)}${num(x.meta_grupal) > 0 ? ` · Meta grupal ${fmtQ(x.meta_grupal)}` : ''}${x.supervisor ? ` · a cargo de ${esc(x.supervisor)}` : ''}</small>` : '';
+            : m === 'vendedores' ? `<small>${planVigente(x.nombre) ? `Plan individual: meta ${fmtQ(planVigente(x.nombre).meta)} cobrada · ${esc(textoTramos(planVigente(x.nombre).tramos))}`
+                : `${esc(esquemasDe(x.nombre).map(e => e.nombre).join(' + ') || `Comisión fija ${fmtPct(x.comision_pct)}`)}
+                · Meta ${fmtQ(x.meta_mensual)}`}${num(x.meta_grupal) > 0 ? ` · Meta grupal ${fmtQ(x.meta_grupal)}` : ''}${x.supervisor ? ` · a cargo de ${esc(x.supervisor)}` : ''}</small>` : '';
         return `<li class="list-group-item ${x.activo === false ? 'inactivo' : ''}">
             <div class="maestro-nombre">${admin ? `<span role="button" class="maestro-editar" ${datos} title="Cambiar nombre">${nombre}</span>` : nombre}${detalle}</div>
             <div class="maestro-acciones">
@@ -3797,6 +3912,7 @@ async function cargarMaestros() {
     await cargarReferencias();   // copia de los tipos: unidad e inventario
     { const { data } = await sb.from('esquemas_comision').select('*').order('orden'); esquemasComision = data || []; }
     { const { data } = await sb.from('vendedor_esquemas').select('*'); vendedorEsquemas = data || []; }
+    { const { data } = await sb.from('planes_comision').select('*').order('desde'); planesComision = data || []; }
     // Usuarios vinculados a cada bodega (una bodega puede tener varios)
     const { data: usuarios } = await sb.from('perfiles').select('nombre,usuario,tienda,activo');
     usuariosPorTienda = {};

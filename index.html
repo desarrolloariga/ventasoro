@@ -378,6 +378,39 @@
         </div>
     </div>
 
+    <!-- Plan de comisión individual de un vendedor -->
+    <div class="modal fade" id="planModal" tabindex="-1" aria-labelledby="planTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="planTitulo">Plan de comisión</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted">La meta y la comisión se miden sobre lo <b>cobrado</b> en el mes (abonos recibidos a sus ventas). Cada rango dice: si cumplió <b>desde X %</b> de la meta, gana <b>Y %</b> sobre todo lo cobrado. El plan aplica desde el mes indicado hasta que se programe otro.</p>
+                    <div id="planProgramados" class="mb-3"></div>
+                    <div class="card"><div class="card-body">
+                        <div class="fw-semibold mb-2" id="planFormTitulo">Programar plan</div>
+                        <div class="row g-3">
+                            <div class="col-6 col-md-4"><label class="form-label" for="planDesde">Vigente desde (mes)</label><input type="month" class="form-control" id="planDesde"></div>
+                            <div class="col-6 col-md-4"><label class="form-label" for="planMeta">Meta mensual cobrada (Q)</label><input type="number" class="form-control text-end" id="planMeta" min="0" step="0.01" inputmode="decimal"></div>
+                        </div>
+                        <div class="table-responsive mt-3"><table class="table table-sm align-middle mb-2">
+                            <thead class="table-light"><tr><th>Si cumplió desde (% de la meta)</th><th>Gana (% sobre lo cobrado)</th><th class="small text-muted">Equivale a cobrar desde</th><th></th></tr></thead>
+                            <tbody id="planTramos"></tbody>
+                        </table></div>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="planAgregarTramo"><i class="bi bi-plus-lg me-1"></i> Agregar rango</button>
+                        <div class="small mt-3" id="planVista"></div>
+                    </div></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                    <button type="button" class="btn btn-gold" id="planGuardar"><i class="bi bi-save me-1"></i> Guardar plan</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="appView" class="app d-none">
       <div class="menu-velo" id="menuVelo"></div>
 

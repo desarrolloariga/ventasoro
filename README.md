@@ -145,6 +145,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `33_pagos_siguen_al_envio.sql` | **Los pagos siguen al envío**: al editar un pedido y ponerle o cambiarle el envío, sus pagos y devoluciones pasan al número nuevo (`mover_clave_pedido`). Corrige los pagos que habían quedado apuntando al N° de pedido o a un envío mal digitado, y lista los que quedan para revisar. |
 | `34_mi_resumen_vendedor.sql` | **Inteligencia para vendedores**: `mi_resumen` devuelve solo lo vendido (Q y gramos), lo cobrado (abonos a sus envíos, por método) y la comisión (con detalle por esquema) del vendedor vinculado al usuario que consulta. |
 | `35_comision_sobre_cobrado.sql` | **Comisión sobre lo cobrado**: `cuadre_calculo` usa como base lo cobrado en el mes (abonos a los envíos de las ventas de cada vendedor) para el cumplimiento de meta, el tramo y la comisión; mayoreo y esquemas grupales igual, con lo cobrado. `mis_comisiones` devuelve el cobrado. |
+| `36_plan_comision_vendedor.sql` | **Plan de comisión individual**: tabla `planes_comision` (vendedor, vigente desde un mes, meta sobre lo cobrado y rangos cumplimiento → %). El plan vigente reemplaza el % fijo y los esquemas individuales (los grupales se suman). `guardar_plan_comision` / `eliminar_plan_comision` solo admin; `cuadre_calculo` lo aplica mes a mes. |
 
 ## Despliegue en Vercel
 
