@@ -146,6 +146,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `34_mi_resumen_vendedor.sql` | **Inteligencia para vendedores**: `mi_resumen` devuelve solo lo vendido (Q y gramos), lo cobrado (abonos a sus envíos, por método) y la comisión (con detalle por esquema) del vendedor vinculado al usuario que consulta. |
 | `35_comision_sobre_cobrado.sql` | **Comisión sobre lo cobrado**: `cuadre_calculo` usa como base lo cobrado en el mes (abonos a los envíos de las ventas de cada vendedor) para el cumplimiento de meta, el tramo y la comisión; mayoreo y esquemas grupales igual, con lo cobrado. `mis_comisiones` devuelve el cobrado. |
 | `36_plan_comision_vendedor.sql` | **Plan de comisión individual**: tabla `planes_comision` (vendedor, vigente desde un mes, meta sobre lo cobrado y rangos cumplimiento → %). El plan vigente reemplaza el % fijo y los esquemas individuales (los grupales se suman). `guardar_plan_comision` / `eliminar_plan_comision` solo admin; `cuadre_calculo` lo aplica mes a mes. |
+| `37_comision_precio_gramo.sql` | **Comisión por precio promedio del gramo**: el plan individual tiene tipo CUMPLIMIENTO (rangos por % de la meta) o PRECIO_GRAMO (rangos por precio promedio del gramo de oro vendido en el mes); en ambos el % se paga sobre lo cobrado. `cuadre_calculo`, `cuadre_tiendas`, `mis_comisiones` y `mi_resumen` devuelven el precio por gramo. |
 
 ## Despliegue en Vercel
 
