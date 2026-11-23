@@ -393,12 +393,12 @@
                         <div class="fw-semibold mb-2" id="planFormTitulo">Programar plan</div>
                         <div class="row g-3">
                             <div class="col-12 col-md-4"><label class="form-label" for="planTipo">Tipo de comisión</label>
-                              <select class="form-select" id="planTipo"><option value="CUMPLIMIENTO">Por cumplimiento de meta</option><option value="PRECIO_GRAMO">Por precio promedio del gramo de oro</option></select></div>
+                              <select class="form-select" id="planTipo"><option value="CUMPLIMIENTO">Por cumplimiento de meta</option><option value="PRECIO_GRAMO">Por precio del gramo de oro (venta por venta)</option></select></div>
                             <div class="col-6 col-md-4"><label class="form-label" for="planDesde">Vigente desde (mes)</label><input type="month" class="form-control" id="planDesde"></div>
                             <div class="col-6 col-md-4" id="planMetaBox"><label class="form-label" for="planMeta">Meta mensual cobrada (Q)</label><input type="number" class="form-control text-end" id="planMeta" min="0" step="0.01" inputmode="decimal"></div>
                         </div>
                         <div class="table-responsive mt-3"><table class="table table-sm align-middle mb-2">
-                            <thead class="table-light"><tr><th id="planColDesde">Si cumplió desde (% de la meta)</th><th>Gana (% sobre lo cobrado)</th><th class="small text-muted" id="planColEquiv">Equivale a cobrar desde</th><th></th></tr></thead>
+                            <thead class="table-light"><tr><th id="planColNombre" class="d-none">Renglón</th><th id="planColDesde">Si cumplió desde (% de la meta)</th><th>Gana (% sobre lo cobrado)</th><th class="small text-muted" id="planColEquiv">Equivale a cobrar desde</th><th></th></tr></thead>
                             <tbody id="planTramos"></tbody>
                         </table></div>
                         <button type="button" class="btn btn-outline-secondary btn-sm" id="planAgregarTramo"><i class="bi bi-plus-lg me-1"></i> Agregar rango</button>
@@ -588,8 +588,9 @@
                   <div class="card-header card-header-custom"><i class="bi bi-list-check me-2"></i> Detalle de mi comisión</div>
                   <div class="card-body">
                     <div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0">
-                      <thead class="table-light"><tr><th>Mes</th><th>Esquema</th><th class="num">Cobrado evaluado</th><th class="num">Meta</th><th class="num">Cumplimiento / precio g</th><th class="num">Tramo</th><th class="num">Comisión</th></tr></thead>
+                      <thead class="table-light"><tr><th>Mes</th><th>Esquema</th><th class="num">Cobrado</th><th class="num">Meta</th><th class="num">Cumplimiento / rango</th><th class="num">%</th><th class="num">Comisión</th></tr></thead>
                       <tbody id="mioDetalleBody"></tbody>
+                      <tfoot class="fw-semibold" id="mioDetalleFoot"></tfoot>
                     </table></div>
                     <div class="form-text">Vendido: sus ventas del periodo. Cobrado: abonos recibidos en el periodo a los envíos de sus ventas. La comisión se calcula por mes sobre lo <b>cobrado</b> según sus esquemas (el cumplimiento de la meta también se mide con lo cobrado); en esquemas grupales se evalúa lo cobrado y la meta del grupo.</div>
                   </div>

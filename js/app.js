@@ -1432,17 +1432,17 @@ function cargarMisComisiones() {
         const det = actual?.detalle || [];
         $('misComTramo').textContent = det.length > 1 ? det.map(d => fmtPct(d.pct)).join(' + ') : actual?.comision_pct != null ? fmtPct(actual.comision_pct) : '—';
         $('misComTramoSub').innerHTML = det.length > 1
-            ? det.map(d => `${esc(d.esquema)}: ${d.precio != null ? `precio ${fmtQ(d.precio)}/g` : `cumplimiento ${d.cumplimiento != null ? fmtPct(d.cumplimiento) : '—'}`} → ${fmtQ(d.comision)}`).join('<br>')
-            : actual?.esquema ? esc(actual.esquema === 'FIJO' ? 'Comisión fija' : `Esquema ${actual.esquema}`) + (det[0]?.precio != null ? ` · precio promedio ${fmtQ(det[0].precio)}/g` : '') : '';
+            ? det.map(d => `${esc(d.esquema)}: ${d.precio != null || d.cumplimiento == null ? `cobrado ${fmtQ(d.ventas)} × ${fmtPct(d.pct)}` : `cumplimiento ${d.cumplimiento != null ? fmtPct(d.cumplimiento) : '—'}`} → ${fmtQ(d.comision)}`).join('<br>')
+            : actual?.esquema ? esc(actual.esquema === 'FIJO' ? 'Comisión fija' : `Esquema ${actual.esquema}`) + (actual.precio_gramo != null ? ` · precio promedio del mes ${fmtQ(actual.precio_gramo)}/g` : '') : '';
         const conDatos = lista.filter(r => num(r.ventas_q) > 0 || num(r.cobrado) > 0 || num(r.comision) > 0 || r.mes === hoy.slice(0, 7) + '-01');
         $('misComBody').innerHTML = conDatos.map(r => `<tr${r === actual ? ' class="fw-semibold"' : ''}>
             <td>${nombreMes(r.mes)}${r === actual ? ' <span class="badge text-bg-warning">en curso</span>' : ''}</td>
             <td class="num">${fmtQ(r.cobrado ?? r.ventas_q)}</td><td class="num">${num(r.meta) > 0 ? fmtQ(r.meta) : '—'}</td>
-            <td class="num">${(r.detalle || [])[0]?.precio != null && (r.detalle || []).length === 1 ? `${fmtQ(r.detalle[0].precio)}/g` : r.cumplimiento != null ? fmtPct(r.cumplimiento) : '—'}</td><td class="num">${r.comision_pct != null ? fmtPct(r.comision_pct) : '—'}</td>
+            <td class="num">${(r.detalle || [])[0]?.precio != null && (r.detalle || []).length === 1 ? `desde ${fmtQ(r.detalle[0].precio)}/g` : r.cumplimiento != null ? fmtPct(r.cumplimiento) : '—'}</td><td class="num">${r.comision_pct != null ? fmtPct(r.comision_pct) : '—'}</td>
             <td class="num fw-semibold">${fmtQ(r.comision)}</td></tr>`
             + ((r.detalle || []).length > 1 ? r.detalle.map(d => `<tr class="small text-muted"><td class="ps-4">↳ ${esc(d.esquema)}</td>
                 <td class="num">${fmtQ(d.ventas)}</td><td class="num">${num(d.meta) > 0 ? fmtQ(d.meta) : '—'}</td>
-                <td class="num">${d.precio != null ? `${fmtQ(d.precio)}/g` : d.cumplimiento != null ? fmtPct(d.cumplimiento) : '—'}</td><td class="num">${fmtPct(d.pct)}</td><td class="num">${fmtQ(d.comision)}</td></tr>`).join('') : '')).join('')
+                <td class="num">${d.precio != null ? `desde ${fmtQ(d.precio)}/g` : d.cumplimiento != null ? fmtPct(d.cumplimiento) : '—'}</td><td class="num">${fmtPct(d.pct)}</td><td class="num">${fmtQ(d.comision)}</td></tr>`).join('') : '')).join('')
             || '<tr><td colspan="6" class="text-muted">Todavía no tiene ventas en los últimos 12 meses.</td></tr>';
     });
 }
@@ -2840,7 +2840,7 @@ let planesComision = [], planModal, planVendedor = null;
 const mesActualISO = () => hoyISO().slice(0, 7) + '-01';
 const planesDe = nombre => planesComision.filter(p => p.vendedor === nombre).sort((a, b) => String(a.desde).localeCompare(String(b.desde)));
 const planVigente = (nombre, mes = mesActualISO()) => planesDe(nombre).filter(p => String(p.desde).slice(0, 10) <= mes).pop() || null;
-const textoTramos = (tramos, tipo) => (tramos || []).map(t => `${tipo === 'PRECIO_GRAMO' ? fmtQ(t.desde) + '/g' : fmtPct(t.desde)}→${fmtPct(t.pct)}`).join(' · ');
+const textoTramos = (tramos, tipo) => (tramos || []).map(t => `${t.nombre ? t.nombre + ' ' : ''}${tipo === 'PRECIO_GRAMO' ? fmtQ(t.desde) + '/g' : fmtPct(t.desde)}→${fmtPct(t.pct)}`).join(' · ');
 const porPrecio = () => $('planTipo').value === 'PRECIO_GRAMO';
 
 function registrarPlanes() {
@@ -2863,19 +2863,21 @@ function registrarPlanes() {
 function tipoPlanUI() {
     const pg = porPrecio();
     $('planMetaBox').classList.toggle('d-none', pg);
-    $('planColDesde').textContent = pg ? 'Si su precio promedio del gramo fue desde (Q por gramo)' : 'Si cumplió desde (% de la meta)';
+    $('planColDesde').textContent = pg ? 'Ventas con precio por gramo desde' : 'Si cumplió desde (% de la meta)';
+    $('planColNombre').classList.toggle('d-none', !pg);
     $('planColEquiv').classList.toggle('d-none', pg);
 }
 
 const filaTramoPlan = t => `<tr>
+    <td class="${porPrecio() ? '' : 'd-none'}"><input type="text" class="form-control form-control-sm plan-nombre" value="${esc(t.nombre || '')}" placeholder="Ej. Mayoreo" aria-label="Nombre del renglón" style="min-width: 110px"></td>
     <td><div class="input-group input-group-sm">${porPrecio() ? '<span class="input-group-text">Q</span>' : ''}<input type="number" class="form-control text-end plan-desde" min="0" step="0.01" value="${t.desde ?? ''}" aria-label="${porPrecio() ? 'Desde precio por gramo' : 'Desde % de cumplimiento'}"><span class="input-group-text">${porPrecio() ? '/ g' : '%'}</span></div></td>
     <td><div class="input-group input-group-sm"><input type="number" class="form-control text-end plan-pct" min="0" max="100" step="0.01" value="${t.pct ?? ''}" aria-label="% de comisión"><span class="input-group-text">%</span></div></td>
     <td class="small text-muted plan-equiv ${porPrecio() ? 'd-none' : ''}"></td>
     <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm plan-quitar" title="Quitar rango" aria-label="Quitar rango"><i class="bi bi-x-lg"></i></button></td></tr>`;
 
 function tramosForm() {
-    return [...$('planTramos').querySelectorAll('tr')].map(tr => ({ desde: tr.querySelector('.plan-desde').value, pct: tr.querySelector('.plan-pct').value }))
-        .filter(t => t.desde !== '' || t.pct !== '').map(t => ({ desde: num(t.desde), pct: num(t.pct) }));
+    return [...$('planTramos').querySelectorAll('tr')].map(tr => ({ desde: tr.querySelector('.plan-desde').value, pct: tr.querySelector('.plan-pct').value, nombre: tr.querySelector('.plan-nombre')?.value.trim() || '' }))
+        .filter(t => t.desde !== '' || t.pct !== '').map(t => ({ desde: num(t.desde), pct: num(t.pct), ...(porPrecio() && t.nombre ? { nombre: t.nombre.toUpperCase() } : {}) }));
 }
 
 function vistaPlan() {
@@ -2886,12 +2888,11 @@ function vistaPlan() {
     });
     const t = tramosForm().sort((a, b) => a.desde - b.desde);
     if (porPrecio()) {
-        if (!t.length) { $('planVista').innerHTML = '<span class="text-muted">Agregue los rangos de precio (por ejemplo: desde Q 800/g gana 2 %, desde Q 900/g gana 3 %).</span>'; return; }
-        const filas = t.map((x, i) => `<li>Precio promedio <b>desde ${fmtQ(x.desde)}/g</b>${t[i + 1] ? ` y menos de ${fmtQ(t[i + 1].desde)}/g` : ' en adelante'} → gana <b>${fmtPct(x.pct)}</b> de lo cobrado</li>`).join('');
-        const ref = t[Math.min(1, t.length - 1)];
+        if (!t.length) { $('planVista').innerHTML = '<span class="text-muted">Agregue los renglones (por ejemplo: Mayoreo desde Q 750/g gana 1.5 %, Especial desde Q 900/g gana 2.5 %, Detalle desde Q 1,000/g gana 3.5 %).</span>'; return; }
+        const filas = t.map((x, i) => `<li>${x.nombre ? `<b>${esc(x.nombre)}</b>: ` : ''}ventas a <b>${fmtQ(x.desde)}/g</b>${t[i + 1] ? ` y menos de ${fmtQ(t[i + 1].desde)}/g` : ' o más'} → lo cobrado de esas ventas gana <b>${fmtPct(x.pct)}</b></li>`).join('');
         $('planVista').innerHTML = `<div class="fw-semibold">Así queda:</div><ul class="mb-0">${filas}</ul>`
-            + (t[0].desde > 0 ? `<div class="text-warning">Con un promedio menor a ${fmtQ(t[0].desde)}/g no gana comisión.</div>` : '')
-            + `<div class="mt-1">El precio promedio del mes = valor vendido en oro ÷ gramos de oro vendidos. Ejemplo: si vendió a ${fmtQ(ref.desde)}/g en promedio y cobró Q 10,000.00, gana ${fmtPct(ref.pct)} = <b>${fmtQ(10000 * ref.pct / 100)}</b>.</div>`;
+            + `<div class="mt-1">Cada venta se clasifica por <b>su propio</b> precio por gramo (valor del oro ÷ gramos). Lo que se cobra de esa venta en el mes paga el % de su renglón, y la comisión es la suma de los renglones.</div>`
+            + (t[0].desde > 0 ? `<div class="text-warning">Lo cobrado de ventas a menos de ${fmtQ(t[0].desde)}/g (o sin oro) no paga comisión.</div>` : '');
         return;
     }
     if (!t.length) { $('planVista').innerHTML = '<span class="text-muted">Agregue los rangos (por ejemplo: desde 0 % gana 1 %, desde 80 % gana 2 %, desde 100 % gana 3 %).</span>'; return; }
@@ -2949,7 +2950,7 @@ function guardarPlan() {
         renderPlanesProgramados(); cargarPlanEnForm(null);
         if ($('asigComisiones')) renderAsignaciones();
         renderMaestro('vendedores');
-        showAlert(`Plan de ${planVendedor} guardado: desde ${nombreMes(mes + '-01')}, ${tipo === 'PRECIO_GRAMO' ? 'por precio promedio del gramo' : `meta ${fmtQ(meta)} cobrada`}, ${tramos.length} rango(s).`, 'success');
+        showAlert(`Plan de ${planVendedor} guardado: desde ${nombreMes(mes + '-01')}, ${tipo === 'PRECIO_GRAMO' ? 'por precio del gramo (venta por venta)' : `meta ${fmtQ(meta)} cobrada`}, ${tramos.length} rango(s).`, 'success');
     });
 }
 
@@ -4553,9 +4554,11 @@ function renderMiResumen(r) {
         + (!(r.detalle_comision || []).length ? '<div class="small text-muted mt-1">No tiene esquema ni % de comisión configurado.</div>' : '');
     $('mioDetalleBody').innerHTML = (r.detalle_comision || []).map(x => `<tr><td>${nombreMes(String(x.mes).slice(0, 10))}</td><td>${esc(x.esquema)}</td>
         <td class="num">${fmtQ(x.ventas_q)}</td><td class="num">${!num(x.meta) ? '—' : fmtQ(x.meta)}</td>
-        <td class="num">${x.precio != null ? `${fmtQ(x.precio)}/g` : x.cumplimiento === null ? '—' : fmtPct(x.cumplimiento)}</td><td class="num">${x.pct === null ? '—' : fmtPct(x.pct)}</td>
+        <td class="num">${x.precio != null ? `desde ${fmtQ(x.precio)}/g` : x.cumplimiento === null ? '—' : fmtPct(x.cumplimiento)}</td><td class="num">${x.pct === null ? '—' : fmtPct(x.pct)}</td>
         <td class="num fw-semibold">${fmtQ(x.comision)}</td></tr>`).join('')
         || '<tr><td colspan="7" class="text-muted">Sin comisión en el periodo.</td></tr>';
+    const det = r.detalle_comision || [];
+    $('mioDetalleFoot').innerHTML = det.length > 1 ? `<tr><td colspan="2">Gran total</td><td class="num">${fmtQ(det.reduce((s, x) => s + num(x.ventas_q), 0))}</td><td colspan="3"></td><td class="num">${fmtQ(det.reduce((s, x) => s + num(x.comision), 0))}</td></tr>` : '';
 }
 
 // ---- Cuentas por cobrar: saldo pendiente por cliente y por antigüedad
