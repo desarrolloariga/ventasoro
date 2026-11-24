@@ -148,6 +148,7 @@ siguientes, porque algunos reemplazan funciones de los anteriores)
 | `36_plan_comision_vendedor.sql` | **Plan de comisión individual**: tabla `planes_comision` (vendedor, vigente desde un mes, meta sobre lo cobrado y rangos cumplimiento → %). El plan vigente reemplaza el % fijo y los esquemas individuales (los grupales se suman). `guardar_plan_comision` / `eliminar_plan_comision` solo admin; `cuadre_calculo` lo aplica mes a mes. |
 | `37_comision_precio_gramo.sql` | **Comisión por precio promedio del gramo**: el plan individual tiene tipo CUMPLIMIENTO (rangos por % de la meta) o PRECIO_GRAMO (rangos por precio promedio del gramo de oro vendido en el mes); en ambos el % se paga sobre lo cobrado. `cuadre_calculo`, `cuadre_tiendas`, `mis_comisiones` y `mi_resumen` devuelven el precio por gramo. |
 | `38_comision_precio_por_venta.sql` | **Precio del gramo venta por venta**: en el plan por precio, cada venta se clasifica por su propio precio por gramo en un renglón con nombre (p. ej. Mayoreo 1.5 %, Especial 2.5 %, Detalle 3.5 %); lo cobrado de esa venta paga el % de su renglón y la comisión es la suma (gran total). |
+| `39_comision_supervisor_y_departamentos.sql` | **Comisión de supervisor y ventas por departamento**: plan tipo SUPERVISOR (convive con el plan individual): % sobre lo cobrado por su equipo (Jerarquías y Maestros) por rangos de monto. `ventas_por_departamento` para el mapa de Inteligencia (une Mazatenango → Suchitepéquez y Cobán → Alta Verapaz). |
 
 ## Despliegue en Vercel
 

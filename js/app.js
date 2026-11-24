@@ -2613,6 +2613,8 @@ function registrarCuadreCaja() {
     $('intVendExcel').addEventListener('click', exportarResumenVendedores);
     $('intInvExcel').addEventListener('click', exportarCuadreInventario);
     $('cxcExcel').addEventListener('click', exportarCuentasPorCobrar);
+    $('mapaMedida').addEventListener('change', renderMapa);
+    $('mapaExcel').addEventListener('click', exportarMapa);
     $('intIrCaja').addEventListener('click', () => bootstrap.Tab.getOrCreateInstance($('caja-tab')).show());
 }
 
@@ -2839,8 +2841,18 @@ function eliminarEsquema(id) {
 let planesComision = [], planModal, planVendedor = null;
 const mesActualISO = () => hoyISO().slice(0, 7) + '-01';
 const planesDe = nombre => planesComision.filter(p => p.vendedor === nombre).sort((a, b) => String(a.desde).localeCompare(String(b.desde)));
-const planVigente = (nombre, mes = mesActualISO()) => planesDe(nombre).filter(p => String(p.desde).slice(0, 10) <= mes).pop() || null;
-const textoTramos = (tramos, tipo) => (tramos || []).map(t => `${t.nombre ? t.nombre + ' ' : ''}${tipo === 'PRECIO_GRAMO' ? fmtQ(t.desde) + '/g' : fmtPct(t.desde)}→${fmtPct(t.pct)}`).join(' · ');
+const planVigente = (nombre, mes = mesActualISO()) => planesDe(nombre).filter(p => p.tipo !== 'SUPERVISOR' && String(p.desde).slice(0, 10) <= mes).pop() || null;
+const planSupVigente = (nombre, mes = mesActualISO()) => planesDe(nombre).filter(p => p.tipo === 'SUPERVISOR' && String(p.desde).slice(0, 10) <= mes).pop() || null;
+const porSupervisor = () => $('planTipo').value === 'SUPERVISOR';
+// Equipo de un vendedor: usuarios que lo tienen como supervisor (Jerarquías) y vendedores con él como supervisor (Maestros)
+const nombreVend = p => (p.vendedor || p.nombre || p.usuario || '').toUpperCase().trim();
+function equipoDe(nombre) {
+    const k = nombre.toUpperCase().trim();
+    const jefes = perfiles.filter(p => nombreVend(p) === k).map(p => p.id);
+    return [...new Set([...perfiles.filter(p => jefes.includes(p.supervisor_id)).map(nombreVend),
+        ...maestros.vendedores.filter(v => (v.supervisor || '').toUpperCase().trim() === k).map(v => v.nombre.toUpperCase())])].filter(x => x && x !== k).sort();
+}
+const textoTramos = (tramos, tipo) => (tramos || []).map(t => `${t.nombre ? t.nombre + ' ' : ''}${tipo === 'PRECIO_GRAMO' ? fmtQ(t.desde) + '/g' : tipo === 'SUPERVISOR' ? 'equipo ' + fmtQ(t.desde) : fmtPct(t.desde)}→${fmtPct(t.pct)}`).join(' · ');
 const porPrecio = () => $('planTipo').value === 'PRECIO_GRAMO';
 
 function registrarPlanes() {
@@ -2861,18 +2873,18 @@ function registrarPlanes() {
 
 // Cumplimiento: rangos en % de la meta. Precio por gramo: rangos en Q por gramo
 function tipoPlanUI() {
-    const pg = porPrecio();
-    $('planMetaBox').classList.toggle('d-none', pg);
-    $('planColDesde').textContent = pg ? 'Ventas con precio por gramo desde' : 'Si cumplió desde (% de la meta)';
+    const pg = porPrecio(), sup = porSupervisor();
+    $('planMetaBox').classList.toggle('d-none', pg || sup);
+    $('planColDesde').textContent = pg ? 'Ventas con precio por gramo desde' : sup ? 'Si su equipo cobró en el mes desde' : 'Si cumplió desde (% de la meta)';
     $('planColNombre').classList.toggle('d-none', !pg);
-    $('planColEquiv').classList.toggle('d-none', pg);
+    $('planColEquiv').classList.toggle('d-none', pg || sup);
 }
 
 const filaTramoPlan = t => `<tr>
     <td class="${porPrecio() ? '' : 'd-none'}"><input type="text" class="form-control form-control-sm plan-nombre" value="${esc(t.nombre || '')}" placeholder="Ej. Mayoreo" aria-label="Nombre del renglón" style="min-width: 110px"></td>
-    <td><div class="input-group input-group-sm">${porPrecio() ? '<span class="input-group-text">Q</span>' : ''}<input type="number" class="form-control text-end plan-desde" min="0" step="0.01" value="${t.desde ?? ''}" aria-label="${porPrecio() ? 'Desde precio por gramo' : 'Desde % de cumplimiento'}"><span class="input-group-text">${porPrecio() ? '/ g' : '%'}</span></div></td>
+    <td><div class="input-group input-group-sm">${porPrecio() || porSupervisor() ? '<span class="input-group-text">Q</span>' : ''}<input type="number" class="form-control text-end plan-desde" min="0" step="0.01" value="${t.desde ?? ''}" aria-label="${porPrecio() ? 'Desde precio por gramo' : porSupervisor() ? 'Desde monto cobrado por el equipo' : 'Desde % de cumplimiento'}">${porSupervisor() ? '' : `<span class="input-group-text">${porPrecio() ? '/ g' : '%'}</span>`}</div></td>
     <td><div class="input-group input-group-sm"><input type="number" class="form-control text-end plan-pct" min="0" max="100" step="0.01" value="${t.pct ?? ''}" aria-label="% de comisión"><span class="input-group-text">%</span></div></td>
-    <td class="small text-muted plan-equiv ${porPrecio() ? 'd-none' : ''}"></td>
+    <td class="small text-muted plan-equiv ${porPrecio() || porSupervisor() ? 'd-none' : ''}"></td>
     <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm plan-quitar" title="Quitar rango" aria-label="Quitar rango"><i class="bi bi-x-lg"></i></button></td></tr>`;
 
 function tramosForm() {
@@ -2887,6 +2899,17 @@ function vistaPlan() {
         tr.querySelector('.plan-equiv').textContent = d !== '' && meta > 0 ? fmtQ(meta * num(d) / 100) : '';
     });
     const t = tramosForm().sort((a, b) => a.desde - b.desde);
+    if (porSupervisor()) {
+        const eq = equipoDe(planVendedor);
+        const equipoTxt = eq.length ? `<div class="mt-1"><b>Su equipo (${eq.length}):</b> ${eq.map(esc).join(', ')}</div>`
+            : '<div class="mt-1 text-warning">No tiene equipo asignado: asígnelo en <b>Jerarquías</b> (o el supervisor en Maestros → Comisiones).</div>';
+        if (!t.length) { $('planVista').innerHTML = '<span class="text-muted">Agregue los rangos: con uno solo desde Q 0 es un % fijo del equipo (ej. desde Q 0 gana 1 %); o por montos (desde Q 0 gana 0.5 %, desde Q 100,000 gana 1 %...).</span>' + equipoTxt; return; }
+        const filas = t.map((x, i) => `<li>Si su equipo cobró <b>desde ${fmtQ(x.desde)}</b>${t[i + 1] ? ` y menos de ${fmtQ(t[i + 1].desde)}` : ' o más'} → gana <b>${fmtPct(x.pct)}</b> de todo lo cobrado por el equipo</li>`).join('');
+        const ej = t[t.length - 1].desde > 0 ? t[t.length - 1].desde : 100000, tr = [...t].reverse().find(x => x.desde <= ej);
+        $('planVista').innerHTML = `<div class="fw-semibold">Así queda:</div><ul class="mb-0">${filas}</ul>`
+            + `<div class="mt-1">Se suma a su comisión propia. Ejemplo: si su equipo cobra ${fmtQ(ej)} en el mes, gana ${fmtPct(tr?.pct || 0)} = <b>${fmtQ(ej * (tr?.pct || 0) / 100)}</b>.</div>` + equipoTxt;
+        return;
+    }
     if (porPrecio()) {
         if (!t.length) { $('planVista').innerHTML = '<span class="text-muted">Agregue los renglones (por ejemplo: Mayoreo desde Q 750/g gana 1.5 %, Especial desde Q 900/g gana 2.5 %, Detalle desde Q 1,000/g gana 3.5 %).</span>'; return; }
         const filas = t.map((x, i) => `<li>${x.nombre ? `<b>${esc(x.nombre)}</b>: ` : ''}ventas a <b>${fmtQ(x.desde)}/g</b>${t[i + 1] ? ` y menos de ${fmtQ(t[i + 1].desde)}/g` : ' o más'} → lo cobrado de esas ventas gana <b>${fmtPct(x.pct)}</b></li>`).join('');
@@ -2906,11 +2929,12 @@ function vistaPlan() {
 
 function cargarPlanEnForm(p) {
     $('planFormTitulo').textContent = p ? `Editar plan vigente desde ${nombreMes(String(p.desde).slice(0, 10))}` : 'Programar plan';
-    $('planTipo').value = p?.tipo || planVigente(planVendedor)?.tipo || 'CUMPLIMIENTO';
+    $('planTipo').value = p?.tipo || $('planTipo').value || planVigente(planVendedor)?.tipo || 'CUMPLIMIENTO';
     tipoPlanUI();
     $('planDesde').value = p ? String(p.desde).slice(0, 7) : hoyISO().slice(0, 7);
     $('planMeta').value = p ? num(p.meta) : (planVigente(planVendedor)?.meta ?? (maestros.vendedores.find(v => v.nombre === planVendedor)?.meta_mensual || ''));
-    const base = p?.tramos?.length ? p.tramos : planVigente(planVendedor)?.tramos?.length ? planVigente(planVendedor).tramos : [{ desde: 0, pct: '' }];
+    const ref = $('planTipo').value === 'SUPERVISOR' ? planSupVigente(planVendedor) : planVigente(planVendedor);
+    const base = p?.tramos?.length ? p.tramos : ref?.tramos?.length && ref.tipo === $('planTipo').value ? ref.tramos : [{ desde: 0, pct: '' }];
     $('planTramos').innerHTML = base.map(filaTramoPlan).join('');
     vistaPlan();
 }
@@ -2919,17 +2943,19 @@ function renderPlanesProgramados() {
     const lista = planesDe(planVendedor), vig = planVigente(planVendedor);
     $('planProgramados').innerHTML = lista.length ? `<div class="fw-semibold mb-1">Planes programados</div>
         <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead class="table-light"><tr><th>Vigente desde</th><th>Tipo</th><th class="num">Meta cobrada</th><th>Rangos → comisión</th><th></th></tr></thead><tbody>
-        ${lista.map(p => `<tr${p === vig ? ' class="table-warning"' : ''}><td>${nombreMes(String(p.desde).slice(0, 10))}${p === vig ? ' <span class="badge text-bg-warning">vigente</span>' : String(p.desde).slice(0, 10) > mesActualISO() ? ' <span class="badge text-bg-info">programado</span>' : ''}</td>
-            <td class="small">${p.tipo === 'PRECIO_GRAMO' ? 'Precio del gramo' : 'Cumplimiento'}</td>
-            <td class="num">${p.tipo === 'PRECIO_GRAMO' ? '—' : fmtQ(p.meta)}</td><td class="small">${esc(textoTramos(p.tramos, p.tipo))}</td>
+        ${lista.map(p => { const v = p === vig || p === planSupVigente(planVendedor); return `<tr${v ? ' class="table-warning"' : ''}><td>${nombreMes(String(p.desde).slice(0, 10))}${v ? ' <span class="badge text-bg-warning">vigente</span>' : String(p.desde).slice(0, 10) > mesActualISO() ? ' <span class="badge text-bg-info">programado</span>' : ''}</td>
+            <td class="small">${p.tipo === 'PRECIO_GRAMO' ? 'Precio del gramo' : p.tipo === 'SUPERVISOR' ? 'Supervisor (equipo)' : 'Cumplimiento'}</td>
+            <td class="num">${p.tipo === 'CUMPLIMIENTO' ? fmtQ(p.meta) : '—'}</td><td class="small">${esc(textoTramos(p.tramos, p.tipo))}</td>
             <td class="text-end text-nowrap"><button type="button" class="btn btn-outline-secondary btn-sm plan-editar" data-id="${p.id}" title="Editar" aria-label="Editar plan"><i class="bi bi-pencil"></i></button>
-              <button type="button" class="btn btn-outline-danger btn-sm plan-eliminar" data-id="${p.id}" title="Eliminar" aria-label="Eliminar plan"><i class="bi bi-trash"></i></button></td></tr>`).join('')}
+              <button type="button" class="btn btn-outline-danger btn-sm plan-eliminar" data-id="${p.id}" title="Eliminar" aria-label="Eliminar plan"><i class="bi bi-trash"></i></button></td></tr>`; }).join('')}
         </tbody></table></div>` : '<div class="alert alert-light border small py-2">Todavía no tiene plan individual: se le paga con sus esquemas o su % fijo.</div>';
 }
 
 function abrirPlan(nombre) {
     if (!esAdmin()) return;
+    if (!perfiles.length) { run(async () => { await cargarPerfiles(); abrirPlan(nombre); }); return; }
     planVendedor = nombre;
+    $('planTipo').value = planVigente(nombre)?.tipo || 'CUMPLIMIENTO';
     $('planTitulo').textContent = `Plan de comisión · ${nombre}`;
     renderPlanesProgramados();
     cargarPlanEnForm(null);
@@ -2937,12 +2963,12 @@ function abrirPlan(nombre) {
 }
 
 function guardarPlan() {
-    const mes = $('planDesde').value, tipo = $('planTipo').value, meta = tipo === 'PRECIO_GRAMO' ? 0 : num($('planMeta').value), tramos = tramosForm();
+    const mes = $('planDesde').value, tipo = $('planTipo').value, meta = tipo === 'CUMPLIMIENTO' ? num($('planMeta').value) : 0, tramos = tramosForm();
     if (!mes) { showAlert('Indique desde qué mes aplica el plan.', 'warning'); $('planDesde').focus(); return; }
-    if (tipo !== 'PRECIO_GRAMO' && !(meta > 0)) { showAlert('Escriba la meta mensual (sobre lo cobrado).', 'warning'); $('planMeta').focus(); return; }
+    if (tipo === 'CUMPLIMIENTO' && !(meta > 0)) { showAlert('Escriba la meta mensual (sobre lo cobrado).', 'warning'); $('planMeta').focus(); return; }
     if (!tramos.length) { showAlert('Agregue al menos un rango.', 'warning'); return; }
     if (tramos.some(t => t.pct < 0 || t.pct > 100 || t.desde < 0)) { showAlert(`Revise los rangos: ${tipo === 'PRECIO_GRAMO' ? 'el precio' : 'el cumplimiento'} no puede ser negativo y la comisión va de 0 a 100 %.`, 'warning'); return; }
-    const existe = planesDe(planVendedor).find(p => String(p.desde).slice(0, 7) === mes);
+    const existe = planesDe(planVendedor).find(p => String(p.desde).slice(0, 7) === mes && (p.tipo === 'SUPERVISOR') === (tipo === 'SUPERVISOR'));
     if (existe && !confirm(`Ya hay un plan desde ${nombreMes(mes + '-01')}. ¿Reemplazarlo?`)) return;
     run(async () => {
         ok(await sb.rpc('guardar_plan_comision', { p_vendedor: planVendedor, p_desde: mes + '-01', p_meta: meta, p_tramos: tramos, p_tipo: tipo }));
@@ -2950,7 +2976,7 @@ function guardarPlan() {
         renderPlanesProgramados(); cargarPlanEnForm(null);
         if ($('asigComisiones')) renderAsignaciones();
         renderMaestro('vendedores');
-        showAlert(`Plan de ${planVendedor} guardado: desde ${nombreMes(mes + '-01')}, ${tipo === 'PRECIO_GRAMO' ? 'por precio del gramo (venta por venta)' : `meta ${fmtQ(meta)} cobrada`}, ${tramos.length} rango(s).`, 'success');
+        showAlert(`Plan de ${planVendedor} guardado: desde ${nombreMes(mes + '-01')}, ${tipo === 'PRECIO_GRAMO' ? 'por precio del gramo (venta por venta)' : tipo === 'SUPERVISOR' ? 'comisión de supervisor sobre lo cobrado por su equipo' : `meta ${fmtQ(meta)} cobrada`}, ${tramos.length} rango(s).`, 'success');
     });
 }
 
@@ -2976,8 +3002,9 @@ function renderAsignaciones() {
         const plan = planVigente(v.nombre), prox = planesDe(v.nombre).find(p => String(p.desde).slice(0, 10) > mesActualISO());
         return `<tr><td class="fw-semibold">${esc(v.nombre)}</td>
           <td style="min-width: 170px">${plan ? `<div class="small"><b>${plan.tipo === 'PRECIO_GRAMO' ? 'Por precio del gramo' : `Meta ${fmtQ(plan.meta)} cobrada`}</b></div><div class="small text-muted">${esc(textoTramos(plan.tramos, plan.tipo))}</div>` : '<span class="small text-muted">Sin plan</span>'}
+            ${planSupVigente(v.nombre) ? `<div class="small mt-1"><b>Supervisor:</b> <span class="text-muted">${esc(textoTramos(planSupVigente(v.nombre).tramos, 'SUPERVISOR'))}</span></div>` : ''}
             ${prox ? `<div class="small text-info">Programado desde ${nombreMes(String(prox.desde).slice(0, 10))}</div>` : ''}
-            <button type="button" class="btn btn-gold btn-sm mt-1" data-plan="${esc(v.nombre)}"><i class="bi bi-sliders me-1"></i>${plan || prox ? 'Ver / cambiar' : 'Configurar'}</button></td>
+            <button type="button" class="btn btn-gold btn-sm mt-1" data-plan="${esc(v.nombre)}"><i class="bi bi-sliders me-1"></i>${plan || prox || planSupVigente(v.nombre) ? 'Ver / cambiar' : 'Configurar'}</button></td>
           <td>${esquemasComision.map(e => `<div class="form-check form-check-inline m-0 me-2">
               <input class="form-check-input" type="checkbox" id="asig-${esc(v.nombre)}-${e.id}" data-asig="esquema" data-esquema="${e.id}" ${datos} ${suyos.includes(e.id) ? 'checked' : ''}>
               <label class="form-check-label small" for="asig-${esc(v.nombre)}-${e.id}">${esc(e.nombre)}${e.tipo === 'GRUPAL' ? ' <span class="text-muted">(grupal)</span>' : ''}</label></div>`).join('')
@@ -4433,6 +4460,8 @@ function loadInteligencia() {
         $('intBodega').disabled = mio && !!perfil?.tienda;
         const pMio = mio ? sb.rpc('mi_resumen', { p_desde: desde, p_hasta: hasta }).then(r => r.error ? null : r.data) : null;
         const pCxc = cargarCuentasPorCobrar();
+        const pMapa = sb.rpc('ventas_por_departamento', { p_desde: desde, p_hasta: hasta, p_tienda: $('intBodega').value || null,
+            p_vendedor: veEquipo() ? ($('intVendedor').value || null) : (perfil?.id || null) }).then(r => { ventasDepto = r.error ? [] : r.data; });
         if (!bodegaInteligenciaLista) {   // la primera vez, el vendedor ve su bodega
             bodegaInteligenciaLista = true;
             repoblar('intBodega', maestros.tiendas.map(t => t.nombre), 'Todas las bodegas');
@@ -4456,6 +4485,9 @@ function loadInteligencia() {
         renderResumenAdmin();
         if (mio) renderMiResumen(await pMio);
         await pCxc;
+        await pMapa;
+        $('mapaAlcance').textContent = textoPeriodoInt();
+        renderMapa();
     });
 }
 
@@ -4608,6 +4640,60 @@ function exportarCuentasPorCobrar() {
         'Código': c.cliente_id ? cod(c.cliente_id) : '', 'Cliente': c.cliente, 'Vendedor': c.vendedor, 'Envíos pendientes': c.envios,
         'Venta más antigua': aFecha(c.antigua), 'Días': c.dias, '0 a 30 días': c.edades[0], '31 a 60 días': c.edades[1],
         '61 a 90 días': c.edades[2], 'Más de 90 días': c.edades[3], 'Saldo': c.saldo })));
+}
+
+// ---- Mapa de ventas por departamento (una escala de azul: más oscuro = más ventas)
+let ventasDepto = [];
+const RAMPA_MAPA = ['#cde2fb', '#86b6ef', '#3987e5', '#1c5cab', '#0d366b'], SIN_VENTAS = '#f0efec';
+const MEDIDAS_MAPA = { ventas_q: ['Ventas Q', v => fmtQ(v)], ventas_gr: ['Gramos vendidos', v => fmtG(v)], clientes: ['Clientes', v => num(v).toLocaleString('es-GT')] };
+const claveDepto = s => norm(s).toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+function renderMapa() {
+    const M = window.MAPA_GT;
+    if (!M) return;
+    const medida = $('mapaMedida').value, [rotulo, fmtM] = MEDIDAS_MAPA[medida];
+    const valor = {};
+    ventasDepto.forEach(d => valor[claveDepto(d.departamento)] = d);
+    const enMapa = M.departamentos.map(d => ({ ...d, v: num(valor[d.k]?.[medida]) }));
+    const total = ventasDepto.reduce((t, d) => t + num(d[medida]), 0);
+    // 5 tonos por posición en el ranking: el que menos vende, el más claro; el que más, el más oscuro
+    const vals = enMapa.map(d => d.v).filter(v => v > 0).sort((a, b) => a - b);
+    const clase = v => vals.length <= 1 ? 4 : Math.round(vals.indexOf(v) / (vals.length - 1) * 4);
+    const color = v => !(v > 0) ? SIN_VENTAS : RAMPA_MAPA[clase(v)];
+    const top = [...enMapa].filter(d => d.v > 0).sort((a, b) => b.v - a.v).slice(0, 3).map(d => d.k);
+    $('mapaGt').innerHTML = `<svg viewBox="0 0 ${M.ancho} ${M.alto}" role="img" aria-label="Mapa de Guatemala: ${rotulo} por departamento">
+        ${enMapa.map(d => `<path d="${d.d}" fill="${color(d.v)}" data-k="${d.k}"><title>${esc(d.n)}: ${fmtM(d.v)}</title></path>`).join('')}
+        ${enMapa.filter(d => top.includes(d.k)).map(d => `<text x="${d.x}" y="${d.y}" text-anchor="middle">${esc(d.n)}</text>`).join('')}
+      </svg><div class="mapa-tip d-none" id="mapaTip"></div>`;
+    const tip = $('mapaTip'), caja = $('mapaGt');
+    caja.querySelectorAll('path').forEach(p => {
+        p.addEventListener('mousemove', e => {
+            const d = enMapa.find(x => x.k === p.dataset.k), r = valor[d.k], b = caja.getBoundingClientRect();
+            tip.innerHTML = `<b>${esc(d.n)}</b><br>${rotulo}: ${fmtM(d.v)}${total > 0 ? ` · ${fmtPct(d.v / total * 100)}` : ''}${r && medida !== 'clientes' ? `<br>${r.clientes} cliente(s) · ${r.pedidos} pedido(s)` : ''}`;
+            tip.classList.remove('d-none');
+            tip.style.left = Math.min(e.clientX - b.left + 12, b.width - tip.offsetWidth - 4) + 'px';
+            tip.style.top = (e.clientY - b.top + 12) + 'px';
+        });
+        p.addEventListener('mouseleave', () => tip.classList.add('d-none'));
+    });
+    const rangos = RAMPA_MAPA.map((c, i) => { const m = vals.filter(v => clase(v) === i); if (!m.length) return '';
+        return `<span><i style="background:${c}"></i>${m.length === 1 || m[0] === m[m.length - 1] ? fmtM(m[0]) : `${fmtM(m[0])} – ${fmtM(m[m.length - 1])}`}</span>`; });
+    $('mapaLeyenda').innerHTML = rangos.join('') + `<span><i style="background:${SIN_VENTAS}"></i>Sin ventas</span>`;
+    $('mapaColMedida').textContent = rotulo;
+    const lista = [...ventasDepto].sort((a, b) => num(b[medida]) - num(a[medida]));
+    $('mapaBody').innerHTML = lista.map((d, i) => `<tr><td class="text-muted">${i + 1}</td>
+        <td><i class="d-inline-block rounded-1 me-2" style="width:10px;height:10px;background:${M.departamentos.some(x => x.k === claveDepto(d.departamento)) ? color(num(d[medida])) : SIN_VENTAS}"></i>${esc(nombreDepto(d.departamento))}</td>
+        <td class="num">${fmtM(d[medida])}</td><td class="num">${total > 0 ? fmtPct(num(d[medida]) / total * 100) : '—'}</td></tr>`).join('')
+        || '<tr><td colspan="4" class="text-muted">Sin ventas en el periodo.</td></tr>';
+    const fuera = ventasDepto.filter(d => !M.departamentos.some(x => x.k === claveDepto(d.departamento)));
+    $('mapaNota').textContent = fuera.length ? `No aparecen en el mapa: ${fuera.map(d => `${nombreDepto(d.departamento)} (${fmtM(d[medida])})`).join(', ')}. Complete el departamento de esos clientes.` : 'El departamento es el del cliente de cada venta.';
+}
+
+const nombreDepto = k => window.MAPA_GT?.departamentos.find(x => x.k === claveDepto(k))?.n || (k === 'SIN DEPARTAMENTO' ? 'Sin departamento' : k);
+
+function exportarMapa() {
+    exportarExcel('Ventas_por_departamento', 'Departamentos', [...ventasDepto].sort((a, b) => num(b.ventas_q) - num(a.ventas_q)).map(d => ({
+        'Departamento': nombreDepto(d.departamento), 'Ventas Q': num(d.ventas_q), 'Gramos vendidos': num(d.ventas_gr), 'Clientes': num(d.clientes), 'Pedidos': num(d.pedidos) })));
 }
 
 function renderInteligencia() {
